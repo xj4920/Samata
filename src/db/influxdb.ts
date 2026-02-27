@@ -71,6 +71,7 @@ export async function queryInflux(influxQL: string): Promise<TradeRecord[]> {
 
 export interface TradeQueryParams {
   party?: string;
+  parties?: string[];
   user?: string;
   date?: string;
   limit?: number;
@@ -79,7 +80,10 @@ export interface TradeQueryParams {
 export async function queryTrades(params: TradeQueryParams = {}): Promise<TradeRecord[]> {
   const conditions: string[] = [];
 
-  if (params.party) {
+  if (params.parties && params.parties.length > 0) {
+    const pattern = params.parties.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    conditions.push(`"counter_party" =~ /^(${pattern})$/`);
+  } else if (params.party) {
     conditions.push(`"counter_party" = '${params.party.replace(/'/g, "\\'")}'`);
   }
   if (params.user) {

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Jinde",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "15779", "counter_party": "JINDE CAPITAL" },
+      { "user_id": "15778", "counter_party": "JINDE GREAT CHINA" },
+      { "user_id": "16078", "counter_party": "JINDE AETHER FUND" },
+      { "user_id": "16109", "counter_party": "JINDE QUANTITATIVE FUND" }
+    ]
+  },
+  {
+    "name": "AQUILA",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "16168", "counter_party": "JUPITER TACTICAL TRADING" },
+      { "user_id": "16277", "counter_party": "AQUILA" }
+    ]
+  },
+  {
+    "name": "Expedition",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "16286", "counter_party": "EXPEDITION" }
+    ]
+  },
+  {
+    "name": "Jane Street",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "16317", "counter_party": "JANESTREET" }
+    ]
+  },
+  {
+    "name": "Jump",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "16630", "counter_party": "JUMPZL01" },
+      { "user_id": "16631", "counter_party": "JUMPZL02" }
+    ]
+  },
+  {
+    "name": "宽德",
+    "sales": "ZHAOQINGYU",
+    "products": [
+      { "user_id": "16812", "counter_party": "WIZARD01" },
+      { "user_id": "16816", "counter_party": "WIZARD02" },
+      { "user_id": "17066", "counter_party": "WIZARD03" },
+      { "user_id": "17246", "counter_party": "WIZARD04" }
+    ]
+  }
+]

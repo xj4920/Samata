@@ -27,19 +27,6 @@ async function repl(): Promise<void> {
 
   readline.emitKeypressEvents(process.stdin);
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: true,
-    historySize: 100,
-    completer: (line: string) => {
-      const cmds = [...getCommandNames(), '/exit', '/reset'];
-      const hits = cmds.filter(c => c.startsWith(line));
-      return [hits.length ? hits : cmds, line];
-    },
-  });
-
-  // Real-time command hints with arrow-key selection
   let hintLines = 0;
   let suppressClear = false;
   let selectedIdx = -1;
@@ -55,6 +42,22 @@ async function repl(): Promise<void> {
     }
     return (origStdoutWrite as any)(data, ...args);
   } as any;
+
+  let rl: readline.Interface = null!;
+
+  const createRl = () => {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+      historySize: 100,
+      completer: (line: string) => {
+        const cmds = [...getCommandNames(), '/exit', '/reset'];
+        const hits = cmds.filter(c => c.startsWith(line));
+        return [hits.length ? hits : cmds, line];
+      },
+    });
+  };
 
   const clearHints = () => {
     if (hintLines > 0) {
@@ -114,53 +117,55 @@ async function repl(): Promise<void> {
     hintPrefix = '';
   };
 
-  if (typeof (rl as any)._ttyWrite === 'function') {
-    const origTtyWrite = (rl as any)._ttyWrite;
-    (rl as any)._ttyWrite = function (s: string, key: any) {
-      const hintsVisible = currentHits.length > 0;
+  const attachTtyOverride = () => {
+    if (typeof (rl as any)._ttyWrite === 'function') {
+      const origTtyWrite = (rl as any)._ttyWrite;
+      (rl as any)._ttyWrite = function (s: string, key: any) {
+        const hintsVisible = currentHits.length > 0;
 
-      if (hintsVisible && key) {
-        if (key.name === 'down' || key.name === 'up') {
-          const savedHits = currentHits;
-          const savedPrefix = hintPrefix;
-          const prevIdx = selectedIdx;
-          clearHints();
-          currentHits = savedHits;
-          hintPrefix = savedPrefix;
-          if (key.name === 'down') {
-            selectedIdx = prevIdx < savedHits.length - 1 ? prevIdx + 1 : 0;
-          } else {
-            selectedIdx = prevIdx > 0 ? prevIdx - 1 : savedHits.length - 1;
-          }
-          renderHints();
-          setLine(currentHits[selectedIdx].name);
-          return;
-        }
-        if (key.name === 'return') {
-          clearHints();
-          return;
-        }
-        if (key.name === 'escape') {
-          clearHints();
-          setLine(hintPrefix);
-          return;
-        }
-        if (key.name === 'tab') {
-          if (selectedIdx >= 0) {
+        if (hintsVisible && key) {
+          if (key.name === 'down' || key.name === 'up') {
+            const savedHits = currentHits;
+            const savedPrefix = hintPrefix;
+            const prevIdx = selectedIdx;
             clearHints();
-            setLine(currentHits[selectedIdx].name + ' ');
+            currentHits = savedHits;
+            hintPrefix = savedPrefix;
+            if (key.name === 'down') {
+              selectedIdx = prevIdx < savedHits.length - 1 ? prevIdx + 1 : 0;
+            } else {
+              selectedIdx = prevIdx > 0 ? prevIdx - 1 : savedHits.length - 1;
+            }
+            renderHints();
+            setLine(currentHits[selectedIdx].name);
+            return;
           }
-          return;
+          if (key.name === 'return') {
+            clearHints();
+            return;
+          }
+          if (key.name === 'escape') {
+            clearHints();
+            setLine(hintPrefix);
+            return;
+          }
+          if (key.name === 'tab') {
+            if (selectedIdx >= 0) {
+              clearHints();
+              setLine(currentHits[selectedIdx].name + ' ');
+            }
+            return;
+          }
         }
-      }
 
-      clearHints();
-      origTtyWrite.call(rl, s, key);
+        clearHints();
+        origTtyWrite.call(this, s, key);
 
-      const line = (rl as any).line as string ?? '';
-      updateHints(line);
-    };
-  }
+        const line = (rl as any).line as string ?? '';
+        updateHints(line);
+      };
+    }
+  };
 
   const prompt = (): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -173,6 +178,9 @@ async function repl(): Promise<void> {
       });
     });
 
+  createRl();
+  attachTtyOverride();
+
   try {
     while (true) {
       const line = await prompt();
@@ -182,7 +190,10 @@ async function repl(): Promise<void> {
         log.dim('再见 👋');
         break;
       }
+      rl.close();
       await route(trimmed);
+      createRl();
+      attachTtyOverride();
     }
   } catch (err: any) {
     if (err?.message !== 'ExitPromptError') {

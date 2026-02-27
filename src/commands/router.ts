@@ -29,7 +29,7 @@ const commands: Record<string, Command> = {
   view:    { description: '查看客户: /view <id>', adminOnly: false, handler: clientCmd.view },
   history: { description: '操作历史: /history <id>', adminOnly: false, handler: clientCmd.history },
   status:  { description: '状态看板: /status', adminOnly: false, handler: monitorCmd.status },
-  trade:   { description: '交易查询: /trade [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
+  trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
   faq:     { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add': { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
   'faq-del': { description: '删除FAQ: /faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },

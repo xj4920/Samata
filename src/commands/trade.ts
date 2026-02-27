@@ -1,4 +1,5 @@
 import { queryTrades, isInfluxConfigured, type TradeRecord } from '../db/influxdb.js';
+import { loadCustomers } from '../config/customers.js';
 import { renderTable } from '../utils/table.js';
 import { log } from '../utils/logger.js';
 
@@ -25,9 +26,23 @@ export async function trade(args: string): Promise<void> {
 
   const params = parseArgs(args);
 
+  let parties: string[] | undefined;
+  if (params.client) {
+    const customers = loadCustomers();
+    const match = customers.find(c => c.name.toLowerCase() === params.client.toLowerCase());
+    if (!match) {
+      log.error(`未找到管理人: ${params.client}`);
+      log.dim(`可用: ${customers.map(c => c.name).join(', ')}`);
+      return;
+    }
+    parties = match.products.map(p => p.counter_party);
+    log.dim(`${match.name} → ${parties.join(', ')}`);
+  }
+
   try {
     const records = await queryTrades({
       party: params.party,
+      parties,
       user: params.user,
       date: params.date,
       limit: params.limit ? Number(params.limit) : undefined,

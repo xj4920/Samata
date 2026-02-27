@@ -5,6 +5,8 @@ import { getCurrentUser, isAdmin } from '../auth/rbac.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { getAllSkills, getSkillByName } from '../commands/skill.js';
+import { queryTrades, isInfluxConfigured } from '../db/influxdb.js';
+import { loadCustomers } from '../config/customers.js';
 import { log } from '../utils/logger.js';
 import { v4 as uuid } from 'uuid';
 import * as fs from 'fs';
@@ -128,6 +130,30 @@ const tools: Anthropic.Tool[] = [
         name: { type: 'string', description: 'skill 名称' },
       },
       required: ['name'],
+    },
+  },
+  {
+    name: 'query_trades',
+    description: '查询交易成交记录。支持按管理人名称(client)、交易对手(party)、用户ID(user)、日期(date)过滤。管理人与交易对手为1:N映射关系，指定client会自动展开为其下所有交易对手。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        client: { type: 'string', description: '管理人名称，如 JINDE、JUPITER、JUMP 等，会自动映射到其下所有交易对手' },
+        party: { type: 'string', description: '交易对手名称，精确匹配' },
+        user: { type: 'string', description: '用户ID' },
+        date: { type: 'string', description: '交易日期，格式 YYYYMMDD' },
+        limit: { type: 'number', description: '返回条数上限，默认50' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'list_customers',
+    description: '列出所有管理人及其关联的交易对手/产品列表',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
     },
   },
   {
@@ -368,6 +394,51 @@ function handleGetSkill(input: { name: string }): string {
   });
 }
 
+async function handleQueryTrades(input: { client?: string; party?: string; user?: string; date?: string; limit?: number }): Promise<string> {
+  if (!isInfluxConfigured()) return JSON.stringify({ error: 'InfluxDB 未配置' });
+
+  let parties: string[] | undefined;
+  if (input.client) {
+    const customers = loadCustomers();
+    const match = customers.find(c => c.name.toLowerCase() === input.client!.toLowerCase());
+    if (!match) {
+      const names = customers.map(c => c.name);
+      return JSON.stringify({ error: `未找到管理人: ${input.client}`, available: names });
+    }
+    parties = match.products.map(p => p.counter_party);
+  }
+
+  const records = await queryTrades({
+    party: input.party,
+    parties,
+    user: input.user,
+    date: input.date,
+    limit: input.limit,
+  });
+
+  if (records.length === 0) return JSON.stringify({ message: '未查询到交易数据' });
+
+  return JSON.stringify(records.map(r => ({
+    date: r.trade_dt,
+    counter_party: r.counter_party,
+    user_id: r.user_id,
+    pos_num: r.pos_num,
+    trade_num: r.trade_num,
+    notional_t_1: r.notional_t_1,
+    trade_amt: r.trade_amt,
+    ft_net: r.ft_net,
+  })));
+}
+
+function handleListCustomers(): string {
+  const customers = loadCustomers();
+  return JSON.stringify(customers.map(c => ({
+    name: c.name,
+    sales: c.sales,
+    products: c.products.map(p => p.counter_party),
+  })));
+}
+
 function handleListDirectory(input: { path: string }): string {
   const dirPath = input.path.startsWith('~')
     ? input.path.replace('~', process.env.HOME || '')
@@ -484,7 +555,7 @@ function handleReloadApp(): string {
   return JSON.stringify({ success: true, message: '应用将在 0.5 秒后重启' });
 }
 
-function executeTool(name: string, input: any): string {
+async function executeTool(name: string, input: any): Promise<string> {
   switch (name) {
     case 'query_clients': return handleQueryClients(input);
     case 'view_client': return handleViewClient(input);
@@ -494,6 +565,8 @@ function executeTool(name: string, input: any): string {
     case 'add_client': return handleAddClient(input);
     case 'update_client': return handleUpdateClient(input);
     case 'advance_client': return handleAdvanceClient(input);
+    case 'query_trades': return handleQueryTrades(input);
+    case 'list_customers': return handleListCustomers();
     case 'list_skills': return handleListSkills();
     case 'get_skill': return handleGetSkill(input);
     case 'list_directory': return handleListDirectory(input);
@@ -513,9 +586,10 @@ function getSystemPrompt(): string {
   const user = getCurrentUser();
   return `你是衍语展业助手。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact → Requirement Discussion → Solution Design → UAT → PROD）
-2. 回答关于客户的问题，提供数据分析
-3. 提供展业建议和话术参考
-4. 搜索知识库回答常见问题
+2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
+3. 回答关于客户的问题，提供数据分析
+4. 提供展业建议和话术参考
+5. 搜索知识库回答常见问题
 5. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码、并触发热重载使变更生效。
    - 使用 save_skill 创建可复用的提示词模板
    - 使用 write_file 修改或新增源代码文件（仅限项目目录内）
@@ -560,7 +634,7 @@ export async function chat(userInput: string): Promise<void> {
       if (block.type === 'tool_use') {
         log.dim(`🔧 调用工具: ${block.name}`);
         log.dim(`   参数: ${JSON.stringify(block.input)}`);
-        const result = executeTool(block.name, block.input);
+        const result = await executeTool(block.name, block.input);
         // Show truncated result
         const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
         log.dim(`   结果: ${preview}`);
