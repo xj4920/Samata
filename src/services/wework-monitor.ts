@@ -52,8 +52,10 @@ async function poll(): Promise<void> {
     .map(s => `"sender" = '${s.replace(/'/g, "\\'")}'`)
     .join(' OR ');
 
-  const timeFilter = ` AND time > now() - 1m`
-    + (lastSeenTime ? ` AND time > '${lastSeenTime}'` : '');
+  const CST_OFFSET_MS = 8 * 3600_000;
+  const ceiling = new Date(Date.now() + CST_OFFSET_MS - 60_000).toISOString();
+  const startTime = !lastSeenTime || lastSeenTime < ceiling ? ceiling : lastSeenTime;
+  const timeFilter = ` AND time > '${startTime}'`;
   const where = senderFilter ? ` WHERE (${senderFilter})${timeFilter}` : '';
 
   const q = `SELECT * FROM "${measurement}"${where} ORDER BY time ASC LIMIT 100`;
@@ -70,7 +72,8 @@ async function poll(): Promise<void> {
 
       const msg = `<b>[企微监控]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
       await sendTelegram(msg);
-      log.dim(`[monitor] 推送消息: ${sender} @ ${time}`);
+      const displayTime = time ? time.replace('T', ' ').replace('Z', '') : time;
+      log.dim(`[monitor] 推送消息: ${sender} @ ${displayTime}`);
     }
 
     lastSeenTime = rows[rows.length - 1].time ?? lastSeenTime;
