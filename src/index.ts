@@ -44,6 +44,7 @@ async function repl(): Promise<void> {
   } as any;
 
   let rl: readline.Interface = null!;
+  let savedHistory: string[] = [];
 
   const createRl = () => {
     rl = readline.createInterface({
@@ -51,6 +52,7 @@ async function repl(): Promise<void> {
       output: process.stdout,
       terminal: true,
       historySize: 100,
+      history: savedHistory,
       completer: (line: string) => {
         const cmds = [...getCommandNames(), '/exit', '/reset'];
         const hits = cmds.filter(c => c.startsWith(line));
@@ -190,6 +192,7 @@ async function repl(): Promise<void> {
         log.dim('再见 👋');
         break;
       }
+      savedHistory = (rl as any).history?.slice() ?? [];
       rl.close();
       await route(trimmed);
       createRl();
