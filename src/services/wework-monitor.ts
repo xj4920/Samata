@@ -52,9 +52,8 @@ async function poll(): Promise<void> {
     .map(s => `"sender" = '${s.replace(/'/g, "\\'")}'`)
     .join(' OR ');
 
-  const timeFilter = lastSeenTime
-    ? ` AND time > '${lastSeenTime}'`
-    : ` AND time > now() - 5m`;
+  const timeFilter = ` AND time > now() - 1m`
+    + (lastSeenTime ? ` AND time > '${lastSeenTime}'` : '');
   const where = senderFilter ? ` WHERE (${senderFilter})${timeFilter}` : '';
 
   const q = `SELECT * FROM "${measurement}"${where} ORDER BY time ASC LIMIT 100`;

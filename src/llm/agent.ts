@@ -5,14 +5,14 @@ import { getCurrentUser, isAdmin } from '../auth/rbac.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { getAllSkills, getSkillByName } from '../commands/skill.js';
-import { queryTrades, isInfluxConfigured } from '../db/influxdb.js';
 import { loadCustomers } from '../config/customers.js';
+import { fetchTrades } from '../commands/trade.js';
 import { log } from '../utils/logger.js';
 import { v4 as uuid } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-opus-4-6-20260205';
 
 const tools: Anthropic.Tool[] = [
   {
@@ -395,39 +395,13 @@ function handleGetSkill(input: { name: string }): string {
 }
 
 async function handleQueryTrades(input: { client?: string; party?: string; user?: string; date?: string; limit?: number }): Promise<string> {
-  if (!isInfluxConfigured()) return JSON.stringify({ error: 'InfluxDB 未配置' });
-
-  let parties: string[] | undefined;
-  if (input.client) {
-    const customers = loadCustomers();
-    const match = customers.find(c => c.name.toLowerCase() === input.client!.toLowerCase());
-    if (!match) {
-      const names = customers.map(c => c.name);
-      return JSON.stringify({ error: `未找到管理人: ${input.client}`, available: names });
-    }
-    parties = match.products.map(p => p.counter_party);
+  try {
+    const rows = await fetchTrades(input);
+    if (rows.length === 0) return JSON.stringify({ message: '未查询到交易数据' });
+    return JSON.stringify(rows);
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message });
   }
-
-  const records = await queryTrades({
-    party: input.party,
-    parties,
-    user: input.user,
-    date: input.date,
-    limit: input.limit,
-  });
-
-  if (records.length === 0) return JSON.stringify({ message: '未查询到交易数据' });
-
-  return JSON.stringify(records.map(r => ({
-    date: r.trade_dt,
-    counter_party: r.counter_party,
-    user_id: r.user_id,
-    pos_num: r.pos_num,
-    trade_num: r.trade_num,
-    notional_t_1: r.notional_t_1,
-    trade_amt: r.trade_amt,
-    ft_net: r.ft_net,
-  })));
 }
 
 function handleListCustomers(): string {
