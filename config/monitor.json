@@ -1,0 +1,21 @@
+{
+  "telegram": {
+    "botToken": "8270566710:AAHMhZZuQr8Wi2B6Q7QJs8a4Evv9smqKgwM",
+    "chatId": "6630337431",
+    "proxy": "http://127.0.0.1:26001"
+  },
+  "influx": {
+    "database": "messages",
+    "measurement": "wework"
+  },
+  "senders": [
+    "肖诗泉",
+    "栾宜男",
+    "栾宜男(休假)",
+    "郁泱",
+    "郁泱(休假)",
+    "符航睿",
+    "尹成功"
+  ],
+  "pollingIntervalSec": 10
+}

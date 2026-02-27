@@ -100,6 +100,44 @@ export async function queryTrades(params: TradeQueryParams = {}): Promise<TradeR
   return queryInflux(q);
 }
 
+export async function queryInfluxRaw(db: string, influxQL: string): Promise<Record<string, any>[]> {
+  const url = `${BASE_URL}/query?db=${encodeURIComponent(db)}&q=${encodeURIComponent(influxQL)}`;
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Token ${INFLUX_TOKEN}`,
+      'Accept': 'application/json',
+    },
+    signal: AbortSignal.timeout(INFLUX_TIMEOUT),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`InfluxDB query failed (${resp.status}): ${body}`);
+  }
+
+  const json = await resp.json() as {
+    results: Array<{
+      series?: Array<{ columns: string[]; values: any[][] }>;
+      error?: string;
+    }>;
+  };
+
+  const result = json.results?.[0];
+  if (result?.error) throw new Error(`InfluxDB error: ${result.error}`);
+
+  const series = result?.series?.[0];
+  if (!series) return [];
+
+  const { columns, values } = series;
+  return values.map(row => {
+    const record: Record<string, any> = {};
+    columns.forEach((col, i) => { record[col] = row[i]; });
+    return record;
+  });
+}
+
 export function isInfluxConfigured(): boolean {
   return !!INFLUX_TOKEN;
 }

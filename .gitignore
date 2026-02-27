@@ -3,3 +3,4 @@ venv/
 .env
 data/
 .claude/
+*.DS_Store

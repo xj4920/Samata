@@ -7,6 +7,7 @@ import * as tradeCmd from './trade.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { handleSkill } from './skill.js';
+import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 
 let llmEnabled = false;
 
@@ -35,8 +36,22 @@ const commands: Record<string, Command> = {
   'faq-del': { description: '删除FAQ: /faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },
   plugin:  { description: '插件: /plugin list | /plugin <name> [args]', adminOnly: false, handler: handlePlugin },
   skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
+  watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
+
+function handleWatch(args: string): void {
+  const sub = args.trim().toLowerCase();
+  if (sub === 'start') {
+    startMonitor();
+  } else if (sub === 'stop') {
+    stopMonitor();
+  } else if (sub === 'status') {
+    log.info(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
+  } else {
+    log.warn('用法: /watch start | stop | status');
+  }
+}
 
 async function handlePlugin(args: string): Promise<void> {
   const parts = args.trim().split(/\s+/);
