@@ -5,12 +5,22 @@ import { log } from '../utils/logger.js';
 import { input } from '@inquirer/prompts';
 import { v4 as uuid } from 'uuid';
 
-interface KnowledgeItem {
+export interface KnowledgeItem {
   id: string;
   question: string;
   answer: string;
   tags: string | null;
   created_at: string;
+}
+
+export function fetchKnowledge(keyword?: string): KnowledgeItem[] {
+  const db = getDb();
+  if (keyword) {
+    return db.prepare(
+      'SELECT * FROM knowledge WHERE question LIKE ? OR answer LIKE ? OR tags LIKE ? ORDER BY created_at DESC'
+    ).all(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`) as KnowledgeItem[];
+  }
+  return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
 }
 
 export function search(args: string): void {

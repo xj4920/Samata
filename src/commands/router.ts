@@ -8,6 +8,7 @@ import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { handleSkill } from './skill.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
+import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 
 let llmEnabled = false;
 
@@ -37,6 +38,7 @@ const commands: Record<string, Command> = {
   plugin:  { description: '插件: /plugin list | /plugin <name> [args]', adminOnly: false, handler: handlePlugin },
   skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
   watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
+  bot:     { description: 'Telegram Bot: /bot start | stop | status', adminOnly: true, handler: handleBot },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
 
@@ -50,6 +52,19 @@ function handleWatch(args: string): void {
     log.info(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
   } else {
     log.warn('用法: /watch start | stop | status');
+  }
+}
+
+async function handleBot(args: string): Promise<void> {
+  const sub = args.trim().toLowerCase();
+  if (sub === 'start') {
+    await startTelegramBot();
+  } else if (sub === 'stop') {
+    stopTelegramBot();
+  } else if (sub === 'status') {
+    log.info(isTelegramBotRunning() ? '[TG] Bot 运行中' : '[TG] Bot 未运行');
+  } else {
+    log.warn('用法: /bot start | stop | status');
   }
 }
 

@@ -1,11 +1,12 @@
 {
   "name": "yanyu",
   "version": "0.1.0",
-  "description": "衍语 — 客户展业管理系统",
+  "description": "衍语 — OTCClaw",
   "main": "src/index.ts",
   "scripts": {
     "start": "bash scripts/launcher.sh",
-    "dev": "bash scripts/launcher.sh"
+    "dev": "bash scripts/launcher.sh",
+    "telegram": "npx tsx src/telegram-entry.ts"
   },
   "keywords": [],
   "author": "",

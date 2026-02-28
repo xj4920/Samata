@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getClaude } from './claude.js';
 import { getDb } from '../db/connection.js';
-import { getCurrentUser, isAdmin } from '../auth/rbac.js';
+import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { getAllSkills, getSkillByName } from '../commands/skill.js';
@@ -529,7 +529,7 @@ function handleReloadApp(): string {
   return JSON.stringify({ success: true, message: '应用将在 0.5 秒后重启' });
 }
 
-async function executeTool(name: string, input: any): Promise<string> {
+export async function executeTool(name: string, input: any): Promise<string> {
   switch (name) {
     case 'query_clients': return handleQueryClients(input);
     case 'view_client': return handleViewClient(input);
@@ -556,8 +556,12 @@ async function executeTool(name: string, input: any): Promise<string> {
 // --- Conversation state ---
 let conversationHistory: Anthropic.MessageParam[] = [];
 
-function getSystemPrompt(): string {
-  const user = getCurrentUser();
+export function getTools(): Anthropic.Tool[] {
+  return tools;
+}
+
+export function getSystemPrompt(user?: User): string {
+  const u = user ?? getCurrentUser();
   return `你是衍语展业助手。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact → Requirement Discussion → Solution Design → UAT → PROD）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
@@ -570,7 +574,7 @@ function getSystemPrompt(): string {
    - 修改代码后使用 reload_app 重启应用使变更生效
    - 修改代码前请先用 read_file 了解现有代码结构
 
-当前用户：${user.username}，角色：${user.role}。${user.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
+当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
 
 回答要求：
 - 用简洁专业的中文回答

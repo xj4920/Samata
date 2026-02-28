@@ -227,13 +227,16 @@ export function history(args: string): void {
   }
 }
 
-function findByPrefix(prefix: string): Client | null {
+export function findByPrefix(prefix: string): Client | null {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM clients WHERE id LIKE ?').all(`${prefix}%`) as Client[];
+  // Try by name first (case-insensitive)
+  let rows = db.prepare('SELECT * FROM clients WHERE name LIKE ? COLLATE NOCASE').all(`%${prefix}%`) as Client[];
+  if (rows.length === 1) return rows[0];
+  // Try by ID prefix
   if (rows.length === 0) {
-    log.error(`未找到客户: ${prefix}`);
-    return null;
+    rows = db.prepare('SELECT * FROM clients WHERE id LIKE ?').all(`${prefix}%`) as Client[];
   }
+  if (rows.length === 1) return rows[0];
   if (rows.length > 1) {
     log.warn(`匹配到多个客户，请提供更长的ID前缀：`);
     for (const c of rows) {
@@ -241,5 +244,67 @@ function findByPrefix(prefix: string): Client | null {
     }
     return null;
   }
-  return rows[0];
+  return null;
+}
+
+// --- Data functions for programmatic use (Telegram bot, agent, etc.) ---
+
+export function fetchClients(filter?: { state?: string; keyword?: string }): Client[] {
+  const db = getDb();
+  let sql = 'SELECT * FROM clients';
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filter?.state && STATES.includes(filter.state as ClientState)) {
+    conditions.push('state = ?');
+    params.push(filter.state);
+  }
+  if (filter?.keyword) {
+    conditions.push('(name LIKE ? COLLATE NOCASE OR wework_group LIKE ? COLLATE NOCASE)');
+    params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+  }
+  if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
+  sql += ' ORDER BY updated_at DESC';
+
+  return db.prepare(sql).all(...params) as Client[];
+}
+
+export function fetchClient(nameOrId: string): Client | null {
+  return findByPrefix(nameOrId);
+}
+
+export function fetchHistory(nameOrId: string): { name: string; events: ReturnType<typeof getEvents> } | null {
+  const client = findByPrefix(nameOrId);
+  if (!client) return null;
+  return { name: client.name, events: getEvents(client.id) };
+}
+
+export function addClient(args: string): { success: true; id: string; name: string } | { success: false; error: string } {
+  const parts = args.match(/^(\S+)\s*(.*)/);
+  if (!parts) return { success: false, error: '用法: /add <名称> [contact=xx] [wework_group=xx] [sales=xx] [notes=xx]' };
+  const name = parts[1];
+  const kv = parseKV(parts[2] || '');
+  const db = getDb();
+  const user = getCurrentUser();
+  const id = uuid();
+
+  db.prepare(
+    'INSERT INTO clients (id, name, contact, wework_group, requirements, sales, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name, kv.contact ?? null, kv.wework_group ?? null, kv.requirements ?? null, kv.sales ?? null, kv.notes ?? null, user.id);
+
+  recordEvent('client', id, 'create', { name, ...kv });
+  return { success: true, id: id.slice(0, 8), name };
+}
+
+export function advanceClient(nameOrId: string): { success: true; name: string; from: string; to: string } | { success: false; error: string } {
+  const client = findByPrefix(nameOrId);
+  if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
+
+  const next = nextState(client.state);
+  if (!next) return { success: false, error: `客户 ${client.name} 已处于最终状态: ${STATE_LABELS[client.state]}` };
+
+  const db = getDb();
+  db.prepare("UPDATE clients SET state = ?, updated_at = datetime('now') WHERE id = ?").run(next, client.id);
+  recordEvent('client', client.id, 'advance', { from: client.state, to: next });
+  return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[next] };
 }
