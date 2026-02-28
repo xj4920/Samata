@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "bash scripts/launcher.sh",
-    "dev": "tsx watch src/index.ts"
+    "dev": "bash scripts/launcher.sh"
   },
   "keywords": [],
   "author": "",

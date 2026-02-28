@@ -84,6 +84,7 @@ export function getCommandEntries(): Array<{ name: string; description: string }
     name: `/${name}`,
     description: cmd.description,
   }));
+  entries.push({ name: '/reload', description: '重载代码（热重启）' });
   entries.push({ name: '/exit', description: '退出程序' });
   entries.push({ name: '/reset', description: '重置 AI 对话上下文' });
   return entries;
@@ -113,7 +114,11 @@ export async function route(input: string): Promise<void> {
   const cmd = slashCmd.slice(1); // remove leading /
   const args = rest.join(' ');
 
-  // reset conversation
+  if (cmd.toLowerCase() === 'reload') {
+    log.info('正在重载...');
+    process.exit(120);
+  }
+
   if (cmd.toLowerCase() === 'reset') {
     resetConversation();
     log.success('AI 对话上下文已重置');

@@ -226,7 +226,7 @@ const tools: Anthropic.Tool[] = [
 ];
 
 // --- Constants ---
-const PROJECT_ROOT = '/Users/simon/source/ClienClaw/';
+const PROJECT_ROOT = process.cwd() + '/';
 const FORBIDDEN_PATTERNS = ['.env', 'node_modules/', 'data/*.db', '.git/'];
 
 // --- Tool handlers ---
