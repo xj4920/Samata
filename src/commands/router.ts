@@ -6,6 +6,7 @@ import * as monitorCmd from './monitor.js';
 import * as tradeCmd from './trade.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
+import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
@@ -39,6 +40,7 @@ const commands: Record<string, Command> = {
   skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
   watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
   bot:     { description: 'Telegram Bot: /bot start | stop | status', adminOnly: true, handler: handleBot },
+  model:   { description: '切换模型: /model [list | <provider>]', adminOnly: true, handler: handleModel },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
 
@@ -65,6 +67,26 @@ async function handleBot(args: string): Promise<void> {
     log.info(isTelegramBotRunning() ? '[TG] Bot 运行中' : '[TG] Bot 未运行');
   } else {
     log.warn('用法: /bot start | stop | status');
+  }
+}
+
+function handleModel(args: string): void {
+  const sub = args.trim().toLowerCase();
+  if (!sub || sub === 'list') {
+    const available = getAvailableProviders();
+    const current = getProviderName();
+    log.info(`当前: ${current} / ${getModelName()}`);
+    log.info('可用 provider:');
+    for (const p of available) {
+      console.log(`  ${p === current ? '▶' : ' '} ${p}`);
+    }
+  } else {
+    const ok = switchProvider(sub as ProviderName);
+    if (ok) {
+      log.success(`已切换到 ${getProviderName()} / ${getModelName()}`);
+    } else {
+      log.error(`未知 provider: ${sub}，可用: ${getAvailableProviders().join(', ')}`);
+    }
   }
 }
 

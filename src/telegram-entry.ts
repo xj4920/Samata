@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { initSchema } from './db/schema.js';
-import { initClaude } from './llm/claude.js';
+import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
 import { startTelegramBot, stopTelegramBot } from './telegram/bot.js';
@@ -9,9 +9,9 @@ import { log } from './utils/logger.js';
 async function main() {
   initSchema();
 
-  const llmReady = initClaude();
+  const llmReady = await initProviders();
   if (!llmReady) {
-    log.error('Claude 未配置，请在 .env 中配置 ANTHROPIC_API_KEY');
+    log.error('LLM 未配置，请在 .env 中配置 ANTHROPIC_API_KEY 或 MINIMAX_API_KEY');
     process.exit(1);
   }
 

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getClaude } from './claude.js';
+import { getProvider, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
@@ -12,7 +12,7 @@ import { v4 as uuid } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const MODEL = 'claude-opus-4-6-20260205';
+const showThinking = () => process.env.SHOW_THINKING !== 'false';
 
 const tools: Anthropic.Tool[] = [
   {
@@ -582,64 +582,93 @@ export function getSystemPrompt(user?: User): string {
 - 给出展业建议时结合客户的实际状态和需求`;
 }
 
-export async function chat(userInput: string): Promise<void> {
-  const claude = getClaude();
+/**
+ * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
+ * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
+ */
+async function callLLM(params: CreateMessageParams, streamText: boolean): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+  const provider = getProvider();
 
+  if (streamText && provider.createMessageStream) {
+    let result: CreateMessageResult | null = null;
+    let hasTextOutput = false;
+    for await (const event of provider.createMessageStream(params)) {
+      if (event.type === 'text_delta') {
+        if (!hasTextOutput) { console.log(); hasTextOutput = true; }
+        process.stdout.write(event.text);
+      } else if (event.type === 'done') {
+        result = { content: event.content, stop_reason: event.stop_reason };
+      }
+    }
+    if (hasTextOutput) console.log('\n');
+    if (!result) throw new Error('Stream ended without done event');
+    return { result, streamed: hasTextOutput };
+  }
+
+  return { result: await provider.createMessage(params), streamed: false };
+}
+
+export async function chat(userInput: string): Promise<void> {
   conversationHistory.push({ role: 'user', content: userInput });
 
-  let response = await claude.messages.create({
-    model: MODEL,
+  const makeParams = (): CreateMessageParams => ({
+    model: getModelName(),
     max_tokens: 4096,
     system: getSystemPrompt(),
     tools,
     messages: conversationHistory,
   });
 
+  // 首次调用也流式输出
+  let { result: response, streamed } = await callLLM(makeParams(), true);
+
   // Agentic loop: keep processing until no more tool calls
   while (response.stop_reason === 'tool_use') {
     const assistantContent = response.content;
     conversationHistory.push({ role: 'assistant', content: assistantContent });
 
-    // Show thinking text from assistant
-    for (const block of assistantContent) {
-      if (block.type === 'text' && block.text) {
-        log.dim(`💭 ${block.text}`);
+    // Show thinking text from assistant (skip if already streamed)
+    if (!streamed && showThinking()) {
+      for (const block of assistantContent) {
+        if (block.type === 'text' && block.text) {
+          log.dim(`💭 ${block.text}`);
+        }
       }
     }
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
-        log.dim(`🔧 调用工具: ${block.name}`);
-        log.dim(`   参数: ${JSON.stringify(block.input)}`);
+        if (showThinking()) {
+          log.dim(`🔧 调用工具: ${block.name}`);
+          log.dim(`   参数: ${JSON.stringify(block.input)}`);
+        }
         const result = await executeTool(block.name, block.input);
-        // Show truncated result
-        const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
-        log.dim(`   结果: ${preview}`);
+        if (showThinking()) {
+          const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
+          log.dim(`   结果: ${preview}`);
+        }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
       }
     }
 
     conversationHistory.push({ role: 'user', content: toolResults });
 
-    response = await claude.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: getSystemPrompt(),
-      tools,
-      messages: conversationHistory,
-    });
+    // 下一轮调用：流式输出（如果最终是文本回复则逐字显示）
+    ({ result: response, streamed } = await callLLM(makeParams(), true));
   }
 
-  // Extract and display text response
   const assistantContent = response.content;
   conversationHistory.push({ role: 'assistant', content: assistantContent });
 
-  for (const block of assistantContent) {
-    if (block.type === 'text') {
-      console.log();
-      log.info(block.text);
-      console.log();
+  // 如果文本已经通过流式输出，不重复打印
+  if (!streamed) {
+    for (const block of assistantContent) {
+      if (block.type === 'text') {
+        console.log();
+        log.info(block.text);
+        console.log();
+      }
     }
   }
 }

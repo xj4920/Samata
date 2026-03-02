@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { TelegramAPI, type TgMessage } from './api.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminTelegramUser } from './session.js';
-import { getClaude } from '../llm/claude.js';
+import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User } from '../auth/rbac.js';
 import { getTools, executeTool, getSystemPrompt } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
@@ -39,7 +39,6 @@ function loadTelegramConfig(): TelegramBotConfig {
   return config.telegram as TelegramBotConfig;
 }
 
-const MODEL = process.env.TELEGRAM_MODEL || 'claude-opus-4-6-20260205';
 const MAX_HISTORY = 40;  // 每个会话最多保留的消息对数
 
 let api: TelegramAPI;
@@ -51,7 +50,7 @@ let cleanupTimer: ReturnType<typeof setInterval> | null = null;
  */
 async function handleAIChat(chatId: number, userInput: string, telegramUserId: number, telegramUsername: string): Promise<string> {
   const session = getSession(telegramUserId, telegramUsername);
-  const claude = getClaude();
+  const provider = getProvider();
 
   // 临时切换当前用户上下文（tool handler 依赖）
   setCurrentUser(session.user);
@@ -66,8 +65,8 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
   const tools = getTools();
   const systemPrompt = getSystemPrompt(session.user);
 
-  let response = await claude.messages.create({
-    model: MODEL,
+  let response = await provider.createMessage({
+    model: getModelName(),
     max_tokens: 4096,
     system: systemPrompt,
     tools,
@@ -93,8 +92,8 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
     // 发送 typing 状态保持用户体验
     try { await api.sendChatAction(chatId); } catch { /* ignore */ }
 
-    response = await claude.messages.create({
-      model: MODEL,
+    response = await provider.createMessage({
+      model: getModelName(),
       max_tokens: 4096,
       system: systemPrompt,
       tools,
@@ -260,6 +259,29 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     if (text === '/reset') {
       resetSession(userId);
       await api.sendMessage(chatId, '✅ 对话上下文已重置');
+      return;
+    }
+
+    // /model 命令：查看或切换 LLM provider
+    if (text.startsWith('/model')) {
+      if (!isAdminTelegramUser(userId)) {
+        await api.sendMessage(chatId, '❌ 仅管理员可切换模型');
+        return;
+      }
+      const arg = text.replace(/^\/model\s*/, '').trim();
+      if (!arg || arg === 'list') {
+        const available = getAvailableProviders();
+        const current = getProviderName();
+        const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
+        await api.sendMessage(chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`);
+      } else {
+        const ok = switchProvider(arg as ProviderName);
+        if (ok) {
+          await api.sendMessage(chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`);
+        } else {
+          await api.sendMessage(chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`);
+        }
+      }
       return;
     }
 

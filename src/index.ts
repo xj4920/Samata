@@ -5,7 +5,7 @@ import { initSchema } from './db/schema.js';
 import { closeDb } from './db/connection.js';
 import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
-import { initClaude } from './llm/claude.js';
+import { initProviders } from './llm/provider.js';
 import { log } from './utils/logger.js';
 
 async function login(): Promise<void> {
@@ -214,12 +214,10 @@ async function main(): Promise<void> {
 
   initSchema();
 
-  const llmReady = initClaude();
+  const llmReady = await initProviders();
   setLlmEnabled(llmReady);
-  if (llmReady) {
-    log.success('AI 助手已启用');
-  } else {
-    log.warn('AI 助手未启用（请在 .env 中配置 ANTHROPIC_API_KEY）');
+  if (!llmReady) {
+    log.warn('AI 助手未启用（请在 .env 中配置 ANTHROPIC_API_KEY 或 MINIMAX_API_KEY）');
   }
 
   await login();
