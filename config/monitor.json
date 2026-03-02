@@ -15,6 +15,10 @@
     "database": "messages",
     "measurement": "wework"
   },
+  "notification": {
+    "channels": ["feishu"],
+    "feishuChatId": "ou_8da0902a70c261a79035f783053f2e2d"
+  },
   "senders": [
     "肖诗泉",
     "栾宜男",

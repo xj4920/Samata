@@ -3,10 +3,18 @@ import { resolve } from 'node:path';
 import { ProxyAgent } from 'undici';
 import { queryInfluxRaw } from '../db/influxdb.js';
 import { log } from '../utils/logger.js';
+import { FeishuAPI } from '../feishu/api.js';
+
+type NotificationChannel = 'telegram' | 'feishu';
 
 interface MonitorConfig {
   telegram: { botToken: string; chatId: string; proxy?: string };
+  feishu: { appId: string; appSecret: string; proxy?: string };
   influx: { database: string; measurement: string };
+  notification: {
+    channels: NotificationChannel[];
+    feishuChatId?: string;
+  };
   senders: string[];
   pollingIntervalSec: number;
 }
@@ -44,6 +52,42 @@ async function sendTelegram(text: string): Promise<void> {
   }
 }
 
+let feishuApi: FeishuAPI | null = null;
+
+async function sendFeishu(text: string): Promise<void> {
+  const cfg = loadConfig();
+  const { appId, appSecret, proxy } = cfg.feishu;
+  const { feishuChatId } = cfg.notification;
+
+  if (!appId || !appSecret || !feishuChatId) return;
+
+  if (!feishuApi) {
+    // FeishuAPI 需要 verificationToken 和 encryptKey，但发送消息不需要
+    feishuApi = new FeishuAPI({ appId, appSecret, verificationToken: '', encryptKey: '', proxy });
+  }
+
+  try {
+    await feishuApi.sendText(feishuChatId, text);
+  } catch (err: any) {
+    log.error(`[monitor] 飞书发送失败: ${err.message}`);
+  }
+}
+
+async function sendNotification(text: string): Promise<void> {
+  const cfg = loadConfig();
+  const channels = cfg.notification?.channels || ['telegram'];
+
+  const promises: Promise<void>[] = [];
+  if (channels.includes('telegram')) {
+    promises.push(sendTelegram(text));
+  }
+  if (channels.includes('feishu')) {
+    promises.push(sendFeishu(text));
+  }
+
+  await Promise.all(promises);
+}
+
 async function poll(): Promise<void> {
   const cfg = loadConfig();
   const { database, measurement } = cfg.influx;
@@ -71,7 +115,7 @@ async function poll(): Promise<void> {
       const time = row.time ?? '';
 
       const msg = `<b>[企微监控]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
-      await sendTelegram(msg);
+      await sendNotification(msg);
       const displayTime = time ? time.replace('T', ' ').replace('Z', '') : time;
       log.dim(`[monitor] 推送消息: ${sender} @ ${displayTime}`);
     }
@@ -95,8 +139,21 @@ export function startMonitor(): void {
 
   const cfg = loadConfig();
 
-  if (!cfg.telegram.botToken || !cfg.telegram.chatId) {
-    log.error('[monitor] 请先在 config/monitor.json 中配置 telegram.botToken 和 chatId');
+  // 验证通知渠道配置
+  const channels = cfg.notification?.channels || ['telegram'];
+  const hasTelegram = channels.includes('telegram');
+  const hasFeishu = channels.includes('feishu');
+
+  if (hasTelegram && (!cfg.telegram.botToken || !cfg.telegram.chatId)) {
+    log.error('[monitor] 通知渠道包含 telegram，但未配置 telegram.botToken 或 chatId');
+    return;
+  }
+  if (hasFeishu && (!cfg.feishu.appId || !cfg.feishu.appSecret || !cfg.notification.feishuChatId)) {
+    log.error('[monitor] 通知渠道包含 feishu，但未配置 feishu.appId、appSecret 或 notification.feishuChatId');
+    return;
+  }
+  if (channels.length === 0) {
+    log.error('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
     return;
   }
   if (cfg.senders.length === 0) {
