@@ -1,20 +1,24 @@
 /**
  * 飞书 Bot
  *
- * 支持两种交互模式（Webhook 方式）：
+ * 支持两种交互模式：
  * 1. /command — 直接调用命令函数，格式化后返回（不经过 LLM）
  * 2. 自然语言 — 由 AI Agent 处理
  *
- * 架构：Webhook 接收 + 每用户独立会话 + 命令直通 + 自然语言走 agent
+ * 连接模式：
+ * - ws（默认）：WebSocket 长连接，通过 @larksuiteoapi/node-sdk WSClient 接收事件
+ * - webhook：HTTP 回调，需要公网可达地址
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createServer } from 'node:http';
 import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
 import { getTools, executeTool, getSystemPrompt } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -43,7 +47,11 @@ function loadFeishuConfig(): FeishuBotConfig {
 
 const MAX_HISTORY = 40; // 每个会话最多保留的消息对数
 
+export type FeishuBotMode = 'ws' | 'webhook';
+
 let api: FeishuAPI;
+let wsClient: InstanceType<typeof Lark.WSClient> | null = null;
+let httpServer: ReturnType<typeof createServer> | null = null;
 let running = false;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -59,64 +67,69 @@ async function handleAIChat(
   const session = getSession(feishuUserId, feishuUsername);
   const provider = getProvider();
 
-  // 临时切换当前用户上下文（tool handler 依赖）
+  // 临时切换当前用户上下文（tool handler 依赖），处理完后恢复
+  const prevUser = getCurrentUser();
   setCurrentUser(session.user);
 
-  session.history.push({ role: 'user', content: userInput });
+  try {
+    session.history.push({ role: 'user', content: userInput });
 
-  // 控制历史长度
-  while (session.history.length > MAX_HISTORY * 2) {
-    session.history.shift();
-  }
-
-  const tools = getTools();
-  const systemPrompt = getSystemPrompt(session.user);
-
-  let response = await provider.createMessage({
-    model: getModelName(),
-    max_tokens: 4096,
-    system: systemPrompt,
-    tools,
-    messages: session.history,
-  });
-
-  // Agentic loop
-  while (response.stop_reason === 'tool_use') {
-    const assistantContent = response.content;
-    session.history.push({ role: 'assistant', content: assistantContent });
-
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of assistantContent) {
-      if (block.type === 'tool_use') {
-        log.dim(`[飞书:${feishuUsername}] 🔧 ${block.name}(${JSON.stringify(block.input).slice(0, 100)})`);
-        const result = await executeTool(block.name, block.input);
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
-      }
+    // 控制历史长度
+    while (session.history.length > MAX_HISTORY * 2) {
+      session.history.shift();
     }
 
-    session.history.push({ role: 'user', content: toolResults });
+    const tools = getTools();
+    const systemPrompt = getSystemPrompt(session.user);
 
-    response = await provider.createMessage({
+    let response = await provider.createMessage({
       model: getModelName(),
       max_tokens: 4096,
       system: systemPrompt,
       tools,
       messages: session.history,
     });
-  }
 
-  // 提取文本回复
-  const assistantContent = response.content;
-  session.history.push({ role: 'assistant', content: assistantContent });
+    // Agentic loop
+    while (response.stop_reason === 'tool_use') {
+      const assistantContent = response.content;
+      session.history.push({ role: 'assistant', content: assistantContent });
 
-  const texts: string[] = [];
-  for (const block of assistantContent) {
-    if (block.type === 'text' && block.text) {
-      texts.push(block.text);
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of assistantContent) {
+        if (block.type === 'tool_use') {
+          log.dim(`[飞书:${feishuUsername}] 🔧 ${block.name}(${JSON.stringify(block.input).slice(0, 100)})`);
+          const result = await executeTool(block.name, block.input);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+        }
+      }
+
+      session.history.push({ role: 'user', content: toolResults });
+
+      response = await provider.createMessage({
+        model: getModelName(),
+        max_tokens: 4096,
+        system: systemPrompt,
+        tools,
+        messages: session.history,
+      });
     }
-  }
 
-  return texts.join('\n\n') || '（无回复内容）';
+    // 提取文本回复
+    const assistantContent = response.content;
+    session.history.push({ role: 'assistant', content: assistantContent });
+
+    const texts: string[] = [];
+    for (const block of assistantContent) {
+      if (block.type === 'text' && block.text) {
+        texts.push(block.text);
+      }
+    }
+
+    return texts.join('\n\n') || '（无回复内容）';
+  } finally {
+    setCurrentUser(prevUser);
+  }
 }
 
 /**
@@ -183,20 +196,30 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
     case 'add': {
       if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
       if (!args) return formatError('用法: /add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
+      const prevUser = getCurrentUser();
       const session = getSession(feishuUserId, '');
       setCurrentUser(session.user);
-      const result = addClient(args);
-      if (result.success) return formatSuccess(`客户已添加: ${result.name} (${result.id})`);
-      return formatError(result.error);
+      try {
+        const result = addClient(args);
+        if (result.success) return formatSuccess(`客户已添加: ${result.name} (${result.id})`);
+        return formatError(result.error);
+      } finally {
+        setCurrentUser(prevUser);
+      }
     }
     case 'advance': {
       if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
       if (!args) return formatError('用法: /advance <客户名称或ID>');
+      const prevUser = getCurrentUser();
       const session = getSession(feishuUserId, '');
       setCurrentUser(session.user);
-      const result = advanceClient(args);
-      if (result.success) return formatSuccess(`${result.name}: ${result.from} → ${result.to}`);
-      return formatError(result.error);
+      try {
+        const result = advanceClient(args);
+        if (result.success) return formatSuccess(`${result.name}: ${result.from} → ${result.to}`);
+        return formatError(result.error);
+      } finally {
+        setCurrentUser(prevUser);
+      }
     }
     default:
       return null; // 未匹配的命令
@@ -204,32 +227,67 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
 }
 
 /**
- * 处理飞书事件回调
+ * 处理飞书消息事件（FeishuMessage 已统一为 v2 结构）
  */
 async function handleEvent(event: FeishuMessage): Promise<void> {
-  const chatId = event.header.chat_id;
-  const messageType = event.header.message_type as string;
+  log.info(`[飞书] 收到消息: chat_id=${event.message.chat_id}, type=${event.message.message_type}`);
 
-  // 只处理私聊消息
-  if (event.header.chat_type !== 'private') {
+  const chatId = event.message.chat_id;
+  const messageType = event.message.message_type;
+
+  // 只处理私聊消息（v2: "p2p"）
+  if (event.message.chat_type !== 'p2p') {
     log.dim(`[飞书] 忽略群聊消息: ${chatId}`);
     return;
   }
 
+  // 解析消息内容
+  // WSClient 可能传入已解析的对象，Webhook 传入 JSON 字符串，统一处理
+  let text = '';
+  try {
+    const raw = event.message.content;
+    const content = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+    if (messageType === 'text') {
+      text = content.text || '';
+    } else if (messageType === 'post') {
+      // post 类型的 content 结构：{ title, content: [[{ tag, text, ... }]] }
+      const title = content.title || '';
+      const lines: string[] = [];
+      if (Array.isArray(content.content)) {
+        for (const line of content.content) {
+          if (Array.isArray(line)) {
+            lines.push(line.map((seg: any) => seg.text || '').join(''));
+          }
+        }
+      }
+      text = [title, ...lines].filter(Boolean).join('\n');
+    } else {
+      // image / file / audio 等暂不支持，提示用户
+      text = '';
+    }
+  } catch {
+    text = event.message.content || '';
+  }
+
   // 获取发送者信息
-  const senderId = event.event.sender_id?.id || event.event.sender_id?.string_id || '';
-  const senderName = event.event.sender_id?.name || `user_${senderId}`;
+  const senderId = event.sender.sender_id.open_id || event.sender.sender_id.user_id || '';
+  const senderName = `user_${senderId.slice(-6)}`;
 
-  // 获取消息内容
-  let text = event.event.body?.content || '';
+  log.dim(`[飞书] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}`);
 
-  // 解密消息（如果需要）
-  if (messageType === 'encrypted' || messageType === 'encrypt') {
-    text = api.decryptMessage(text);
+  // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
+  if (text.startsWith('/debug')) {
+    try {
+      await api.sendText(chatId, `你的飞书用户 ID: ${senderId}`);
+    } catch (err: any) {
+      log.error(`[飞书] /debug 发送失败: ${err.message}`);
+    }
+    return;
   }
 
   if (!text) {
-    log.dim(`[飞书] 忽略空消息`);
+    log.dim(`[飞书] 忽略空消息或不支持的类型: ${messageType}`);
     return;
   }
 
@@ -240,7 +298,7 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     if (text === '/start') {
       const role = isAdminFeishuUser(senderId) ? '管理员' : '普通用户';
       await api.sendText(chatId,
-        `👋 欢迎使用衍语展业助手！\n\n` +
+        `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
         `你可以：\n` +
         `• 直接输入自然语言提问\n` +
@@ -321,7 +379,8 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     await api.sendText(chatId, reply);
 
   } catch (err: any) {
-    log.error(`[飞书] 处理消息出错: ${err.message}`);
+    const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
+    log.error(`[飞书] 处理消息出错: ${err.message}${cause}`);
     try {
       await api.sendText(chatId, `❌ 处理出错: ${err.message}`);
     } catch { /* ignore send error */ }
@@ -349,63 +408,118 @@ function verifySignature(timestamp: string, nonce: string, signature: string, bo
 /**
  * 处理 HTTP Webhook 请求
  * 导出供 Express/Http 服务器调用
+ * 兼容飞书 Event API v1 和 v2
  */
 export async function handleWebhookRequest(
   headers: Record<string, string | string[] | undefined>,
   body: any
 ): Promise<{ status: number; body: any }> {
-  const timestamp = headers['x-feishu-timestamp'] as string || '';
-  const nonce = headers['x-feishu-nonce'] as string || '';
-  const signature = headers['x-feishu-signature'] as string || '';
+  log.info(`[飞书 HTTP] 收到请求: schema=${body?.schema || 'v1'}, type=${body?.type || body?.header?.event_type || '-'}`);
 
-  // 验证签名（可选，生产环境建议启用）
-  // if (!verifySignature(timestamp, nonce, signature, JSON.stringify(body))) {
-  //   log.warn('[飞书] 签名验证失败');
-  //   return { status: 401, body: { error: 'invalid signature' } };
-  // }
-
-  // 处理验证挑战（飞书机器人配置时的验证）
-  const config = loadFeishuConfig();
+  // 处理验证挑战（飞书机器人配置时的 URL 验证，v1/v2 通用）
   if (body.type === 'url_verification') {
     return {
       status: 200,
-      body: {
-        challenge: body.challenge,
-      },
+      body: { challenge: body.challenge },
     };
   }
 
-  // 处理事件回调
-  if (body.type === 'event_callback') {
-    const event = body.event as FeishuMessage;
-    if (event && event.event && event.event.type === 'message') {
-      // 异步处理，不阻塞响应
+  // ── Event API v2 ──
+  if (body.schema === '2.0' && body.header && body.event) {
+    const eventType = body.header.event_type as string;
+    if (eventType === 'im.message.receive_v1') {
+      const event = body.event as FeishuMessage;
+      handleEvent(event).catch(err => {
+        log.error(`[飞书] 处理事件出错: ${err.message}`);
+      });
+    } else {
+      log.dim(`[飞书] 忽略事件类型: ${eventType}`);
+    }
+    return { status: 200, body: { code: 0 } };
+  }
+
+  // ── Event API v1 (legacy) ──
+  if (body.type === 'event_callback' && body.event) {
+    const v1 = body.event;
+    if (v1.type === 'message') {
+      // 将 v1 扁平结构转换为 v2 FeishuMessage 格式
+      const contentStr =
+        v1.msg_type === 'text'
+          ? JSON.stringify({ text: v1.text_without_at_bot || v1.text || '' })
+          : (v1.text || '');
+      const event: FeishuMessage = {
+        sender: {
+          sender_id: {
+            open_id: v1.open_id,
+            user_id: v1.user_id || v1.employee_id,
+          },
+          sender_type: 'user',
+        },
+        message: {
+          message_id: v1.open_message_id || '',
+          root_id: v1.root_id,
+          parent_id: v1.parent_id,
+          create_time: v1.create_time || '',
+          chat_id: v1.open_chat_id,
+          chat_type: v1.chat_type === 'private' ? 'p2p' : v1.chat_type,
+          message_type: v1.msg_type || 'text',
+          content: contentStr,
+        },
+      };
       handleEvent(event).catch(err => {
         log.error(`[飞书] 处理事件出错: ${err.message}`);
       });
     }
-
-    return {
-      status: 200,
-      body: { code: 0 },
-    };
+    return { status: 200, body: { code: 0 } };
   }
 
-  return {
-    status: 200,
-    body: { code: 0 },
-  };
+  return { status: 200, body: { code: 0 } };
 }
 
 /**
- * 启动飞书 Bot（Web 服务模式）
- * 需要配合 HTTP 服务器（如 Express）接收 Webhook
+ * 启动 WebSocket 长连接（通过 SDK WSClient 接收事件）
  */
-export async function startFeishuBot(): Promise<void> {
+function startWSClient(config: { appId: string; appSecret: string }): void {
+  const eventDispatcher = new Lark.EventDispatcher({}).register({
+    'im.message.receive_v1': async (data: any) => {
+      const event = data as FeishuMessage;
+      handleEvent(event).catch(err => {
+        log.error(`[飞书 WS] 处理事件出错: ${err.message}`);
+      });
+    },
+  });
+
+  wsClient = new Lark.WSClient({
+    appId: config.appId,
+    appSecret: config.appSecret,
+    loggerLevel: Lark.LoggerLevel.warn,
+  });
+
+  wsClient.start({ eventDispatcher });
+  log.success('[飞书] WebSocket 长连接已启动');
+}
+
+/**
+ * 启动飞书 Bot
+ * @param options.mode 连接模式: 'ws'(长连接,默认) | 'webhook'(HTTP回调)
+ * @param options.httpPort webhook 模式的 HTTP 端口
+ * @param options.httpPath webhook 模式的路径（默认 /webhook/feishu）
+ */
+export async function startFeishuBot(options?: {
+  mode?: FeishuBotMode;
+  httpPort?: number;
+  httpPath?: string;
+}): Promise<void> {
   if (running) {
     log.warn('[飞书] Bot 已在运行中');
     return;
   }
+
+  // 清除代理环境变量（可选，防止飞书 API 误走本地代理）
+  // delete process.env.HTTP_PROXY;
+  // delete process.env.HTTPS_PROXY;
+  // delete process.env.http_proxy;
+  // delete process.env.https_proxy;
 
   const feishuConfig = loadFeishuConfig();
 
@@ -444,7 +558,70 @@ export async function startFeishuBot(): Promise<void> {
   }, 30 * 60 * 1000);
 
   running = true;
-  log.success('[飞书] Bot 已启动（Webhook 模式）');
+
+  const mode: FeishuBotMode = options?.mode
+    || (process.env.FEISHU_MODE as FeishuBotMode)
+    || 'ws';
+
+  if (mode === 'ws') {
+    // ── 长连接模式：通过 SDK WSClient 接收事件 ──
+    startWSClient({ appId: feishuConfig.appId, appSecret: feishuConfig.appSecret });
+  } else {
+    // ── Webhook 模式：HTTP 服务器接收回调 ──
+    const httpPort = options?.httpPort;
+    if (httpPort) {
+      const webhookPath = options?.httpPath || '/webhook/feishu';
+      const server = createServer(async (req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Feishu-Signature, X-Feishu-Timestamp, X-Feishu-Nonce');
+
+        if (req.method === 'OPTIONS') {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+
+        if (req.method === 'POST' && req.url === webhookPath) {
+          let body = '';
+          for await (const chunk of req) {
+            body += chunk;
+          }
+
+          try {
+            const jsonBody = JSON.parse(body);
+            const headers = req.headers as Record<string, string | string[] | undefined>;
+            const result = await handleWebhookRequest(headers, jsonBody);
+
+            res.writeHead(result.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result.body));
+          } catch (err: any) {
+            log.error(`[飞书 HTTP] 处理请求出错: ${err.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+          return;
+        }
+
+        // 健康检查
+        if (req.method === 'GET' && req.url === '/health') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'ok' }));
+          return;
+        }
+
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not Found' }));
+      });
+
+      server.listen(httpPort, () => {
+        log.success(`[飞书] HTTP 服务已启动: http://localhost:${httpPort}${webhookPath}`);
+      });
+      httpServer = server;
+    }
+  }
+
+  log.success(`[飞书] Bot 已启动 (模式: ${mode})`);
 }
 
 /**
@@ -456,6 +633,14 @@ export function stopFeishuBot(): void {
     return;
   }
   running = false;
+  if (wsClient) {
+    wsClient.close();
+    wsClient = null;
+  }
+  if (httpServer) {
+    httpServer.close();
+    httpServer = null;
+  }
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;

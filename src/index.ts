@@ -144,6 +144,7 @@ async function repl(): Promise<void> {
           }
           if (key.name === 'return') {
             clearHints();
+            origTtyWrite.call(this, s, key);
             return;
           }
           if (key.name === 'escape') {

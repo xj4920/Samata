@@ -10,6 +10,7 @@ import { switchProvider, getProviderName, getModelName, getAvailableProviders, t
 import { handleSkill } from './skill.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
+import { startFeishuBot, stopFeishuBot, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
 
 let llmEnabled = false;
 
@@ -39,7 +40,7 @@ const commands: Record<string, Command> = {
   plugin:  { description: '插件: /plugin list | /plugin <name> [args]', adminOnly: false, handler: handlePlugin },
   skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
   watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
-  bot:     { description: 'Telegram Bot: /bot start | stop | status', adminOnly: true, handler: handleBot },
+  bot:     { description: 'Bot: /bot <tg|feishu> <start|stop|status>', adminOnly: true, handler: handleBot },
   model:   { description: '切换模型: /model [list | <provider>]', adminOnly: true, handler: handleModel },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
@@ -58,15 +59,42 @@ function handleWatch(args: string): void {
 }
 
 async function handleBot(args: string): Promise<void> {
-  const sub = args.trim().toLowerCase();
-  if (sub === 'start') {
-    await startTelegramBot();
-  } else if (sub === 'stop') {
-    stopTelegramBot();
-  } else if (sub === 'status') {
-    log.info(isTelegramBotRunning() ? '[TG] Bot 运行中' : '[TG] Bot 未运行');
+  const parts = args.trim().toLowerCase().split(/\s+/);
+  const channel = parts[0];
+  const action = parts[1];
+
+  if (!channel || !action) {
+    log.warn('用法: /bot <tg|feishu> <start|stop|status>');
+    return;
+  }
+
+  if (channel === 'tg' || channel === 'telegram') {
+    if (action === 'start') {
+      await startTelegramBot();
+    } else if (action === 'stop') {
+      stopTelegramBot();
+    } else if (action === 'status') {
+      log.info(isTelegramBotRunning() ? '[Telegram] Bot 运行中' : '[Telegram] Bot 未运行');
+    } else {
+      log.warn('用法: /bot tg <start|stop|status>');
+    }
+  } else if (channel === 'feishu' || channel === '飞书') {
+    if (action === 'start') {
+      const mode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
+      const feishuPort = parseInt(process.env.FEISHU_PORT || '3001', 10);
+      await startFeishuBot({
+        mode,
+        httpPort: mode === 'webhook' ? feishuPort : undefined,
+      });
+    } else if (action === 'stop') {
+      stopFeishuBot();
+    } else if (action === 'status') {
+      log.info(isFeishuBotRunning() ? '[飞书] Bot 运行中' : '[飞书] Bot 未运行');
+    } else {
+      log.warn('用法: /bot feishu <start|stop|status>');
+    }
   } else {
-    log.warn('用法: /bot start | stop | status');
+    log.warn('未知 channel: tg, feishu');
   }
 }
 

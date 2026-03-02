@@ -223,7 +223,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     if (text === '/start') {
       const role = isAdminTelegramUser(userId) ? '管理员' : '普通用户';
       await api.sendMessage(chatId,
-        `👋 欢迎使用衍语展业助手！\n\n` +
+        `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
         `你可以：\n` +
         `• 直接输入自然语言提问\n` +

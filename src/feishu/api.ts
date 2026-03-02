@@ -4,6 +4,7 @@
  * 参考文档：https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json
  */
 import crypto from 'node:crypto';
+import { ProxyAgent } from 'undici';
 import { log } from '../utils/logger.js';
 
 export interface FeishuConfig {
@@ -11,33 +12,40 @@ export interface FeishuConfig {
   appSecret: string;
   verificationToken: string;
   encryptKey: string;
+  proxy?: string;
 }
 
+/**
+ * 飞书 Event API v2 消息事件结构
+ * 对应事件类型：im.message.receive_v1
+ * 文档：https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/events/receive_v1
+ */
 export interface FeishuMessage {
-  header: {
+  sender: {
+    sender_id: {
+      union_id?: string;
+      user_id?: string;
+      open_id?: string;
+    };
+    sender_type?: string;
+    tenant_key?: string;
+  };
+  message: {
     message_id: string;
-    patch_id?: string;
-    create_time: string;
-    update_time: string;
-    chat_id: string;
-    chat_type: 'group' | 'private';
-    message_type: 'text' | 'post' | 'image' | 'file' | 'audio' | 'media' | 'interactive';
     root_id?: string;
     parent_id?: string;
-  };
-  event: {
-    type: 'message' | 'message_updated' | 'message_deleted' | 'added_to_chat' | 'removed_from_chat';
-    message_type: string;
-    sender_id: {
-      string_id: string;
-      id: string;
-      name?: string;
-      avatar?: string;
-    };
-    sender_id_type?: string;
-    body?: {
-      content: string;
-    };
+    create_time: string;
+    update_time?: string;
+    chat_id: string;
+    chat_type: string; // "p2p" (私聊) | "group" (群聊)
+    message_type: string; // "text" | "post" | "image" | "file" | "audio" | "media" | "interactive"
+    content: string; // JSON 字符串，如 '{"text":"hello"}'
+    mentions?: Array<{
+      key: string;
+      id: { union_id?: string; user_id?: string; open_id?: string };
+      name: string;
+      tenant_key?: string;
+    }>;
   };
 }
 
@@ -53,9 +61,22 @@ export class FeishuAPI {
   private config: FeishuConfig;
   private tenantAccessToken: string = '';
   private tokenExpireTime: number = 0;
+  private dispatcher?: ProxyAgent;
 
   constructor(config: FeishuConfig) {
     this.config = config;
+    if (config.proxy) {
+      this.dispatcher = new ProxyAgent(config.proxy);
+      log.dim(`[飞书] 使用代理: ${config.proxy}`);
+    }
+  }
+
+  /** 构造 fetch options，自动附加代理 dispatcher */
+  private fetchOpts(init: RequestInit): RequestInit {
+    if (this.dispatcher) {
+      (init as any).dispatcher = this.dispatcher;
+    }
+    return init;
   }
 
   /**
@@ -112,11 +133,17 @@ export class FeishuAPI {
       app_secret: this.config.appSecret,
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, this.fetchOpts({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }));
+    } catch (err: any) {
+      const cause = err.cause ? ` (${err.cause.message || err.cause.code || err.cause})` : '';
+      throw new Error(`无法连接飞书 API: ${err.message}${cause}`);
+    }
 
     const data = await response.json() as any;
 
@@ -149,14 +176,20 @@ export class FeishuAPI {
       content: typeof content === 'string' ? content : JSON.stringify(content),
     };
 
-    const response = await fetch(`${url}?${params}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${url}?${params}`, this.fetchOpts({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      }));
+    } catch (err: any) {
+      const cause = err.cause ? ` (${err.cause.message || err.cause.code || err.cause})` : '';
+      throw new Error(`无法连接飞书 API: ${err.message}${cause}`);
+    }
 
     const data = await response.json() as any;
 
@@ -210,14 +243,14 @@ export class FeishuAPI {
       reply_id: rootId,
     };
 
-    const response = await fetch(`${url}?${params}`, {
+    const response = await fetch(`${url}?${params}`, this.fetchOpts({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(body),
-    });
+    }));
 
     const data = await response.json() as any;
 
@@ -236,12 +269,12 @@ export class FeishuAPI {
 
     const url = `https://open.feishu.cn/open-apis/authen/v1/users/${userId}`;
 
-    const response = await fetch(url, {
+    const response = await fetch(url, this.fetchOpts({
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    });
+    }));
 
     const data = await response.json() as any;
 
@@ -260,7 +293,7 @@ export class FeishuAPI {
     const token = await this.getTenantAccessToken();
 
     // 下载图片
-    const imageResponse = await fetch(imageUrl);
+    const imageResponse = await fetch(imageUrl, this.fetchOpts({}));
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
     const url = 'https://open.feishu.cn/open-apis/im/v1/images';
@@ -274,14 +307,14 @@ export class FeishuAPI {
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]);
 
-    const response = await fetch(url, {
+    const response = await fetch(url, this.fetchOpts({
       method: 'POST',
       headers: {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
         'Authorization': `Bearer ${token}`,
       },
       body,
-    });
+    }));
 
     const data = await response.json() as any;
 

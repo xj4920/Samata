@@ -562,7 +562,7 @@ export function getTools(): Anthropic.Tool[] {
 
 export function getSystemPrompt(user?: User): string {
   const u = user ?? getCurrentUser();
-  return `你是衍语展业助手。你可以：
+  return `你是 OTC Claw。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact → Requirement Discussion → Solution Design → UAT → PROD）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
 3. 回答关于客户的问题，提供数据分析
@@ -590,19 +590,23 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
   const provider = getProvider();
 
   if (streamText && provider.createMessageStream) {
-    let result: CreateMessageResult | null = null;
-    let hasTextOutput = false;
-    for await (const event of provider.createMessageStream(params)) {
-      if (event.type === 'text_delta') {
-        if (!hasTextOutput) { console.log(); hasTextOutput = true; }
-        process.stdout.write(event.text);
-      } else if (event.type === 'done') {
-        result = { content: event.content, stop_reason: event.stop_reason };
+    try {
+      let result: CreateMessageResult | null = null;
+      let hasTextOutput = false;
+      for await (const event of provider.createMessageStream(params)) {
+        if (event.type === 'text_delta') {
+          if (!hasTextOutput) { console.log(); hasTextOutput = true; }
+          process.stdout.write(event.text);
+        } else if (event.type === 'done') {
+          result = { content: event.content, stop_reason: event.stop_reason };
+        }
       }
+      if (hasTextOutput) console.log('\n');
+      if (!result) throw new Error('Stream ended without done event');
+      return { result, streamed: hasTextOutput };
+    } catch (err: any) {
+      log.dim(`流式请求失败 (${err.message})，回退到非流式...`);
     }
-    if (hasTextOutput) console.log('\n');
-    if (!result) throw new Error('Stream ended without done event');
-    return { result, streamed: hasTextOutput };
   }
 
   return { result: await provider.createMessage(params), streamed: false };
@@ -619,8 +623,17 @@ export async function chat(userInput: string): Promise<void> {
     messages: conversationHistory,
   });
 
-  // 首次调用也流式输出
-  let { result: response, streamed } = await callLLM(makeParams(), true);
+  let response: CreateMessageResult;
+  let streamed: boolean;
+  try {
+    // 首次调用也流式输出
+    ({ result: response, streamed } = await callLLM(makeParams(), true));
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    log.error(`AI 请求失败: ${msg}`);
+    conversationHistory.pop(); // 回滚刚推入的 user message
+    return;
+  }
 
   // Agentic loop: keep processing until no more tool calls
   while (response.stop_reason === 'tool_use') {
@@ -655,7 +668,13 @@ export async function chat(userInput: string): Promise<void> {
     conversationHistory.push({ role: 'user', content: toolResults });
 
     // 下一轮调用：流式输出（如果最终是文本回复则逐字显示）
-    ({ result: response, streamed } = await callLLM(makeParams(), true));
+    try {
+      ({ result: response, streamed } = await callLLM(makeParams(), true));
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      log.error(`AI 请求失败: ${msg}`);
+      return;
+    }
   }
 
   const assistantContent = response.content;
