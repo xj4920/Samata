@@ -4,6 +4,12 @@
     "chatId": "6630337431",
     "proxy": "http://127.0.0.1:26001"
   },
+  "feishu": {
+    "appId": "",
+    "appSecret": "",
+    "verificationToken": "",
+    "encryptKey": ""
+  },
   "influx": {
     "database": "messages",
     "measurement": "wework"
