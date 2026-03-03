@@ -1,28 +1,17 @@
-import Table from 'cli-table3';
+import { marked } from 'marked';
+import { markedTerminal } from 'marked-terminal';
 import { log } from './logger.js';
 
-function truncate(str: string, max: number): string {
-  const flat = str.replace(/[\r\n]+/g, ' ').trim();
-  if (flat.length <= max) return flat;
-  return flat.slice(0, max - 3) + '...';
-}
+marked.use(markedTerminal());
 
-export interface ColumnDef {
-  width?: number;
-}
-
-export function renderTable(head: string[], rows: string[][], cols?: ColumnDef[]): void {
-  const colWidths = cols?.map(c => c.width);
-  const table = new Table({
-    head,
-    style: { head: ['cyan'] },
-    ...(colWidths ? { colWidths } : {}),
-  });
-  for (const row of rows) {
-    const truncated = cols
-      ? row.map((cell, i) => cols[i]?.width ? truncate(cell, cols[i].width! - 2) : cell)
-      : row;
-    table.push(truncated);
-  }
-  log.print(table.toString());
+export function renderTable(head: string[], rows: string[][]): void {
+  const sep = head.map(() => '---');
+  const lines = [
+    '| ' + head.join(' | ') + ' |',
+    '| ' + sep.join(' | ') + ' |',
+    ...rows.map(row => '| ' + row.map(cell => cell.replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ') + ' |'),
+  ];
+  const md = lines.join('\n');
+  const rendered = (marked(md) as string).trimEnd();
+  log.print(rendered);
 }

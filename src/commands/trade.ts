@@ -98,7 +98,7 @@ export async function trade(args: string): Promise<void> {
 
     log.print(`查询到 ${rows.length} 条交易记录：`);
 
-    const head = ['交易日期', '客户名称', '交易对手', 'USER', 'POS#', 'TRADE#', 'T日存续名本', 'T日成交金额', 'T日净增规模'];
+    const head = ['交易日期', '客户名称', '交易对手', 'USER', 'POS#', 'TRADE#', 'T日存续名本', 'T日成交金额', '净交易头寸'];
     const tableRows = rows.map(r => [
       r.date,
       r.client,

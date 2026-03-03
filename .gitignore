@@ -4,3 +4,6 @@ venv/
 data/
 .claude/
 *.DS_Store
+
+dist/*
+logs/*

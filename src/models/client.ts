@@ -16,6 +16,10 @@ export const STATE_LABELS: Record<ClientState, string> = {
   prod: 'PROD',
 };
 
+export const STATE_PRIORITY = Object.fromEntries(
+  STATES.map((s, i) => [s, STATES.length - 1 - i])
+) as Record<ClientState, number>;
+
 export function nextState(current: ClientState): ClientState | null {
   const idx = STATES.indexOf(current);
   if (idx < 0 || idx >= STATES.length - 1) return null;

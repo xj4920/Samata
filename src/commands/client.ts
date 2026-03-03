@@ -1,7 +1,7 @@
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isAdmin } from '../auth/rbac.js';
 import { recordEvent, getEvents } from '../models/event.js';
-import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
+import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState } from '../models/client.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { v4 as uuid } from 'uuid';
@@ -119,67 +119,25 @@ export function list(args: string): void {
     sql += ' WHERE state = ?';
     params.push(kv.state);
   }
-  sql += ' ORDER BY updated_at DESC';
-
   const rows = db.prepare(sql).all(...params) as Client[];
+  rows.sort((a, b) => (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0));
   if (rows.length === 0) {
     log.print('暂无客户数据');
     return;
   }
 
-  // 根据终端宽度决定显示哪些列
-  const termWidth = process.stdout.columns || 120;
+  const head = ['ID', '名称', '状态', '销售', '标签', '创建时间', '更新时间'];
+  const tableRows = rows.map(c => [
+    c.id.slice(0, 8),
+    c.name,
+    STATE_LABELS[c.state] || c.state,
+    c.sales ?? '-',
+    c.tags ?? '-',
+    c.created_at,
+    c.updated_at,
+  ]);
 
-  // 所有列定义：key, header, width, extract
-  const allCols: { key: string; header: string; minWidth: number; extract: (c: Client) => string }[] = [
-    { key: 'id',       header: 'ID',          minWidth: 12, extract: c => c.id.slice(0, 8) },
-    { key: 'name',     header: '名称',        minWidth: 15, extract: c => c.name },
-    { key: 'state',    header: '状态',        minWidth: 18, extract: c => STATE_LABELS[c.state] || c.state },
-    { key: 'sales',    header: '销售',        minWidth: 12, extract: c => c.sales ?? '-' },
-    { key: 'tags',     header: '标签',        minWidth: 14, extract: c => c.tags ?? '-' },
-    { key: 'updated',  header: '更新时间',    minWidth: 20, extract: c => c.updated_at },
-    { key: 'req',      header: '需求',        minWidth: 15, extract: c => c.requirements ?? '-' },
-    { key: 'wework',   header: 'WeWork Group', minWidth: 15, extract: c => c.wework_group ?? '-' },
-    { key: 'notes',    header: '备注',        minWidth: 12, extract: c => c.notes ?? '-' },
-  ];
-
-  // 从右侧开始裁剪列，直到总宽度适配终端
-  let visibleCols = [...allCols];
-  const borderOf = (n: number) => n + 1; // cli-table3 边框开销
-  while (visibleCols.length > 2) {
-    const totalMin = visibleCols.reduce((s, col) => s + col.minWidth, 0) + borderOf(visibleCols.length);
-    if (totalMin <= termWidth) break;
-    visibleCols.pop(); // 移除最右列
-  }
-
-  const head = visibleCols.map(col => col.header);
-  const tableRows = rows.map(c => visibleCols.map(col => col.extract(c)));
-
-  // 名称列动态扩展
-  const nameIdx = visibleCols.findIndex(col => col.key === 'name');
-  const colWidths = visibleCols.map((col, i) => {
-    if (i === nameIdx) {
-      const maxLen = Math.max(col.header.length, ...tableRows.map(row => row[i].length));
-      return Math.min(Math.max(maxLen + 4, col.minWidth), 30);
-    }
-    return col.minWidth;
-  });
-
-  // 剩余空间按比例分配给可伸缩列（需求、WeWork Group、备注）
-  const flexKeys = ['req', 'wework', 'notes'];
-  const usedWidth = colWidths.reduce((s, w) => s + w, 0) + borderOf(visibleCols.length);
-  const extraSpace = termWidth - usedWidth;
-  if (extraSpace > 0) {
-    const flexIndices = visibleCols.map((col, i) => flexKeys.includes(col.key) ? i : -1).filter(i => i >= 0);
-    if (flexIndices.length > 0) {
-      const each = Math.floor(extraSpace / flexIndices.length);
-      for (const fi of flexIndices) colWidths[fi] += each;
-    }
-  }
-
-  const cols = colWidths.map(width => ({ width }));
-
-  renderTable(head, tableRows, cols);
+  renderTable(head, tableRows);
   log.print(`共 ${rows.length} 条`);
 }
 
@@ -265,9 +223,10 @@ export function fetchClients(filter?: { state?: string; keyword?: string }): Cli
     params.push(kw, kw, kw, kw, kw);
   }
   if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ' ORDER BY updated_at DESC';
 
-  return db.prepare(sql).all(...params) as Client[];
+  const rows = db.prepare(sql).all(...params) as Client[];
+  rows.sort((a, b) => (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0));
+  return rows;
 }
 
 export function fetchClient(nameOrId: string): Client | null {

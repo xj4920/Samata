@@ -9,8 +9,12 @@ import { fetchKnowledge } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
 import { fetchTrades } from '../commands/trade.js';
 import { log } from '../utils/logger.js';
+import { marked } from 'marked';
+import { markedTerminal } from 'marked-terminal';
 import * as fs from 'fs';
 import * as path from 'path';
+
+marked.use(markedTerminal());
 
 const showThinking = () => process.env.SHOW_THINKING !== 'false';
 
@@ -134,7 +138,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'query_trades',
-    description: '查询交易成交记录。支持按管理人名称(client)、交易对手(party)、用户ID(user)、日期(date)过滤。管理人与交易对手为1:N映射关系，指定client会自动展开为其下所有交易对手。',
+    description: '查询交易成交记录。支持按管理人名称(client)、交易对手(party)、用户ID(user)、日期(date)过滤。管理人与交易对手为1:N映射关系，指定client会自动展开为其下所有交易对手。返回字段说明：notional_t=T日存续名义本金，trade_amt_ft=T日成交金额，ft_net=净交易头寸（非盈亏）。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -243,6 +247,7 @@ function handleQueryClients(input: { state?: string; keyword?: string }): string
     state: STATE_LABELS[c.state],
     tags: c.tags,
     notes: c.notes,
+    created_at: c.created_at,
     updated_at: c.updated_at,
   })));
 }
@@ -508,18 +513,21 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
   if (streamText && provider.createMessageStream) {
     try {
       let result: CreateMessageResult | null = null;
-      let hasTextOutput = false;
+      let buffer = '';
       for await (const event of provider.createMessageStream(params)) {
         if (event.type === 'text_delta') {
-          if (!hasTextOutput) { log.print(); hasTextOutput = true; }
-          process.stdout.write(event.text);
+          buffer += event.text;
         } else if (event.type === 'done') {
           result = { content: event.content, stop_reason: event.stop_reason };
         }
       }
-      if (hasTextOutput) log.print('\n');
+      if (buffer) {
+        log.print();
+        const rendered = marked(buffer) as string;
+        process.stdout.write(rendered.trimEnd() + '\n');
+      }
       if (!result) throw new Error('Stream ended without done event');
-      return { result, streamed: hasTextOutput };
+      return { result, streamed: !!buffer };
     } catch (err: any) {
       log.dim(`流式请求失败 (${err.message})，回退到非流式...`);
     }

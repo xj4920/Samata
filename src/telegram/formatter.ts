@@ -62,7 +62,7 @@ export function formatTrades(trades: TradeRow[]): string {
   const lines = [`📈 交易记录 (共 ${trades.length} 条)`, ''];
   for (const r of trades) {
     lines.push(`${r.date} | ${r.client} | ${r.counter_party}`);
-    lines.push(`  名义本金: ${formatNum(r.notional_t)}  成交: ${formatNum(r.trade_amt_ft)}  净增: ${formatNum(r.ft_net)}`);
+    lines.push(`  名义本金: ${formatNum(r.notional_t)}  成交: ${formatNum(r.trade_amt_ft)}  净交易头寸: ${formatNum(r.ft_net)}`);
   }
   return lines.join('\n');
 }

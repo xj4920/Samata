@@ -98,55 +98,21 @@ function listSkills(): void {
     return;
   }
 
-  const termWidth = process.stdout.columns || 120;
+  const extractParams = (s: Skill) => {
+    const params = [...new Set([...s.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]))];
+    return params.length > 0 ? params.join(', ') : '-';
+  };
 
-  // 所有列定义
-  const allCols: { key: string; header: string; minWidth: number; extract: (s: Skill) => string }[] = [
-    { key: 'name',    header: '名称',     minWidth: 18, extract: s => s.name },
-    { key: 'params',  header: '参数',     minWidth: 14, extract: s => {
-      const params = [...new Set([...s.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]))];
-      return params.length > 0 ? params.join(', ') : '-';
-    }},
-    { key: 'prompt',  header: 'Prompt 摘要', minWidth: 30, extract: s => s.prompt },
-    { key: 'author',  header: '创建者',   minWidth: 10, extract: s => s.created_by ?? '-' },
-    { key: 'created', header: '创建时间', minWidth: 20, extract: s => s.created_at ?? '-' },
-  ];
+  const head = ['名称', '参数', 'Prompt 摘要', '创建者', '创建时间'];
+  const tableRows = skills.map(s => [
+    s.name,
+    extractParams(s),
+    s.prompt.length > 60 ? s.prompt.slice(0, 57) + '...' : s.prompt,
+    s.created_by ?? '-',
+    s.created_at ?? '-',
+  ]);
 
-  // 从右侧裁剪列以适配终端宽度
-  let visibleCols = [...allCols];
-  const borderOf = (n: number) => n + 1;
-  while (visibleCols.length > 2) {
-    const totalMin = visibleCols.reduce((sum, col) => sum + col.minWidth, 0) + borderOf(visibleCols.length);
-    if (totalMin <= termWidth) break;
-    visibleCols.pop();
-  }
-
-  const head = visibleCols.map(col => col.header);
-  const tableRows = skills.map(s => visibleCols.map(col => col.extract(s)));
-
-  // 名称列动态扩展
-  const nameIdx = visibleCols.findIndex(col => col.key === 'name');
-  const colWidths = visibleCols.map((col, i) => {
-    if (i === nameIdx) {
-      const maxLen = Math.max(col.header.length, ...tableRows.map(row => row[i].length));
-      return Math.min(Math.max(maxLen + 4, col.minWidth), 35);
-    }
-    return col.minWidth;
-  });
-
-  // 剩余空间分配给 prompt 摘要列
-  const usedWidth = colWidths.reduce((s, w) => s + w, 0) + borderOf(visibleCols.length);
-  const extraSpace = termWidth - usedWidth;
-  if (extraSpace > 0) {
-    const promptIdx = visibleCols.findIndex(col => col.key === 'prompt');
-    if (promptIdx >= 0) {
-      colWidths[promptIdx] += extraSpace;
-    }
-  }
-
-  const cols = colWidths.map(width => ({ width }));
-
-  renderTable(head, tableRows, cols);
+  renderTable(head, tableRows);
   log.print(`共 ${skills.length} 个 skill`);
 }
 
