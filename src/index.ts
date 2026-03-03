@@ -6,6 +6,8 @@ import { closeDb } from './db/connection.js';
 import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
 import { initProviders } from './llm/provider.js';
+import { startMonitor } from './services/wework-monitor.js';
+import { startFeishuBot, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 
 async function login(): Promise<void> {
@@ -222,6 +224,18 @@ async function main(): Promise<void> {
   }
 
   await login();
+
+  // 启动企微监控
+  startMonitor();
+
+  // 启动飞书机器人
+  const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
+  const feishuPort = parseInt(process.env.FEISHU_PORT || '3001', 10);
+  await startFeishuBot({
+    mode: feishuMode,
+    httpPort: feishuMode === 'webhook' ? feishuPort : undefined,
+  });
+
   await repl();
   closeDb();
 }

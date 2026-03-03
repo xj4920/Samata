@@ -44,12 +44,14 @@ export function initSchema(): void {
     );
 
     CREATE TABLE IF NOT EXISTS knowledge (
-      id         TEXT PRIMARY KEY,
-      question   TEXT NOT NULL,
-      answer     TEXT NOT NULL,
-      tags       TEXT,
-      created_by TEXT NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      id           TEXT PRIMARY KEY,
+      question     TEXT NOT NULL,
+      answer       TEXT NOT NULL,
+      tags         TEXT,
+      related_users TEXT,
+      created_by   TEXT NOT NULL REFERENCES users(id),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS skills (
@@ -60,6 +62,20 @@ export function initSchema(): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
+  try {
+    db.exec("ALTER TABLE knowledge ADD COLUMN related_users TEXT");
+  } catch (e) {
+    // Column may already exist, ignore
+  }
+  try {
+    db.exec("ALTER TABLE knowledge ADD COLUMN updated_at TEXT");
+  } catch (e) {
+    // Column may already exist, ignore
+  }
+  // Update existing rows to set updated_at = created_at if null
+  db.prepare("UPDATE knowledge SET updated_at = created_at WHERE updated_at IS NULL").run();
 
   // Seed default users if empty
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
