@@ -25,14 +25,8 @@ interface Command {
 }
 
 const commands: Record<string, Command> = {
-  add:     { description: '添加客户: /add <名称> [contact=xx] [wework_group=xx] [sales=xx]', adminOnly: true, handler: clientCmd.add },
-  update:  { description: '更新客户: /update <id> <field=value ...>', adminOnly: true, handler: clientCmd.update },
-  delete:  { description: '删除客户: /delete <id>', adminOnly: true, handler: clientCmd.remove },
-  advance: { description: '推进状态: /advance <id>', adminOnly: true, handler: clientCmd.advance },
-  list:    { description: '客户列表: /list [state=xx]', adminOnly: false, handler: clientCmd.list },
-  view:    { description: '查看客户: /view <id>', adminOnly: false, handler: clientCmd.view },
-  history: { description: '操作历史: /history <id>', adminOnly: false, handler: clientCmd.history },
-  status:  { description: '状态看板: /status', adminOnly: false, handler: monitorCmd.status },
+  client:  { description: '客户管理: /client list|view|history|add|update|delete|advance', adminOnly: false, handler: clientCmd.handleClient },
+  status:  { description: '系统状态: /status', adminOnly: false, handler: monitorCmd.status },
   trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
   faq:       { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add':  { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
@@ -53,9 +47,9 @@ function handleWatch(args: string): void {
   } else if (sub === 'stop') {
     stopMonitor();
   } else if (sub === 'status') {
-    log.info(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
+    log.print(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
   } else {
-    log.warn('用法: /watch start | stop | status');
+    log.print('用法: /watch start | stop | status');
   }
 }
 
@@ -65,7 +59,7 @@ async function handleBot(args: string): Promise<void> {
   const action = parts[1];
 
   if (!channel || !action) {
-    log.warn('用法: /bot <tg|feishu> <start|stop|status>');
+    log.print('用法: /bot <tg|feishu> <start|stop|status>');
     return;
   }
 
@@ -75,9 +69,9 @@ async function handleBot(args: string): Promise<void> {
     } else if (action === 'stop') {
       stopTelegramBot();
     } else if (action === 'status') {
-      log.info(isTelegramBotRunning() ? '[Telegram] Bot 运行中' : '[Telegram] Bot 未运行');
+      log.print(isTelegramBotRunning() ? '[Telegram] Bot 运行中' : '[Telegram] Bot 未运行');
     } else {
-      log.warn('用法: /bot tg <start|stop|status>');
+      log.print('用法: /bot tg <start|stop|status>');
     }
   } else if (channel === 'feishu' || channel === '飞书') {
     if (action === 'start') {
@@ -90,12 +84,12 @@ async function handleBot(args: string): Promise<void> {
     } else if (action === 'stop') {
       stopFeishuBot();
     } else if (action === 'status') {
-      log.info(isFeishuBotRunning() ? '[飞书] Bot 运行中' : '[飞书] Bot 未运行');
+      log.print(isFeishuBotRunning() ? '[飞书] Bot 运行中' : '[飞书] Bot 未运行');
     } else {
-      log.warn('用法: /bot feishu <start|stop|status>');
+      log.print('用法: /bot feishu <start|stop|status>');
     }
   } else {
-    log.warn('未知 channel: tg, feishu');
+    log.print('未知 channel: tg, feishu');
   }
 }
 
@@ -104,17 +98,17 @@ function handleModel(args: string): void {
   if (!sub || sub === 'list') {
     const available = getAvailableProviders();
     const current = getProviderName();
-    log.info(`当前: ${current} / ${getModelName()}`);
-    log.info('可用 provider:');
+    log.print(`当前: ${current} / ${getModelName()}`);
+    log.print('可用 provider:');
     for (const p of available) {
-      console.log(`  ${p === current ? '▶' : ' '} ${p}`);
+      log.print(`  ${p === current ? '▶' : ' '} ${p}`);
     }
   } else {
     const ok = switchProvider(sub as ProviderName);
     if (ok) {
-      log.success(`已切换到 ${getProviderName()} / ${getModelName()}`);
+      log.print(`已切换到 ${getProviderName()} / ${getModelName()}`);
     } else {
-      log.error(`未知 provider: ${sub}，可用: ${getAvailableProviders().join(', ')}`);
+      log.print(`未知 provider: ${sub}，可用: ${getAvailableProviders().join(', ')}`);
     }
   }
 }
@@ -129,15 +123,15 @@ async function handlePlugin(args: string): Promise<void> {
 }
 
 function showHelp(): void {
-  log.info('可用命令：');
+  log.print('可用命令：');
   for (const [name, cmd] of Object.entries(commands)) {
     const tag = cmd.adminOnly ? ' [管理员]' : '';
-    console.log(`  /${name.padEnd(10)} ${cmd.description}${tag}`);
+    log.print(`  /${name.padEnd(10)} ${cmd.description}${tag}`);
   }
   if (llmEnabled) {
-    console.log();
-    log.dim('  也可以直接输入自然语言，AI 助手会帮你处理');
-    log.dim('  输入 /reset 可重置 AI 对话上下文');
+    log.print();
+    log.print('  也可以直接输入自然语言，AI 助手会帮你处理');
+    log.print('  输入 /reset 可重置 AI 对话上下文');
   }
 }
 
@@ -171,7 +165,7 @@ export async function route(input: string): Promise<void> {
     if (llmEnabled) {
       await chat(trimmed);
     } else {
-      log.warn(`未知输入，输入 /help 查看帮助`);
+      log.print(`未知输入，输入 /help 查看帮助`);
     }
     return;
   }
@@ -181,25 +175,25 @@ export async function route(input: string): Promise<void> {
   const args = rest.join(' ');
 
   if (cmd.toLowerCase() === 'reload') {
-    log.info('正在重载...');
+    log.print('正在重载...');
     process.exit(120);
   }
 
   if (cmd.toLowerCase() === 'reset') {
     resetConversation();
-    log.success('AI 对话上下文已重置');
+    log.print('AI 对话上下文已重置');
     return;
   }
 
   const command = commands[cmd.toLowerCase()];
 
   if (!command) {
-    log.warn(`未知命令: ${slashCmd}，输入 /help 查看帮助`);
+    log.print(`未知命令: ${slashCmd}，输入 /help 查看帮助`);
     return;
   }
 
   if (command.adminOnly && !isAdmin()) {
-    log.error('权限不足：该命令需要管理员权限');
+    log.print('权限不足：该命令需要管理员权限');
     return;
   }
 

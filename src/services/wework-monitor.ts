@@ -14,6 +14,7 @@ interface MonitorConfig {
   notification: {
     channels: NotificationChannel[];
     feishuChatId?: string;
+    feishuUserId?: string;
   };
   senders: string[];
   pollingIntervalSec: number;
@@ -54,12 +55,17 @@ async function sendTelegram(text: string): Promise<void> {
 
 let feishuApi: FeishuAPI | null = null;
 
-async function sendFeishu(text: string): Promise<void> {
+/**
+ * 发送飞书消息（支持群聊或个人用户）
+ * @param text 消息内容
+ * @param receiveId 接收者ID（群聊用chat_id，个人用户用user_id或open_id）
+ * @param receiveIdType 接收者ID类型: chat_id | user_id | open_id
+ */
+async function sendFeishu(text: string, receiveId: string, receiveIdType: 'chat_id' | 'user_id' | 'open_id'): Promise<void> {
   const cfg = loadConfig();
   const { appId, appSecret, proxy } = cfg.feishu;
-  const { feishuChatId } = cfg.notification;
 
-  if (!appId || !appSecret || !feishuChatId) return;
+  if (!appId || !appSecret || !receiveId) return;
 
   if (!feishuApi) {
     // FeishuAPI 需要 verificationToken 和 encryptKey，但发送消息不需要
@@ -67,22 +73,32 @@ async function sendFeishu(text: string): Promise<void> {
   }
 
   try {
-    await feishuApi.sendText(feishuChatId, text);
+    // 使用自定义的发送方法，支持指定 receive_id_type
+    await feishuApi.sendMessageTo(receiveId, receiveIdType, 'text', { text });
   } catch (err: any) {
     log.error(`[monitor] 飞书发送失败: ${err.message}`);
   }
 }
 
+/**
+ * 发送飞书通知（根据配置发送到群聊或个人用户）
+ */
 async function sendNotification(text: string): Promise<void> {
   const cfg = loadConfig();
   const channels = cfg.notification?.channels || ['telegram'];
+  const { feishuChatId, feishuUserId } = cfg.notification || {};
 
   const promises: Promise<void>[] = [];
   if (channels.includes('telegram')) {
     promises.push(sendTelegram(text));
   }
   if (channels.includes('feishu')) {
-    promises.push(sendFeishu(text));
+    // 优先发送给个人用户，其次发送给群聊
+    if (feishuUserId) {
+      promises.push(sendFeishu(text, feishuUserId, 'user_id'));
+    } else if (feishuChatId) {
+      promises.push(sendFeishu(text, feishuChatId, 'chat_id'));
+    }
   }
 
   await Promise.all(promises);
@@ -133,7 +149,7 @@ function escapeHtml(s: string): string {
 
 export function startMonitor(): void {
   if (timer) {
-    log.warn('[monitor] 已在运行中');
+    log.print('[monitor] 已在运行中');
     return;
   }
 
@@ -143,26 +159,45 @@ export function startMonitor(): void {
   const channels = cfg.notification?.channels || ['telegram'];
   const hasTelegram = channels.includes('telegram');
   const hasFeishu = channels.includes('feishu');
+  const { feishuChatId, feishuUserId } = cfg.notification || {};
 
   if (hasTelegram && (!cfg.telegram.botToken || !cfg.telegram.chatId)) {
-    log.error('[monitor] 通知渠道包含 telegram，但未配置 telegram.botToken 或 chatId');
+    log.print('[monitor] 通知渠道包含 telegram，但未配置 telegram.botToken 或 chatId');
     return;
   }
-  if (hasFeishu && (!cfg.feishu.appId || !cfg.feishu.appSecret || !cfg.notification.feishuChatId)) {
-    log.error('[monitor] 通知渠道包含 feishu，但未配置 feishu.appId、appSecret 或 notification.feishuChatId');
+  if (hasFeishu && !cfg.feishu.appId || !cfg.feishu.appSecret) {
+    log.print('[monitor] 通知渠道包含 feishu，但未配置 feishu.appId 或 appSecret');
+    return;
+  }
+  if (hasFeishu && !feishuChatId && !feishuUserId) {
+    log.print('[monitor] 通知渠道包含 feishu，但未配置 feishuChatId 或 feishuUserId');
     return;
   }
   if (channels.length === 0) {
-    log.error('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
+    log.print('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
     return;
   }
   if (cfg.senders.length === 0) {
-    log.error('[monitor] 请先在 config/monitor.json 中配置 senders 列表');
+    log.print('[monitor] 请先在 config/monitor.json 中配置 senders 列表');
     return;
   }
 
   const intervalMs = (cfg.pollingIntervalSec || 10) * 1000;
-  log.success(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，监控发送人: ${cfg.senders.join(', ')}`);
+  
+  // 显示通知目标
+  let notifyTarget = '';
+  if (channels.includes('feishu')) {
+    if (feishuUserId) {
+      notifyTarget = `飞书个人用户(${feishuUserId})`;
+    } else if (feishuChatId) {
+      notifyTarget = `飞书群聊(${feishuChatId})`;
+    }
+  }
+  
+  log.print(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，监控发送人: ${cfg.senders.join(', ')}`);
+  if (notifyTarget) {
+    log.print(`[monitor] 通知目标: ${notifyTarget}`);
+  }
 
   // Run immediately, then on interval
   poll();
@@ -171,13 +206,13 @@ export function startMonitor(): void {
 
 export function stopMonitor(): void {
   if (!timer) {
-    log.warn('[monitor] 未在运行');
+    log.print('[monitor] 未在运行');
     return;
   }
   clearInterval(timer);
   timer = null;
   lastSeenTime = null;
-  log.success('[monitor] 已停止监控');
+  log.print('[monitor] 已停止监控');
 }
 
 export function isMonitorRunning(): boolean {

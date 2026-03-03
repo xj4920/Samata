@@ -17,12 +17,12 @@ import { setCurrentUser, type User } from '../auth/rbac.js';
 import { getTools, executeTool, getSystemPrompt } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
-import { fetchStatus } from '../commands/monitor.js';
+import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
 import { fetchTrades } from '../commands/trade.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
 import { getAllSkills } from '../commands/skill.js';
 import {
-  formatStatusSummary, formatClientList, formatClientDetail,
+  formatClientList, formatClientDetail,
   formatClientHistory, formatTrades, formatKnowledge, formatSkillList,
   formatSuccess, formatError,
 } from './formatter.js';
@@ -122,30 +122,21 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
 async function handleCommand(cmd: string, args: string, telegramUserId: number): Promise<string | null> {
   switch (cmd) {
     case 'status': {
-      const data = fetchStatus();
-      return formatStatusSummary(data);
+      const data = fetchSystemStatus();
+      return formatSystemStatus(data);
     }
-    case 'list': {
-      const filter: { state?: string; keyword?: string } = {};
-      const stateMatch = args.match(/state=(\S+)/);
-      if (stateMatch) filter.state = stateMatch[1];
-      const remaining = args.replace(/state=\S+/, '').trim();
-      if (remaining) filter.keyword = remaining;
-      const clients = fetchClients(Object.keys(filter).length > 0 ? filter : undefined);
-      return formatClientList(clients);
+    case 'client': {
+      const parts = args.trim().split(/\s+/);
+      const sub = (parts[0] || '').toLowerCase();
+      const rest = parts.slice(1).join(' ');
+      return handleClientSubcommand(sub, rest, telegramUserId);
     }
-    case 'view': {
-      if (!args) return formatError('用法: /view <客户名称或ID>');
-      const client = fetchClient(args);
-      if (!client) return formatError(`未找到客户: ${args}`);
-      return formatClientDetail(client);
-    }
-    case 'history': {
-      if (!args) return formatError('用法: /history <客户名称或ID>');
-      const result = fetchHistory(args);
-      if (!result) return formatError(`未找到客户: ${args}`);
-      return formatClientHistory(result.name, result.events);
-    }
+    // keep old top-level aliases working
+    case 'list':    return handleClientSubcommand('list', args, telegramUserId);
+    case 'view':    return handleClientSubcommand('view', args, telegramUserId);
+    case 'history': return handleClientSubcommand('history', args, telegramUserId);
+    case 'add':     return handleClientSubcommand('add', args, telegramUserId);
+    case 'advance': return handleClientSubcommand('advance', args, telegramUserId);
     case 'trade': {
       const params: Record<string, string> = {};
       for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
@@ -176,26 +167,54 @@ async function handleCommand(cmd: string, args: string, telegramUserId: number):
       }
       return null; // skill save/run/del 需要更复杂的处理，走 AI
     }
+    default:
+      return null; // 未匹配的命令
+  }
+}
+
+function handleClientSubcommand(sub: string, rest: string, telegramUserId: number): string | null {
+  switch (sub) {
+    case 'list': case '': {
+      const filter: { state?: string; keyword?: string } = {};
+      const stateMatch = rest.match(/state=(\S+)/);
+      if (stateMatch) filter.state = stateMatch[1];
+      const remaining = rest.replace(/state=\S+/, '').trim();
+      if (remaining) filter.keyword = remaining;
+      const clients = fetchClients(Object.keys(filter).length > 0 ? filter : undefined);
+      return formatClientList(clients);
+    }
+    case 'view': {
+      if (!rest) return formatError('用法: /client view <客户名称或ID>');
+      const client = fetchClient(rest);
+      if (!client) return formatError(`未找到客户: ${rest}`);
+      return formatClientDetail(client);
+    }
+    case 'history': {
+      if (!rest) return formatError('用法: /client history <客户名称或ID>');
+      const result = fetchHistory(rest);
+      if (!result) return formatError(`未找到客户: ${rest}`);
+      return formatClientHistory(result.name, result.events);
+    }
     case 'add': {
       if (!isAdminTelegramUser(telegramUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!args) return formatError('用法: /add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
+      if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
       const session = getSession(telegramUserId, '');
       setCurrentUser(session.user);
-      const result = addClient(args);
+      const result = addClient(rest);
       if (result.success) return formatSuccess(`客户已添加: ${result.name} (${result.id})`);
       return formatError(result.error);
     }
     case 'advance': {
       if (!isAdminTelegramUser(telegramUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!args) return formatError('用法: /advance <客户名称或ID>');
+      if (!rest) return formatError('用法: /client advance <客户名称或ID>');
       const session = getSession(telegramUserId, '');
       setCurrentUser(session.user);
-      const result = advanceClient(args);
+      const result = advanceClient(rest);
       if (result.success) return formatSuccess(`${result.name}: ${result.from} → ${result.to}`);
       return formatError(result.error);
     }
     default:
-      return null; // 未匹配的命令
+      return formatError('用法: /client <list|view|history|add|advance> [参数]');
   }
 }
 
@@ -240,16 +259,16 @@ async function handleMessage(msg: TgMessage): Promise<void> {
         `/start - 开始使用\n` +
         `/help - 查看帮助\n` +
         `/reset - 重置对话上下文\n` +
-        `/status - 客户状态看板\n\n` +
+        `/status - 系统状态\n\n` +
+        `*客户管理：*\n` +
+        `/client list [state=xx] - 客户列表\n` +
+        `/client view <名称> - 查看客户详情\n` +
+        `/client history <名称> - 操作历史\n` +
+        `/client add <名称> - 添加客户 👑\n` +
+        `/client advance <名称> - 推进状态 👑\n\n` +
         `*查询命令：*\n` +
-        `/list - 客户列表\n` +
-        `/view <名称> - 查看客户详情\n` +
-        `/history <名称> - 操作历史\n` +
         `/trade <参数> - 交易查询\n` +
         `/faq <关键词> - 搜索知识库\n\n` +
-        `*管理命令（仅管理员）：*\n` +
-        `/add <名称> - 添加客户\n` +
-        `/advance <名称> - 推进状态\n\n` +
         `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
         'Markdown'
       );
@@ -348,6 +367,7 @@ async function pollLoop(): Promise<void> {
 export async function startTelegramBot(): Promise<void> {
   if (running) {
     log.warn('[TG] Bot 已在运行中');
+    log.print('[TG] Bot 已在运行中');
     return;
   }
 
@@ -355,6 +375,7 @@ export async function startTelegramBot(): Promise<void> {
   const token = tgConfig.botToken;
   if (!token) {
     log.error('[TG] 未配置 botToken，请在 config/monitor.json 中设置 telegram.botToken');
+    log.print('[TG] 未配置 botToken，请在 config/monitor.json 中设置 telegram.botToken');
     return;
   }
 
@@ -379,8 +400,10 @@ export async function startTelegramBot(): Promise<void> {
   try {
     const me = await api.getMe();
     log.success(`[TG] Bot 已连接: @${me.username} (${me.first_name})`);
+    log.print(`[TG] Bot 已连接: @${me.username} (${me.first_name})`);
   } catch (err: any) {
     log.error(`[TG] Bot token 无效: ${err.message}`);
+    log.print(`[TG] Bot token 无效: ${err.message}`);
     return;
   }
 
@@ -390,9 +413,8 @@ export async function startTelegramBot(): Promise<void> {
       { command: 'start', description: '开始使用' },
       { command: 'help', description: '查看帮助' },
       { command: 'reset', description: '重置对话上下文' },
-      { command: 'status', description: '客户状态看板' },
-      { command: 'list', description: '客户列表' },
-      { command: 'view', description: '查看客户详情' },
+      { command: 'status', description: '系统状态' },
+      { command: 'client', description: '客户管理' },
       { command: 'trade', description: '交易查询' },
       { command: 'faq', description: '搜索知识库' },
     ]);
@@ -418,6 +440,7 @@ export async function startTelegramBot(): Promise<void> {
 export function stopTelegramBot(): void {
   if (!running) {
     log.warn('[TG] Bot 未在运行');
+    log.print('[TG] Bot 未在运行');
     return;
   }
   running = false;
@@ -426,6 +449,7 @@ export function stopTelegramBot(): void {
     cleanupTimer = null;
   }
   log.success('[TG] Bot 已停止');
+  log.print('[TG] Bot 已停止');
 }
 
 /**

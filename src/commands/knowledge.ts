@@ -40,19 +40,19 @@ export function search(args: string): void {
   }
 
   if (rows.length === 0) {
-    log.dim('未找到相关FAQ');
+    log.print('未找到相关FAQ');
     return;
   }
 
   for (const item of rows) {
-    console.log(`  [${item.id.slice(0, 8)}] Q: ${item.question}`);
-    console.log(`           A: ${item.answer}`);
-    if (item.tags) console.log(`           标签: ${item.tags}`);
-    if (item.related_users) console.log(`           相关人员: ${item.related_users}`);
-    console.log(`           创建: ${item.created_at} | 修改: ${item.updated_at}`);
-    console.log();
+    log.print(`  [${item.id.slice(0, 8)}] Q: ${item.question}`);
+    log.print(`           A: ${item.answer}`);
+    if (item.tags) log.print(`           标签: ${item.tags}`);
+    if (item.related_users) log.print(`           相关人员: ${item.related_users}`);
+    log.print(`           创建: ${item.created_at} | 修改: ${item.updated_at}`);
+    log.print();
   }
-  log.dim(`共 ${rows.length} 条`);
+  log.print(`共 ${rows.length} 条`);
 }
 
 export async function add(): Promise<void> {
@@ -70,13 +70,13 @@ export async function add(): Promise<void> {
   ).run(id, question, answer, tags || null, relatedUsers || null, user.id);
 
   recordEvent('knowledge', id, 'create', { question });
-  log.success(`FAQ已添加: ${id.slice(0, 8)}`);
+  log.print(`FAQ已添加: ${id.slice(0, 8)}`);
 }
 
 export function remove(args: string): void {
   const idPrefix = args.trim();
   if (!idPrefix) {
-    log.warn('用法: faq-del <id>');
+    log.print('用法: faq-del <id>');
     return;
   }
 
@@ -84,22 +84,22 @@ export function remove(args: string): void {
   const rows = db.prepare('SELECT * FROM knowledge WHERE id LIKE ?').all(`${idPrefix}%`) as KnowledgeItem[];
 
   if (rows.length === 0) {
-    log.error(`未找到FAQ: ${idPrefix}`);
+    log.print(`未找到FAQ: ${idPrefix}`);
     return;
   }
   if (rows.length > 1) {
-    log.warn('匹配到多条，请提供更长的ID前缀');
+    log.print('匹配到多条，请提供更长的ID前缀');
     return;
   }
 
   db.prepare('DELETE FROM knowledge WHERE id = ?').run(rows[0].id);
   recordEvent('knowledge', rows[0].id, 'delete', { question: rows[0].question });
-  log.success(`FAQ已删除: ${rows[0].question}`);
+  log.print(`FAQ已删除: ${rows[0].question}`);
 }
 
 export async function update(idPrefix: string): Promise<void> {
   if (!idPrefix) {
-    log.warn('用法: faq-update <id>');
+    log.print('用法: faq-update <id>');
     return;
   }
 
@@ -107,11 +107,11 @@ export async function update(idPrefix: string): Promise<void> {
   const rows = db.prepare('SELECT * FROM knowledge WHERE id LIKE ?').all(`${idPrefix}%`) as KnowledgeItem[];
 
   if (rows.length === 0) {
-    log.error(`未找到FAQ: ${idPrefix}`);
+    log.print(`未找到FAQ: ${idPrefix}`);
     return;
   }
   if (rows.length > 1) {
-    log.warn('匹配到多条，请提供更长的ID前缀');
+    log.print('匹配到多条，请提供更长的ID前缀');
     return;
   }
 
@@ -127,5 +127,5 @@ export async function update(idPrefix: string): Promise<void> {
   ).run(question, answer, tags || null, relatedUsers || null, item.id);
 
   recordEvent('knowledge', item.id, 'update', { question, modified_by: user.id });
-  log.success(`FAQ已更新: ${item.id.slice(0, 8)}`);
+  log.print(`FAQ已更新: ${item.id.slice(0, 8)}`);
 }

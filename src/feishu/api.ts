@@ -57,6 +57,9 @@ export interface FeishuUser {
   avatar_url?: string;
 }
 
+// 接收者类型
+export type FeishuReceiveIdType = 'chat_id' | 'user_id' | 'open_id';
+
 export class FeishuAPI {
   private config: FeishuConfig;
   private tenantAccessToken: string = '';
@@ -159,19 +162,30 @@ export class FeishuAPI {
   }
 
   /**
-   * 发送消息
+   * 发送消息（默认发送到群聊）
    * 文档：https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json
    */
   async sendMessage(chatId: string, messageType: string, content: any): Promise<void> {
+    await this.sendMessageTo(chatId, 'chat_id', messageType, content);
+  }
+
+  /**
+   * 发送消息（支持指定接收者类型）
+   * @param receiveId 接收者ID
+   * @param receiveIdType 接收者类型: chat_id (群聊) | user_id | open_id
+   * @param messageType 消息类型
+   * @param content 消息内容
+   */
+  async sendMessageTo(receiveId: string, receiveIdType: FeishuReceiveIdType, messageType: string, content: any): Promise<void> {
     const token = await this.getTenantAccessToken();
 
     const url = 'https://open.feishu.cn/open-apis/im/v1/messages';
     const params = new URLSearchParams({
-      receive_id_type: 'chat_id',
+      receive_id_type: receiveIdType,
     });
 
     const body = {
-      receive_id: chatId,
+      receive_id: receiveId,
       msg_type: messageType,
       content: typeof content === 'string' ? content : JSON.stringify(content),
     };
@@ -197,7 +211,7 @@ export class FeishuAPI {
       throw new Error(`发送消息失败: ${data.msg} (code: ${data.code})`);
     }
 
-    log.dim(`[飞书] 消息已发送至 chat_id: ${chatId}`);
+    log.dim(`[飞书] 消息已发送至 ${receiveIdType}: ${receiveId}`);
   }
 
   /**
@@ -284,6 +298,46 @@ export class FeishuAPI {
     }
 
     return data.data as FeishuUser;
+  }
+
+  /**
+   * 通过手机号或邮箱获取用户ID
+   * 文档：https://open.feishu.cn/document/server-docs/im-v1/contact-users/batch_get_id
+   */
+  async getUserIdByContact(employeeId?: string, userId?: string, unionId?: string, openId?: string): Promise<string | null> {
+    const token = await this.getTenantAccessToken();
+
+    const url = 'https://open.feishu.cn/open-apis/contact/v3/users/batch_get_id';
+    
+    const body: any = {};
+    if (employeeId) body.employee_ids = [employeeId];
+    if (userId) body.user_ids = [userId];
+    if (unionId) body.union_ids = [unionId];
+    if (openId) body.open_ids = [openId];
+
+    if (Object.keys(body).length === 0) {
+      log.error('获取用户ID需要提供至少一个查询条件');
+      return null;
+    }
+
+    const response = await fetch(url, this.fetchOpts({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    }));
+
+    const data = await response.json() as any;
+
+    if (data.code !== 0) {
+      log.error(`获取用户ID失败: ${data.msg}`);
+      return null;
+    }
+
+    const users = data.data?.user_list || [];
+    return users.length > 0 ? users[0].user_id : null;
   }
 
   /**

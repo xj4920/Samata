@@ -58,17 +58,17 @@ export async function handleSkill(args: string): Promise<void> {
 }
 
 function showSkillHelp(): void {
-  log.info('Skill 用法：');
-  console.log('  skill list                          列出所有 skill');
-  console.log('  skill save <name> "<prompt>"         保存 skill（支持 {param} 占位符）');
-  console.log('  skill run <name> [param=value ...]   执行 skill');
-  console.log('  skill del <name>                     删除 skill');
+  log.print('Skill 用法：');
+  log.print('  skill list                          列出所有 skill');
+  log.print('  skill save <name> "<prompt>"         保存 skill（支持 {param} 占位符）');
+  log.print('  skill run <name> [param=value ...]   执行 skill');
+  log.print('  skill del <name>                     删除 skill');
 }
 
 function listSkills(): void {
   const skills = getAllSkills();
   if (skills.length === 0) {
-    log.dim('暂无已保存的 skill');
+    log.print('暂无已保存的 skill');
     return;
   }
 
@@ -121,14 +121,14 @@ function listSkills(): void {
   const cols = colWidths.map(width => ({ width }));
 
   renderTable(head, tableRows, cols);
-  log.dim(`共 ${skills.length} 个 skill`);
+  log.print(`共 ${skills.length} 个 skill`);
 }
 
 function saveSkill(args: string): void {
   // Parse: name "prompt" or name prompt
   const match = args.match(/^(\S+)\s+"([^"]+)"/s) || args.match(/^(\S+)\s+(.*)/s);
   if (!match) {
-    log.warn('用法: skill save <name> "<prompt>"');
+    log.print('用法: skill save <name> "<prompt>"');
     return;
   }
   const name = match[1];
@@ -141,42 +141,42 @@ function saveSkill(args: string): void {
   if (existing) {
     db.prepare('UPDATE skills SET prompt = ? WHERE name = ?').run(prompt, name);
     recordEvent('skill', existing.id, 'update', { name, prompt });
-    log.success(`Skill 已更新: ${name}`);
+    log.print(`Skill 已更新: ${name}`);
   } else {
     const id = uuid();
     db.prepare('INSERT INTO skills (id, name, prompt, created_by) VALUES (?, ?, ?, ?)').run(id, name, prompt, user.id);
     recordEvent('skill', id, 'create', { name, prompt });
-    log.success(`Skill 已保存: ${name}`);
+    log.print(`Skill 已保存: ${name}`);
   }
 }
 
 function delSkill(args: string): void {
   const name = args.trim();
   if (!name) {
-    log.warn('用法: skill del <name>');
+    log.print('用法: skill del <name>');
     return;
   }
   const skill = getSkillByName(name);
   if (!skill) {
-    log.error(`未找到 skill: ${name}`);
+    log.print(`未找到 skill: ${name}`);
     return;
   }
   const db = getDb();
   db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id);
   recordEvent('skill', skill.id, 'delete', { name });
-  log.success(`Skill 已删除: ${name}`);
+  log.print(`Skill 已删除: ${name}`);
 }
 
 async function runSkill(args: string): Promise<void> {
   const parts = args.match(/^(\S+)\s*(.*)/s);
   if (!parts) {
-    log.warn('用法: skill run <name> [param=value ...]');
+    log.print('用法: skill run <name> [param=value ...]');
     return;
   }
   const name = parts[1];
   const skill = getSkillByName(name);
   if (!skill) {
-    log.error(`未找到 skill: ${name}`);
+    log.print(`未找到 skill: ${name}`);
     return;
   }
 
@@ -186,11 +186,11 @@ async function runSkill(args: string): Promise<void> {
   // Check for unresolved params
   const unresolved = [...prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]);
   if (unresolved.length > 0) {
-    log.warn(`缺少参数: ${unresolved.join(', ')}`);
-    log.dim(`用法: skill run ${name} ${unresolved.map(p => `${p}=值`).join(' ')}`);
+    log.print(`缺少参数: ${unresolved.join(', ')}`);
+    log.print(`用法: skill run ${name} ${unresolved.map(p => `${p}=值`).join(' ')}`);
     return;
   }
 
-  log.dim(`▶ 执行 skill [${name}]: ${prompt}`);
+  log.print(`▶ 执行 skill [${name}]: ${prompt}`);
   await chat(prompt);
 }

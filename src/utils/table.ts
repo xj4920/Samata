@@ -1,4 +1,5 @@
 import Table from 'cli-table3';
+import { log } from './logger.js';
 
 function truncate(str: string, max: number): string {
   const flat = str.replace(/[\r\n]+/g, ' ').trim();
@@ -23,5 +24,5 @@ export function renderTable(head: string[], rows: string[][], cols?: ColumnDef[]
       : row;
     table.push(truncated);
   }
-  console.log(table.toString());
+  log.print(table.toString());
 }

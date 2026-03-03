@@ -92,11 +92,11 @@ export async function trade(args: string): Promise<void> {
     });
 
     if (rows.length === 0) {
-      log.warn('未查询到交易数据');
+      log.print('未查询到交易数据');
       return;
     }
 
-    log.info(`查询到 ${rows.length} 条交易记录：`);
+    log.print(`查询到 ${rows.length} 条交易记录：`);
 
     const head = ['交易日期', '客户名称', '交易对手', 'USER', 'POS#', 'TRADE#', 'T日存续名本', 'T日成交金额', 'T日净增规模'];
     const tableRows = rows.map(r => [
@@ -113,6 +113,6 @@ export async function trade(args: string): Promise<void> {
 
     renderTable(head, tableRows);
   } catch (err: any) {
-    log.error(err.message);
+    log.print(err.message);
   }
 }

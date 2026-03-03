@@ -3,7 +3,6 @@
  * 复用 Telegram 的格式化逻辑
  */
 export {
-  formatStatusSummary,
   formatClientList,
   formatClientDetail,
   formatClientHistory,

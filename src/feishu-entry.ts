@@ -23,9 +23,9 @@ const MODE = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
 const PORT = parseInt(process.env.FEISHU_PORT || '3001', 10);
 
 async function main() {
-  console.log('\n' + '='.repeat(40));
-  log.info('  衍语 (YanYu) — 飞书 Bot');
-  console.log('='.repeat(40) + '\n');
+  log.print('\n' + '='.repeat(40));
+  log.print('  衍语 (YanYu) — 飞书 Bot');
+  log.print('='.repeat(40) + '\n');
 
   initSchema();
 

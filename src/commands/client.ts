@@ -1,5 +1,5 @@
 import { getDb } from '../db/connection.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isAdmin } from '../auth/rbac.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
 import { log } from '../utils/logger.js';
@@ -18,7 +18,7 @@ function parseKV(args: string): Record<string, string> {
 export function add(args: string): void {
   const parts = args.match(/^(\S+)\s*(.*)/);
   if (!parts) {
-    log.warn('用法: add <名称> [contact=xx] [wework_group=xx] [sales=xx] [notes=xx]');
+    log.print('用法: add <名称> [contact=xx] [wework_group=xx] [sales=xx] [notes=xx]');
     return;
   }
   const name = parts[1];
@@ -32,19 +32,19 @@ export function add(args: string): void {
   ).run(id, name, kv.contact ?? null, kv.wework_group ?? null, kv.requirements ?? null, kv.sales ?? null, kv.notes ?? null, user.id);
 
   recordEvent('client', id, 'create', { name, ...kv });
-  log.success(`客户已添加: ${name} (${id.slice(0, 8)})`);
+  log.print(`客户已添加: ${name} (${id.slice(0, 8)})`);
 }
 
 export function update(args: string): void {
   const parts = args.match(/^(\S+)\s+(.*)/);
   if (!parts) {
-    log.warn('用法: update <id> <field=value ...>');
+    log.print('用法: update <id> <field=value ...>');
     return;
   }
   const idPrefix = parts[1];
   const kv = parseKV(parts[2]);
   if (Object.keys(kv).length === 0) {
-    log.warn('请提供要更新的字段，如: name=xx wework_group=xx');
+    log.print('请提供要更新的字段，如: name=xx wework_group=xx');
     return;
   }
 
@@ -57,7 +57,7 @@ export function update(args: string): void {
   const vals: any[] = [];
   for (const [k, v] of Object.entries(kv)) {
     if (!allowed.includes(k)) {
-      log.warn(`不支持更新字段: ${k}`);
+      log.print(`不支持更新字段: ${k}`);
       continue;
     }
     sets.push(`${k} = ?`);
@@ -70,13 +70,13 @@ export function update(args: string): void {
 
   db.prepare(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   recordEvent('client', client.id, 'update', kv);
-  log.success(`客户已更新: ${client.name}`);
+  log.print(`客户已更新: ${client.name}`);
 }
 
 export function remove(args: string): void {
   const idPrefix = args.trim();
   if (!idPrefix) {
-    log.warn('用法: delete <id>');
+    log.print('用法: delete <id>');
     return;
   }
   const client = findByPrefix(idPrefix);
@@ -85,13 +85,13 @@ export function remove(args: string): void {
   const db = getDb();
   db.prepare('DELETE FROM clients WHERE id = ?').run(client.id);
   recordEvent('client', client.id, 'delete', { name: client.name });
-  log.success(`客户已删除: ${client.name}`);
+  log.print(`客户已删除: ${client.name}`);
 }
 
 export function advance(args: string): void {
   const idPrefix = args.trim();
   if (!idPrefix) {
-    log.warn('用法: advance <id>');
+    log.print('用法: advance <id>');
     return;
   }
   const client = findByPrefix(idPrefix);
@@ -99,14 +99,14 @@ export function advance(args: string): void {
 
   const next = nextState(client.state);
   if (!next) {
-    log.warn(`客户 ${client.name} 已处于最终状态: ${STATE_LABELS[client.state]}`);
+    log.print(`客户 ${client.name} 已处于最终状态: ${STATE_LABELS[client.state]}`);
     return;
   }
 
   const db = getDb();
   db.prepare("UPDATE clients SET state = ?, updated_at = datetime('now') WHERE id = ?").run(next, client.id);
   recordEvent('client', client.id, 'advance', { from: client.state, to: next });
-  log.success(`${client.name}: ${STATE_LABELS[client.state]} → ${STATE_LABELS[next]}`);
+  log.print(`${client.name}: ${STATE_LABELS[client.state]} → ${STATE_LABELS[next]}`);
 }
 
 export function list(args: string): void {
@@ -123,7 +123,7 @@ export function list(args: string): void {
 
   const rows = db.prepare(sql).all(...params) as Client[];
   if (rows.length === 0) {
-    log.dim('暂无客户数据');
+    log.print('暂无客户数据');
     return;
   }
 
@@ -180,35 +180,35 @@ export function list(args: string): void {
   const cols = colWidths.map(width => ({ width }));
 
   renderTable(head, tableRows, cols);
-  log.dim(`共 ${rows.length} 条`);
+  log.print(`共 ${rows.length} 条`);
 }
 
 export function view(args: string): void {
   const idPrefix = args.trim();
   if (!idPrefix) {
-    log.warn('用法: view <id>');
+    log.print('用法: view <id>');
     return;
   }
   const client = findByPrefix(idPrefix);
   if (!client) return;
 
-  console.log(`  ID:         ${client.id}`);
-  console.log(`  名称:       ${client.name}`);
-  console.log(`  WeWork Group: ${client.wework_group ?? '-'}`);
-  console.log(`  需求:       ${client.requirements ?? '-'}`);
-  console.log(`  销售:       ${client.sales ?? '-'}`);
-  console.log(`  联系方式:   ${client.contact ?? '-'}`);
-  console.log(`  状态:       ${STATE_LABELS[client.state]}`);
-  console.log(`  标签:       ${client.tags ?? '-'}`);
-  console.log(`  备注:       ${client.notes ?? '-'}`);
-  console.log(`  创建时间:   ${client.created_at}`);
-  console.log(`  更新时间:   ${client.updated_at}`);
+  log.print(`  ID:         ${client.id}`);
+  log.print(`  名称:       ${client.name}`);
+  log.print(`  WeWork Group: ${client.wework_group ?? '-'}`);
+  log.print(`  需求:       ${client.requirements ?? '-'}`);
+  log.print(`  销售:       ${client.sales ?? '-'}`);
+  log.print(`  联系方式:   ${client.contact ?? '-'}`);
+  log.print(`  状态:       ${STATE_LABELS[client.state]}`);
+  log.print(`  标签:       ${client.tags ?? '-'}`);
+  log.print(`  备注:       ${client.notes ?? '-'}`);
+  log.print(`  创建时间:   ${client.created_at}`);
+  log.print(`  更新时间:   ${client.updated_at}`);
 }
 
 export function history(args: string): void {
   const idPrefix = args.trim();
   if (!idPrefix) {
-    log.warn('用法: history <id>');
+    log.print('用法: history <id>');
     return;
   }
   const client = findByPrefix(idPrefix);
@@ -216,14 +216,14 @@ export function history(args: string): void {
 
   const events = getEvents(client.id);
   if (events.length === 0) {
-    log.dim('暂无操作记录');
+    log.print('暂无操作记录');
     return;
   }
 
-  log.info(`${client.name} 的操作历史：`);
+  log.print(`${client.name} 的操作历史：`);
   for (const e of events) {
     const payload = e.payload ? ` ${e.payload}` : '';
-    console.log(`  ${e.created_at}  ${e.action.padEnd(10)}${payload}`);
+    log.print(`  ${e.created_at}  ${e.action.padEnd(10)}${payload}`);
   }
 }
 
@@ -238,9 +238,9 @@ export function findByPrefix(prefix: string): Client | null {
   }
   if (rows.length === 1) return rows[0];
   if (rows.length > 1) {
-    log.warn(`匹配到多个客户，请提供更长的ID前缀：`);
+    log.print(`匹配到多个客户，请提供更长的ID前缀：`);
     for (const c of rows) {
-      console.log(`  ${c.id.slice(0, 8)}  ${c.name}`);
+      log.print(`  ${c.id.slice(0, 8)}  ${c.name}`);
     }
     return null;
   }
@@ -307,4 +307,31 @@ export function advanceClient(nameOrId: string): { success: true; name: string; 
   db.prepare("UPDATE clients SET state = ?, updated_at = datetime('now') WHERE id = ?").run(next, client.id);
   recordEvent('client', client.id, 'advance', { from: client.state, to: next });
   return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[next] };
+}
+
+// --- /client subcommand dispatcher ---
+
+const ADMIN_SUBCMDS = new Set(['add', 'update', 'delete', 'advance']);
+
+export function handleClient(args: string): void {
+  const parts = args.trim().split(/\s+/);
+  const sub = (parts[0] || '').toLowerCase();
+  const rest = parts.slice(1).join(' ');
+
+  if (ADMIN_SUBCMDS.has(sub) && !isAdmin()) {
+    log.print('权限不足：该命令需要管理员权限');
+    return;
+  }
+
+  switch (sub) {
+    case 'list':    return list(rest);
+    case 'view':    return view(rest);
+    case 'history': return history(rest);
+    case 'add':     return add(rest);
+    case 'update':  return update(rest);
+    case 'delete':  return remove(rest);
+    case 'advance': return advance(rest);
+    default:
+      log.print('用法: /client <list|view|history|add|update|delete|advance> [参数]');
+  }
 }

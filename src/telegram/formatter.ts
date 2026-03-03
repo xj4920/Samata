@@ -4,20 +4,9 @@
  */
 import { Client, STATE_LABELS } from '../models/client.js';
 import type { AuditEvent } from '../models/event.js';
-import type { StatusRow } from '../commands/monitor.js';
 import type { TradeRow } from '../commands/trade.js';
 import type { KnowledgeItem } from '../commands/knowledge.js';
 import type { Skill } from '../commands/skill.js';
-
-export function formatStatusSummary(rows: StatusRow[]): string {
-  const lines = ['📊 客户状态看板', ''];
-  for (const r of rows) {
-    const bar = r.state === '合计' ? '━' : '';
-    if (r.state === '合计') lines.push('─────────────');
-    lines.push(`${r.state}:  ${r.count}`);
-  }
-  return lines.join('\n');
-}
 
 export function formatClientList(clients: Client[]): string {
   if (clients.length === 0) return '暂无客户数据';

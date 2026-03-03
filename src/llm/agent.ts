@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
+import { fetchSystemStatus } from '../commands/monitor.js';
 import { Client, ClientState, STATE_LABELS, STATES, nextState } from '../models/client.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { getAllSkills, getSkillByName } from '../commands/skill.js';
@@ -51,7 +52,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'get_status_summary',
-    description: '获取各阶段客户数量统计概览',
+    description: '获取系统状态概览（版本、模型、服务运行状态、知识库/Skill数量、运行时长等）',
     input_schema: {
       type: 'object' as const,
       properties: {},
@@ -309,13 +310,7 @@ function handleGetHistory(input: { name_or_id: string }): string {
 }
 
 function handleStatusSummary(): string {
-  const db = getDb();
-  const rows = db.prepare('SELECT state, COUNT(*) as count FROM clients GROUP BY state').all() as { state: ClientState; count: number }[];
-  const countMap = new Map(rows.map(r => [r.state, r.count]));
-  const result = STATES.map(s => ({ state: STATE_LABELS[s], count: countMap.get(s) ?? 0 }));
-  const total = rows.reduce((sum, r) => sum + r.count, 0);
-  result.push({ state: '合计', count: total });
-  return JSON.stringify(result);
+  return JSON.stringify(fetchSystemStatus());
 }
 
 function handleSearchKnowledge(input: { keyword: string }): string {
@@ -595,13 +590,13 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
       let hasTextOutput = false;
       for await (const event of provider.createMessageStream(params)) {
         if (event.type === 'text_delta') {
-          if (!hasTextOutput) { console.log(); hasTextOutput = true; }
+          if (!hasTextOutput) { log.print(); hasTextOutput = true; }
           process.stdout.write(event.text);
         } else if (event.type === 'done') {
           result = { content: event.content, stop_reason: event.stop_reason };
         }
       }
-      if (hasTextOutput) console.log('\n');
+      if (hasTextOutput) log.print('\n');
       if (!result) throw new Error('Stream ended without done event');
       return { result, streamed: hasTextOutput };
     } catch (err: any) {
@@ -631,6 +626,7 @@ export async function chat(userInput: string): Promise<void> {
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     log.error(`AI 请求失败: ${msg}`);
+    log.print(`AI 请求失败: ${msg}`);
     conversationHistory.pop(); // 回滚刚推入的 user message
     return;
   }
@@ -673,6 +669,7 @@ export async function chat(userInput: string): Promise<void> {
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       log.error(`AI 请求失败: ${msg}`);
+    log.print(`AI 请求失败: ${msg}`);
       return;
     }
   }
@@ -684,9 +681,9 @@ export async function chat(userInput: string): Promise<void> {
   if (!streamed) {
     for (const block of assistantContent) {
       if (block.type === 'text') {
-        console.log();
-        log.info(block.text);
-        console.log();
+        log.print();
+        log.print(block.text);
+        log.print();
       }
     }
   }

@@ -21,11 +21,11 @@ async function login(): Promise<void> {
   });
   const user = users.find(u => u.id === userId)!;
   setCurrentUser(user);
-  log.success(`已登录：${user.username} [${user.role}]`);
+  log.print(`已登录：${user.username} [${user.role}]`);
 }
 
 async function repl(): Promise<void> {
-  log.info('\n衍语 — 输入命令开始操作，输入 /help 查看帮助，输入 /exit 退出\n');
+  log.print('\n衍语 — 输入命令开始操作，输入 /help 查看帮助，输入 /exit 退出\n');
 
   readline.emitKeypressEvents(process.stdin);
 
@@ -192,7 +192,7 @@ async function repl(): Promise<void> {
       const trimmed = line.trim();
       if (!trimmed) continue;
       if (trimmed === '/exit' || trimmed === '/quit') {
-        log.dim('再见 👋');
+        log.print('再见 👋');
         break;
       }
       savedHistory = (rl as any).history?.slice() ?? [];
@@ -211,16 +211,16 @@ async function repl(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log('\n' + '='.repeat(40));
-  log.info('  衍语 (YanYu) — OTC Claw');
-  console.log('='.repeat(40) + '\n');
+  log.print('\n' + '='.repeat(40));
+  log.print('  衍语 (YanYu) — OTC Claw');
+  log.print('='.repeat(40) + '\n');
 
   initSchema();
 
   const llmReady = await initProviders();
   setLlmEnabled(llmReady);
   if (!llmReady) {
-    log.warn('AI 助手未启用（请在 .env 中配置 ANTHROPIC_API_KEY 或 MINIMAX_API_KEY）');
+    log.print('AI 助手未启用（请在 .env 中配置 ANTHROPIC_API_KEY 或 MINIMAX_API_KEY）');
   }
 
   await login();

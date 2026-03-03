@@ -17,7 +17,7 @@ export function registerPlugin(plugin: Plugin): void {
 export async function runPlugin(name: string, args: string): Promise<void> {
   const plugin = plugins.get(name);
   if (!plugin) {
-    log.error(`未找到插件: ${name}`);
+    log.print(`未找到插件: ${name}`);
     listPlugins();
     return;
   }
@@ -26,12 +26,12 @@ export async function runPlugin(name: string, args: string): Promise<void> {
 
 export function listPlugins(): void {
   if (plugins.size === 0) {
-    log.dim('暂无已注册插件');
+    log.print('暂无已注册插件');
     return;
   }
-  log.info('已注册插件：');
+  log.print('已注册插件：');
   for (const [name, p] of plugins) {
-    console.log(`  ${name.padEnd(16)} ${p.description}`);
+    log.print(`  ${name.padEnd(16)} ${p.description}`);
   }
 }
 
