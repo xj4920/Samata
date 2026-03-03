@@ -4,7 +4,7 @@
  * 参考文档：https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json
  */
 import crypto from 'node:crypto';
-import { ProxyAgent } from 'undici';
+import { Agent, ProxyAgent } from 'undici';
 import { log } from '../utils/logger.js';
 
 export interface FeishuConfig {
@@ -64,21 +64,22 @@ export class FeishuAPI {
   private config: FeishuConfig;
   private tenantAccessToken: string = '';
   private tokenExpireTime: number = 0;
-  private dispatcher?: ProxyAgent;
+  private dispatcher: Agent | ProxyAgent;
 
   constructor(config: FeishuConfig) {
     this.config = config;
     if (config.proxy) {
       this.dispatcher = new ProxyAgent(config.proxy);
       log.dim(`[飞书] 使用代理: ${config.proxy}`);
+    } else {
+      // 显式使用无代理 Agent，绕过 HTTPS_PROXY 等全局环境变量
+      this.dispatcher = new Agent();
     }
   }
 
-  /** 构造 fetch options，自动附加代理 dispatcher */
+  /** 构造 fetch options，自动附加 dispatcher */
   private fetchOpts(init: RequestInit): RequestInit {
-    if (this.dispatcher) {
-      (init as any).dispatcher = this.dispatcher;
-    }
+    (init as any).dispatcher = this.dispatcher;
     return init;
   }
 

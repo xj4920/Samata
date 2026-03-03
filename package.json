@@ -1,6 +1,6 @@
 {
   "name": "yanyu",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "衍语 — OTCClaw",
   "main": "src/index.ts",
   "scripts": {

@@ -19,7 +19,7 @@ import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { getTools, executeTool, getSystemPrompt } from '../llm/agent.js';
+import { runAgenticChat } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -65,68 +65,25 @@ async function handleAIChat(
   feishuUsername: string
 ): Promise<string> {
   const session = getSession(feishuUserId, feishuUsername);
-  const provider = getProvider();
 
   // 临时切换当前用户上下文（tool handler 依赖），处理完后恢复
   const prevUser = getCurrentUser();
   setCurrentUser(session.user);
 
   try {
-    session.history.push({ role: 'user', content: userInput });
-
-    // 控制历史长度
+    // 控制历史长度（在添加新消息之前）
     while (session.history.length > MAX_HISTORY * 2) {
       session.history.shift();
     }
 
-    const tools = getTools();
-    const systemPrompt = getSystemPrompt(session.user);
-
-    let response = await provider.createMessage({
-      model: getModelName(),
-      max_tokens: 4096,
-      system: systemPrompt,
-      tools,
-      messages: session.history,
+    // 使用共享的 agentic chat 逻辑（与 CLI 完全一致）
+    const textReply = await runAgenticChat(session.history, userInput, session.user, {
+      streamEnabled: false,
+      logPrefix: `[飞书:${feishuUsername}] `,
+      showThinking: true,
     });
 
-    // Agentic loop
-    while (response.stop_reason === 'tool_use') {
-      const assistantContent = response.content;
-      session.history.push({ role: 'assistant', content: assistantContent });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of assistantContent) {
-        if (block.type === 'tool_use') {
-          log.dim(`[飞书:${feishuUsername}] 🔧 ${block.name}(${JSON.stringify(block.input).slice(0, 100)})`);
-          const result = await executeTool(block.name, block.input);
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
-        }
-      }
-
-      session.history.push({ role: 'user', content: toolResults });
-
-      response = await provider.createMessage({
-        model: getModelName(),
-        max_tokens: 4096,
-        system: systemPrompt,
-        tools,
-        messages: session.history,
-      });
-    }
-
-    // 提取文本回复
-    const assistantContent = response.content;
-    session.history.push({ role: 'assistant', content: assistantContent });
-
-    const texts: string[] = [];
-    for (const block of assistantContent) {
-      if (block.type === 'text' && block.text) {
-        texts.push(block.text);
-      }
-    }
-
-    return texts.join('\n\n') || '（无回复内容）';
+    return textReply || '（无回复内容）';
   } finally {
     setCurrentUser(prevUser);
   }

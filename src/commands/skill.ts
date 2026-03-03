@@ -24,6 +24,32 @@ export function getSkillByName(name: string): Skill | null {
   return (db.prepare('SELECT * FROM skills WHERE name = ?').get(name) as Skill) ?? null;
 }
 
+export function saveSkill(name: string, prompt: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } {
+  const db = getDb();
+  const user = getCurrentUser();
+  const existing = getSkillByName(name);
+
+  if (existing) {
+    db.prepare('UPDATE skills SET prompt = ? WHERE name = ?').run(prompt, name);
+    recordEvent('skill', existing.id, 'update', { name, prompt });
+    return { success: true, action: 'updated', name };
+  } else {
+    const id = uuid();
+    db.prepare('INSERT INTO skills (id, name, prompt, created_by) VALUES (?, ?, ?, ?)').run(id, name, prompt, user.id);
+    recordEvent('skill', id, 'create', { name, prompt });
+    return { success: true, action: 'created', name, id: id.slice(0, 8) };
+  }
+}
+
+export function deleteSkill(name: string): { success: true; name: string } | { success: false; error: string } {
+  const skill = getSkillByName(name);
+  if (!skill) return { success: false, error: `未找到 skill: ${name}` };
+  const db = getDb();
+  db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id);
+  recordEvent('skill', skill.id, 'delete', { name });
+  return { success: true, name };
+}
+
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
@@ -48,8 +74,8 @@ export async function handleSkill(args: string): Promise<void> {
 
   switch (sub) {
     case 'list': return listSkills();
-    case 'save': return saveSkill(rest);
-    case 'del': return delSkill(rest);
+    case 'save': return saveSkillCmd(rest);
+    case 'del': return delSkillCmd(rest);
     case 'run': return runSkill(rest);
     default:
       // Treat as "skill run <name> ..."
@@ -124,46 +150,27 @@ function listSkills(): void {
   log.print(`共 ${skills.length} 个 skill`);
 }
 
-function saveSkill(args: string): void {
-  // Parse: name "prompt" or name prompt
+function saveSkillCmd(args: string): void {
   const match = args.match(/^(\S+)\s+"([^"]+)"/s) || args.match(/^(\S+)\s+(.*)/s);
   if (!match) {
     log.print('用法: skill save <name> "<prompt>"');
     return;
   }
-  const name = match[1];
-  const prompt = match[2];
-
-  const db = getDb();
-  const user = getCurrentUser();
-  const existing = getSkillByName(name);
-
-  if (existing) {
-    db.prepare('UPDATE skills SET prompt = ? WHERE name = ?').run(prompt, name);
-    recordEvent('skill', existing.id, 'update', { name, prompt });
-    log.print(`Skill 已更新: ${name}`);
-  } else {
-    const id = uuid();
-    db.prepare('INSERT INTO skills (id, name, prompt, created_by) VALUES (?, ?, ?, ?)').run(id, name, prompt, user.id);
-    recordEvent('skill', id, 'create', { name, prompt });
-    log.print(`Skill 已保存: ${name}`);
-  }
+  const result = saveSkill(match[1], match[2]);
+  log.print(`Skill 已${result.action === 'updated' ? '更新' : '保存'}: ${result.name}`);
 }
 
-function delSkill(args: string): void {
+function delSkillCmd(args: string): void {
   const name = args.trim();
   if (!name) {
     log.print('用法: skill del <name>');
     return;
   }
-  const skill = getSkillByName(name);
-  if (!skill) {
-    log.print(`未找到 skill: ${name}`);
+  const result = deleteSkill(name);
+  if (!result.success) {
+    log.print(result.error);
     return;
   }
-  const db = getDb();
-  db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id);
-  recordEvent('skill', skill.id, 'delete', { name });
   log.print(`Skill 已删除: ${name}`);
 }
 

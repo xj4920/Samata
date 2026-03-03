@@ -93,11 +93,10 @@ async function sendNotification(text: string): Promise<void> {
     promises.push(sendTelegram(text));
   }
   if (channels.includes('feishu')) {
-    // 优先发送给个人用户，其次发送给群聊
-    if (feishuUserId) {
-      promises.push(sendFeishu(text, feishuUserId, 'user_id'));
-    } else if (feishuChatId) {
-      promises.push(sendFeishu(text, feishuChatId, 'chat_id'));
+    const id = feishuUserId || feishuChatId;
+    if (id) {
+      const idType = id.startsWith('oc_') ? 'chat_id' : id.startsWith('ou_') ? 'open_id' : 'user_id';
+      promises.push(sendFeishu(text, id, idType));
     }
   }
 

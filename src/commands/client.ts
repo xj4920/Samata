@@ -260,8 +260,9 @@ export function fetchClients(filter?: { state?: string; keyword?: string }): Cli
     params.push(filter.state);
   }
   if (filter?.keyword) {
-    conditions.push('(name LIKE ? COLLATE NOCASE OR wework_group LIKE ? COLLATE NOCASE)');
-    params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+    conditions.push('(name LIKE ? COLLATE NOCASE OR wework_group LIKE ? COLLATE NOCASE OR tags LIKE ? COLLATE NOCASE OR requirements LIKE ? COLLATE NOCASE OR notes LIKE ? COLLATE NOCASE)');
+    const kw = `%${filter.keyword}%`;
+    params.push(kw, kw, kw, kw, kw);
   }
   if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
   sql += ' ORDER BY updated_at DESC';
@@ -279,21 +280,46 @@ export function fetchHistory(nameOrId: string): { name: string; events: ReturnTy
   return { name: client.name, events: getEvents(client.id) };
 }
 
-export function addClient(args: string): { success: true; id: string; name: string } | { success: false; error: string } {
-  const parts = args.match(/^(\S+)\s*(.*)/);
-  if (!parts) return { success: false, error: '用法: /add <名称> [contact=xx] [wework_group=xx] [sales=xx] [notes=xx]' };
-  const name = parts[1];
-  const kv = parseKV(parts[2] || '');
+export function createClient(input: { name: string; contact?: string; wework_group?: string; requirements?: string; sales?: string; notes?: string }): { success: true; id: string; name: string } | { success: false; error: string } {
   const db = getDb();
   const user = getCurrentUser();
   const id = uuid();
 
   db.prepare(
     'INSERT INTO clients (id, name, contact, wework_group, requirements, sales, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, name, kv.contact ?? null, kv.wework_group ?? null, kv.requirements ?? null, kv.sales ?? null, kv.notes ?? null, user.id);
+  ).run(id, input.name, input.contact ?? null, input.wework_group ?? null, input.requirements ?? null, input.sales ?? null, input.notes ?? null, user.id);
 
-  recordEvent('client', id, 'create', { name, ...kv });
-  return { success: true, id: id.slice(0, 8), name };
+  recordEvent('client', id, 'create', input);
+  return { success: true, id: id.slice(0, 8), name: input.name };
+}
+
+export function addClient(args: string): { success: true; id: string; name: string } | { success: false; error: string } {
+  const parts = args.match(/^(\S+)\s*(.*)/);
+  if (!parts) return { success: false, error: '用法: /add <名称> [contact=xx] [wework_group=xx] [sales=xx] [notes=xx]' };
+  const kv = parseKV(parts[2] || '');
+  return createClient({ name: parts[1], ...kv });
+}
+
+export function updateClient(nameOrId: string, fields: Record<string, string>): { success: true; name: string } | { success: false; error: string } {
+  const client = findByPrefix(nameOrId);
+  if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
+
+  const db = getDb();
+  const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes'];
+  const sets: string[] = [];
+  const vals: any[] = [];
+  for (const [k, v] of Object.entries(fields)) {
+    if (!allowed.includes(k)) continue;
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  if (sets.length === 0) return { success: false, error: '没有可更新的字段' };
+
+  sets.push("updated_at = datetime('now')");
+  vals.push(client.id);
+  db.prepare(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  recordEvent('client', client.id, 'update', fields);
+  return { success: true, name: client.name };
 }
 
 export function advanceClient(nameOrId: string): { success: true; name: string; from: string; to: string } | { success: false; error: string } {

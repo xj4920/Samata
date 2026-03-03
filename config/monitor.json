@@ -17,8 +17,8 @@
   },
   "notification": {
     "channels": ["feishu"],
-    "feishuChatId": "ou_50b5fd025200fecf0f8f3a991004a873",
-    "feishuUserId": ""
+    "feishuChatId": "",
+    "feishuUserId": "ou_50b5fd025200fecf0f8f3a991004a873"
   },
   "senders": [
     "肖诗泉",
@@ -29,7 +29,8 @@
     "符航睿",
     "尹成功",
     "一米阳光",
-    "赵晴宇"
+    "赵晴宇",
+    "闫亚会"
   ],
   "pollingIntervalSec": 10
 }

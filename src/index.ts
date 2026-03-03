@@ -12,16 +12,24 @@ import { log } from './utils/logger.js';
 
 async function login(): Promise<void> {
   const users = getAllUsers();
-  const userId = await select({
-    message: '请选择登录用户：',
-    choices: users.map(u => ({
-      name: `${u.username} (${u.role})`,
-      value: u.id,
-    })),
-  });
-  const user = users.find(u => u.id === userId)!;
-  setCurrentUser(user);
-  log.print(`已登录：${user.username} [${user.role}]`);
+  const adminUser = users.find(u => u.username === 'admin');
+
+  if (adminUser) {
+    setCurrentUser(adminUser);
+    log.print(`已登录：${adminUser.username} [${adminUser.role}]`);
+  } else {
+    log.print('未找到 admin 用户，请选择登录用户：');
+    const userId = await select({
+      message: '请选择登录用户：',
+      choices: users.map(u => ({
+        name: `${u.username} (${u.role})`,
+        value: u.id,
+      })),
+    });
+    const user = users.find(u => u.id === userId)!;
+    setCurrentUser(user);
+    log.print(`已登录：${user.username} [${user.role}]`);
+  }
 }
 
 async function repl(): Promise<void> {
@@ -238,6 +246,7 @@ async function main(): Promise<void> {
 
   await repl();
   closeDb();
+  process.exit(0);
 }
 
 main();
