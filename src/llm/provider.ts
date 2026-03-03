@@ -27,7 +27,7 @@ export interface LLMProvider {
   createMessageStream?(params: CreateMessageParams): AsyncGenerator<StreamEvent>;
 }
 
-export type ProviderName = 'anthropic' | 'minimax';
+export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter';
 
 const providers = new Map<ProviderName, LLMProvider>();
 let currentName: ProviderName = 'anthropic';
@@ -76,6 +76,8 @@ export async function initProviders(): Promise<boolean> {
   // 延迟导入避免循环依赖
   const { createAnthropicProvider } = await import('./claude.js');
   const { createMinimaxProvider } = await import('./minimax.js');
+  const { createGeminiProvider } = await import('./gemini.js');
+  const { createOpenRouterProvider } = await import('./openrouter.js');
 
   // 尝试初始化 Anthropic
   const anthropic = createAnthropicProvider();
@@ -89,6 +91,20 @@ export async function initProviders(): Promise<boolean> {
   if (minimax) {
     registerProvider('minimax', minimax);
     log.dim('  MiniMax provider 已注册');
+  }
+
+  // 尝试初始化 Gemini
+  const gemini = createGeminiProvider();
+  if (gemini) {
+    registerProvider('gemini', gemini);
+    log.dim('  Gemini provider 已注册');
+  }
+
+  // 尝试初始化 OpenRouter
+  const openrouter = createOpenRouterProvider();
+  if (openrouter) {
+    registerProvider('openrouter', openrouter);
+    log.dim('  OpenRouter provider 已注册');
   }
 
   if (providers.size === 0) return false;

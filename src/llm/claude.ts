@@ -28,7 +28,7 @@ export function getClaude(): Anthropic {
 /** 将已有的 Anthropic client 包装为 LLMProvider */
 export function createAnthropicProvider(): LLMProvider | null {
   if (!initClaude()) return null;
-  const defaultModel = process.env.ANTHROPIC_MODEL || 'claude-opus-4-6-20260205';
+  const defaultModel = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
   return {
     name: 'anthropic',
     defaultModel,
