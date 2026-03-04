@@ -39,8 +39,6 @@ function loadTelegramConfig(): TelegramBotConfig {
   return config.telegram as TelegramBotConfig;
 }
 
-const MAX_HISTORY = 40;  // 每个会话最多保留的消息对数
-
 let api: TelegramAPI;
 let running = false;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -54,12 +52,6 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
   // 临时切换当前用户上下文（tool handler 依赖）
   setCurrentUser(session.user);
 
-  // 控制历史长度（在添加新消息之前）
-  while (session.history.length > MAX_HISTORY * 2) {
-    session.history.shift();
-  }
-
-  // 使用共享的 agentic chat 逻辑（与 CLI 完全一致）
   const textReply = await runAgenticChat(session.history, userInput, session.user, {
     streamEnabled: false,
     logPrefix: `[TG:${telegramUsername}] `,

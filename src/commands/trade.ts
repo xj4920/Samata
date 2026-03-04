@@ -75,7 +75,7 @@ function parseArgs(args: string): Record<string, string> {
   return params;
 }
 
-function formatNum(val: number | null): string {
+export function formatNum(val: number | null): string {
   if (val == null) return '-';
   return Number(val).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
@@ -115,4 +115,68 @@ export async function trade(args: string): Promise<void> {
   } catch (err: any) {
     log.print(err.message);
   }
+}
+
+export interface ClientTradeData {
+  notional_t: number;
+  trade_amt_ft: number;
+}
+
+export interface LatestTradeResult {
+  data: Map<string, ClientTradeData>;
+  tradeDate: string;
+}
+
+export async function fetchLatestNotionals(): Promise<Map<string, number>> {
+  if (!isInfluxConfigured()) return new Map();
+
+  const { data } = await fetchLatestTradeData();
+  const result = new Map<string, number>();
+  for (const [client, d] of data) {
+    result.set(client, d.notional_t);
+  }
+  return result;
+}
+
+export async function fetchLatestTradeData(): Promise<LatestTradeResult> {
+  const emptyResult: LatestTradeResult = { data: new Map(), tradeDate: '-' };
+  if (!isInfluxConfigured()) return emptyResult;
+
+  const customers = loadCustomers();
+  const partyToClient = new Map<string, string>();
+  for (const c of customers) {
+    for (const p of c.products) {
+      partyToClient.set(p.counter_party.toUpperCase(), c.name.toLowerCase());
+    }
+  }
+
+  const records = await queryTrades({ limit: 500 });
+
+  const seen = new Set<string>();
+  const data = new Map<string, ClientTradeData>();
+  let tradeDate = '-';
+
+  for (const r of records) {
+    const party = (r.counter_party ?? '').toUpperCase();
+    if (seen.has(party)) continue;
+    seen.add(party);
+
+    const client = partyToClient.get(party);
+    if (!client) continue;
+
+    // 取第一条记录的日期作为交易日期（数据按时间倒序，最新在前）
+    if (tradeDate === '-' && r.trade_dt) {
+      tradeDate = r.trade_dt;
+    }
+
+    const notional = (r.notional_ft_t_1 ?? 0) + (r.ft_net ?? 0);
+    const tradeAmt = r.trade_amt_ft ?? 0;
+
+    const existing = data.get(client) ?? { notional_t: 0, trade_amt_ft: 0 };
+    existing.notional_t += notional;
+    existing.trade_amt_ft += tradeAmt;
+    data.set(client, existing);
+  }
+
+  return { data, tradeDate };
 }

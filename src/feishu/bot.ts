@@ -45,8 +45,6 @@ function loadFeishuConfig(): FeishuBotConfig {
   return config.feishu as FeishuBotConfig;
 }
 
-const MAX_HISTORY = 40; // 每个会话最多保留的消息对数
-
 export type FeishuBotMode = 'ws' | 'webhook';
 
 let api: FeishuAPI;
@@ -71,12 +69,6 @@ async function handleAIChat(
   setCurrentUser(session.user);
 
   try {
-    // 控制历史长度（在添加新消息之前）
-    while (session.history.length > MAX_HISTORY * 2) {
-      session.history.shift();
-    }
-
-    // 使用共享的 agentic chat 逻辑（与 CLI 完全一致）
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[飞书:${feishuUsername}] `,

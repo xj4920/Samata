@@ -1,10 +1,11 @@
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isAdmin } from '../auth/rbac.js';
 import { recordEvent, getEvents } from '../models/event.js';
-import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState } from '../models/client.js';
+import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState, prevState } from '../models/client.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { v4 as uuid } from 'uuid';
+import { fetchLatestTradeData, formatNum, ClientTradeData } from './trade.js';
 
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -52,6 +53,10 @@ export function update(args: string): void {
   const client = findByPrefix(idPrefix);
   if (!client) return;
 
+  if ('state' in kv) {
+    log.print('不允许通过 update 修改 state，请使用 advance 命令推进状态');
+    return;
+  }
   const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes'];
   const sets: string[] = [];
   const vals: any[] = [];
@@ -109,7 +114,28 @@ export function advance(args: string): void {
   log.print(`${client.name}: ${STATE_LABELS[client.state]} → ${STATE_LABELS[next]}`);
 }
 
-export function list(args: string): void {
+export function rollback(args: string): void {
+  const idPrefix = args.trim();
+  if (!idPrefix) {
+    log.print('用法: rollback <id>');
+    return;
+  }
+  const client = findByPrefix(idPrefix);
+  if (!client) return;
+
+  const prev = prevState(client.state);
+  if (!prev) {
+    log.print(`客户 ${client.name} 已处于初始状态: ${STATE_LABELS[client.state]}`);
+    return;
+  }
+
+  const db = getDb();
+  db.prepare("UPDATE clients SET state = ?, updated_at = datetime('now') WHERE id = ?").run(prev, client.id);
+  recordEvent('client', client.id, 'rollback', { from: client.state, to: prev });
+  log.print(`${client.name}: ${STATE_LABELS[client.state]} → ${STATE_LABELS[prev]}`);
+}
+
+export async function list(args: string): Promise<void> {
   const db = getDb();
   const kv = parseKV(args);
   let sql = 'SELECT * FROM clients';
@@ -120,25 +146,45 @@ export function list(args: string): void {
     params.push(kv.state);
   }
   const rows = db.prepare(sql).all(...params) as Client[];
-  rows.sort((a, b) => (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0));
+
+  let tradeData = new Map<string, ClientTradeData>();
+  let tradeDate = '';
+  try {
+    const result = await fetchLatestTradeData();
+    tradeData = result.data;
+    tradeDate = result.tradeDate;
+  } catch {}
+
+  rows.sort((a, b) => {
+    const stateDiff = (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0);
+    if (stateDiff !== 0) return stateDiff;
+    return (tradeData.get(b.name.toLowerCase())?.notional_t ?? 0) - (tradeData.get(a.name.toLowerCase())?.notional_t ?? 0);
+  });
+
   if (rows.length === 0) {
     log.print('暂无客户数据');
     return;
   }
 
-  const head = ['ID', '名称', '状态', '销售', '标签', '创建时间', '更新时间'];
-  const tableRows = rows.map(c => [
-    c.id.slice(0, 8),
-    c.name,
-    STATE_LABELS[c.state] || c.state,
-    c.sales ?? '-',
-    c.tags ?? '-',
-    c.created_at,
-    c.updated_at,
-  ]);
+  const head = ['ID', '名称', '状态', 'T日存续名本', 'T日成交金额', '销售', '标签', '创建时间', '更新时间'];
+  const tableRows = rows.map(c => {
+    const td = tradeData.get(c.name.toLowerCase());
+    return [
+      c.id.slice(0, 8),
+      c.name,
+      STATE_LABELS[c.state] || c.state,
+      td ? formatNum(td.notional_t) : '-',
+      td ? formatNum(td.trade_amt_ft) : '-',
+      c.sales ?? '-',
+      c.tags ?? '-',
+      c.created_at,
+      c.updated_at,
+    ];
+  });
 
   renderTable(head, tableRows);
-  log.print(`共 ${rows.length} 条`);
+  const dateSuffix = tradeDate && tradeDate !== '-' ? `，T日 = ${tradeDate}` : '';
+  log.print(`共 ${rows.length} 条${dateSuffix}`);
 }
 
 export function view(args: string): void {
@@ -260,6 +306,8 @@ export function addClient(args: string): { success: true; id: string; name: stri
 }
 
 export function updateClient(nameOrId: string, fields: Record<string, string>): { success: true; name: string } | { success: false; error: string } {
+  if ('state' in fields) return { success: false, error: '不允许通过 update 修改 state，请使用 advance 命令推进状态' };
+
   const client = findByPrefix(nameOrId);
   if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
 
@@ -294,11 +342,24 @@ export function advanceClient(nameOrId: string): { success: true; name: string; 
   return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[next] };
 }
 
+export function rollbackClient(nameOrId: string): { success: true; name: string; from: string; to: string } | { success: false; error: string } {
+  const client = findByPrefix(nameOrId);
+  if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
+
+  const prev = prevState(client.state);
+  if (!prev) return { success: false, error: `客户 ${client.name} 已处于初始状态: ${STATE_LABELS[client.state]}` };
+
+  const db = getDb();
+  db.prepare("UPDATE clients SET state = ?, updated_at = datetime('now') WHERE id = ?").run(prev, client.id);
+  recordEvent('client', client.id, 'rollback', { from: client.state, to: prev });
+  return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[prev] };
+}
+
 // --- /client subcommand dispatcher ---
 
-const ADMIN_SUBCMDS = new Set(['add', 'update', 'delete', 'advance']);
+const ADMIN_SUBCMDS = new Set(['add', 'update', 'delete', 'advance', 'rollback']);
 
-export function handleClient(args: string): void {
+export async function handleClient(args: string): Promise<void> {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
   const rest = parts.slice(1).join(' ');
@@ -316,7 +377,8 @@ export function handleClient(args: string): void {
     case 'update':  return update(rest);
     case 'delete':  return remove(rest);
     case 'advance': return advance(rest);
+    case 'rollback': return rollback(rest);
     default:
-      log.print('用法: /client <list|view|history|add|update|delete|advance> [参数]');
+      log.print('用法: /client <list|view|history|add|update|delete|advance|rollback> [参数]');
   }
 }

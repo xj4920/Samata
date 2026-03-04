@@ -4,6 +4,7 @@ import * as clientCmd from './client.js';
 import * as knowledgeCmd from './knowledge.js';
 import * as monitorCmd from './monitor.js';
 import * as tradeCmd from './trade.js';
+import * as plotCmd from './plot.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
@@ -25,9 +26,10 @@ interface Command {
 }
 
 const commands: Record<string, Command> = {
-  client:  { description: '客户管理: /client list|view|history|add|update|delete|advance', adminOnly: false, handler: clientCmd.handleClient },
+  client:  { description: '客户管理: /client list|view|history|add|update|delete|advance|rollback', adminOnly: false, handler: clientCmd.handleClient },
   status:  { description: '系统状态: /status', adminOnly: false, handler: monitorCmd.status },
   trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
+  plot:    { description: '交易曲线图: /plot client=xx|party=xx [limit=N]', adminOnly: false, handler: plotCmd.handlePlot },
   faq:       { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add':  { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
   'faq-update': { description: '修改FAQ: /faq-update <id>', adminOnly: true, handler: knowledgeCmd.update },
@@ -176,6 +178,8 @@ export async function route(input: string): Promise<void> {
 
   if (cmd.toLowerCase() === 'reload') {
     log.print('正在重载...');
+    const { gracefulShutdown } = await import('../index.js');
+    gracefulShutdown();
     process.exit(120);
   }
 

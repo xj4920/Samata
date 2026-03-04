@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "bash scripts/launcher.sh",
-    "dev": "bash scripts/launcher.sh",
+    "dev": "tsx watch src/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts"
   },
   "keywords": [],

@@ -5,14 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 while true; do
-  npx tsx src/index.ts
+  node --import tsx/esm src/index.ts
   EXIT_CODE=$?
 
   if [ "$EXIT_CODE" -eq 120 ]; then
     echo ""
     echo "🔄 正在重载应用..."
     echo ""
-    sleep 0.5
+    sleep 0.3
   else
     exit $EXIT_CODE
   fi

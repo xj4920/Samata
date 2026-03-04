@@ -6,9 +6,15 @@ import { closeDb } from './db/connection.js';
 import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
 import { initProviders } from './llm/provider.js';
-import { startMonitor } from './services/wework-monitor.js';
-import { startFeishuBot, type FeishuBotMode } from './feishu/bot.js';
+import { startMonitor, stopMonitor } from './services/wework-monitor.js';
+import { startFeishuBot, stopFeishuBot, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
+
+export function gracefulShutdown(): void {
+  stopMonitor();
+  stopFeishuBot();
+  closeDb();
+}
 
 async function login(): Promise<void> {
   const users = getAllUsers();
@@ -205,7 +211,42 @@ async function repl(): Promise<void> {
       }
       savedHistory = (rl as any).history?.slice() ?? [];
       rl.close();
-      await route(trimmed);
+
+      // ESC key cancellation during command execution
+      let cancelled = false;
+      let escCleanup: (() => void) | null = null;
+      const routePromise = route(trimmed);
+      const abortPromise = new Promise<never>((_, reject) => {
+        if (process.stdin.isTTY) process.stdin.setRawMode(true);
+        process.stdin.resume();
+        const onData = (chunk: Buffer) => {
+          if (chunk.length === 1 && chunk[0] === 0x1b) {
+            cancelled = true;
+            cleanup();
+            reject(new DOMException('cancelled', 'AbortError'));
+          }
+        };
+        const cleanup = () => {
+          process.stdin.removeListener('data', onData);
+          process.stdin.pause();
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        };
+        escCleanup = cleanup;
+        process.stdin.on('data', onData);
+      });
+
+      try {
+        await Promise.race([routePromise, abortPromise]);
+      } catch (err: any) {
+        if (cancelled) {
+          log.print('\n⏹ 命令已取消');
+        } else {
+          throw err;
+        }
+      } finally {
+        escCleanup?.();
+      }
+
       createRl();
       attachTtyOverride();
     }
@@ -245,7 +286,7 @@ async function main(): Promise<void> {
   });
 
   await repl();
-  closeDb();
+  gracefulShutdown();
   process.exit(0);
 }
 

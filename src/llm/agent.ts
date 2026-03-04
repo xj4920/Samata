@@ -2,12 +2,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
 import { fetchSystemStatus } from '../commands/monitor.js';
-import { STATE_LABELS } from '../models/client.js';
+import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
-import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient } from '../commands/client.js';
+import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
-import { fetchTrades } from '../commands/trade.js';
+import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
+import { plotTrades } from '../commands/plot.js';
 import { log } from '../utils/logger.js';
 import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
@@ -117,6 +118,17 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'rollback_client',
+    description: '回退客户到上一个阶段（仅管理员）',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name_or_id: { type: 'string', description: '客户名称或ID前缀' },
+      },
+      required: ['name_or_id'],
+    },
+  },
+  {
     name: 'list_skills',
     description: '列出所有已保存的 skill（可复用的提示词模板）',
     input_schema: {
@@ -147,6 +159,19 @@ const tools: Anthropic.Tool[] = [
         user: { type: 'string', description: '用户ID' },
         date: { type: 'string', description: '交易日期，格式 YYYYMMDD' },
         limit: { type: 'number', description: '返回条数上限，默认50' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'plot_trades',
+    description: '绘制交易曲线图（存续名义本金、成交金额、净头寸），生成HTML在浏览器中打开。适合用户要求"画图"、"图表"、"趋势"时调用。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        client: { type: 'string', description: '管理人名称，如 JUMP、JINDE' },
+        party: { type: 'string', description: '交易对手名称' },
+        limit: { type: 'number', description: '数据条数上限，默认200' },
       },
       required: [],
     },
@@ -235,8 +260,20 @@ const FORBIDDEN_PATTERNS = ['.env', 'node_modules/', 'data/*.db', '.git/'];
 
 // --- Tool handlers ---
 
-function handleQueryClients(input: { state?: string; keyword?: string }): string {
+async function handleQueryClients(input: { state?: string; keyword?: string }): Promise<string> {
   const rows = fetchClients(input);
+
+  let notionals = new Map<string, number>();
+  try {
+    notionals = await fetchLatestNotionals();
+  } catch {}
+
+  rows.sort((a, b) => {
+    const stateDiff = (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0);
+    if (stateDiff !== 0) return stateDiff;
+    return (notionals.get(b.name.toLowerCase()) ?? 0) - (notionals.get(a.name.toLowerCase()) ?? 0);
+  });
+
   return JSON.stringify(rows.map(c => ({
     id: c.id.slice(0, 8),
     name: c.name,
@@ -245,6 +282,7 @@ function handleQueryClients(input: { state?: string; keyword?: string }): string
     sales: c.sales,
     contact: c.contact,
     state: STATE_LABELS[c.state],
+    notional_t: notionals.get(c.name.toLowerCase()) ?? null,
     tags: c.tags,
     notes: c.notes,
     created_at: c.created_at,
@@ -305,6 +343,11 @@ function handleAdvanceClient(input: { name_or_id: string }): string {
   return JSON.stringify(advanceClient(input.name_or_id));
 }
 
+function handleRollbackClient(input: { name_or_id: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  return JSON.stringify(rollbackClient(input.name_or_id));
+}
+
 function handleListSkills(): string {
   const skills = getAllSkills();
   return JSON.stringify(skills.map(s => ({
@@ -329,6 +372,15 @@ async function handleQueryTrades(input: { client?: string; party?: string; user?
     const rows = await fetchTrades(input);
     if (rows.length === 0) return JSON.stringify({ message: '未查询到交易数据' });
     return JSON.stringify(rows);
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message });
+  }
+}
+
+async function handlePlotTrades(input: { client?: string; party?: string; limit?: number }): Promise<string> {
+  try {
+    const filePath = await plotTrades(input);
+    return JSON.stringify({ success: true, message: '图表已在浏览器中打开', path: filePath });
   } catch (err: any) {
     return JSON.stringify({ error: err.message });
   }
@@ -434,8 +486,9 @@ function handleWriteFile(input: { path: string; content: string }): string {
 function handleReloadApp(): string {
   if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
   log.info('🔄 即将重载应用...');
-  // Use setTimeout to allow the tool result to be returned before exiting
-  setTimeout(() => {
+  setTimeout(async () => {
+    const { gracefulShutdown } = await import('../index.js');
+    gracefulShutdown();
     process.exit(120);
   }, 500);
   return JSON.stringify({ success: true, message: '应用将在 0.5 秒后重启' });
@@ -451,7 +504,9 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'add_client': return handleAddClient(input);
     case 'update_client': return handleUpdateClient(input);
     case 'advance_client': return handleAdvanceClient(input);
+    case 'rollback_client': return handleRollbackClient(input);
     case 'query_trades': return handleQueryTrades(input);
+    case 'plot_trades': return handlePlotTrades(input);
     case 'list_customers': return handleListCustomers();
     case 'list_skills': return handleListSkills();
     case 'get_skill': return handleGetSkill(input);
@@ -465,6 +520,32 @@ export async function executeTool(name: string, input: any): Promise<string> {
   }
 }
 
+// --- History management ---
+
+const MAX_HISTORY_MESSAGES = 80;
+
+function isToolResultMessage(msg: Anthropic.MessageParam): boolean {
+  if (!Array.isArray(msg.content)) return false;
+  return (msg.content as any[]).some(b => b.type === 'tool_result');
+}
+
+/**
+ * Safely trim history from the front, ensuring tool_use/tool_result pairs stay intact.
+ * The cut point always lands on a plain 'user' message (not a tool_result follow-up).
+ */
+function trimHistory(history: Anthropic.MessageParam[], maxLen: number = MAX_HISTORY_MESSAGES): void {
+  if (history.length <= maxLen) return;
+  let cutIndex = history.length - maxLen;
+  while (cutIndex < history.length) {
+    const msg = history[cutIndex];
+    if (msg.role === 'user' && !isToolResultMessage(msg)) break;
+    cutIndex++;
+  }
+  if (cutIndex > 0 && cutIndex < history.length) {
+    history.splice(0, cutIndex);
+  }
+}
+
 // --- Conversation state ---
 let conversationHistory: Anthropic.MessageParam[] = [];
 
@@ -475,7 +556,7 @@ export function getTools(): Anthropic.Tool[] {
 export function getSystemPrompt(user?: User): string {
   const u = user ?? getCurrentUser();
   return `你是 OTC Claw。你可以：
-1. 查询和管理客户信息（客户状态流转：Initial Contact → Requirement Discussion → Solution Design → UAT → PROD）
+1. 查询和管理客户信息（客户状态流转：Initial Contact ↔ Requirement Discussion ↔ Solution Design ↔ UAT ↔ PROD，支持 advance 推进和 rollback 回退）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
 3. 回答关于客户的问题，提供数据分析
 4. 提供展业建议和话术参考
@@ -555,8 +636,10 @@ export async function runAgenticChat(
   } = {}
 ): Promise<string> {
   const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking() } = options;
-  const provider = getProvider();
 
+  trimHistory(history);
+
+  const historyLenBefore = history.length;
   history.push({ role: 'user', content: userInput });
 
   const makeParams = (): CreateMessageParams => ({
@@ -572,9 +655,8 @@ export async function runAgenticChat(
   try {
     ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled));
   } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    log.error(`${logPrefix}AI 请求失败: ${msg}`);
-    history.pop(); // 回滚刚推入的 user message
+    log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
+    history.length = historyLenBefore;
     throw err;
   }
 
@@ -583,7 +665,6 @@ export async function runAgenticChat(
     const assistantContent = response.content;
     history.push({ role: 'assistant', content: assistantContent });
 
-    // Show thinking text from assistant (skip if already streamed)
     if (!streamed && showThinkingOpt) {
       for (const block of assistantContent) {
         if (block.type === 'text' && block.text) {
@@ -599,7 +680,12 @@ export async function runAgenticChat(
           log.dim(`${logPrefix}🔧 调用工具: ${block.name}`);
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
-        const result = await executeTool(block.name, block.input);
+        let result: string;
+        try {
+          result = await executeTool(block.name, block.input);
+        } catch (err: any) {
+          result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
+        }
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -610,12 +696,11 @@ export async function runAgenticChat(
 
     history.push({ role: 'user', content: toolResults });
 
-    // 下一轮调用：流式输出（如果最终是文本回复则逐字显示）
     try {
       ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled));
     } catch (err: any) {
-      const msg = err?.message ?? String(err);
-      log.error(`${logPrefix}AI 请求失败: ${msg}`);
+      log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
+      history.length = historyLenBefore;
       throw err;
     }
   }
