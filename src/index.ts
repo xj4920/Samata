@@ -5,6 +5,7 @@ import { initSchema } from './db/schema.js';
 import { closeDb } from './db/connection.js';
 import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
+import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startFeishuBot, stopFeishuBot, type FeishuBotMode } from './feishu/bot.js';
@@ -212,39 +213,29 @@ async function repl(): Promise<void> {
       savedHistory = (rl as any).history?.slice() ?? [];
       rl.close();
 
-      // ESC key cancellation during command execution
-      let cancelled = false;
-      let escCleanup: (() => void) | null = null;
-      const routePromise = route(trimmed);
-      const abortPromise = new Promise<never>((_, reject) => {
-        if (process.stdin.isTTY) process.stdin.setRawMode(true);
-        process.stdin.resume();
-        const onData = (chunk: Buffer) => {
-          if (chunk.length === 1 && chunk[0] === 0x1b) {
-            cancelled = true;
-            cleanup();
-            reject(new DOMException('cancelled', 'AbortError'));
-          }
-        };
-        const cleanup = () => {
-          process.stdin.removeListener('data', onData);
-          process.stdin.pause();
-          if (process.stdin.isTTY) process.stdin.setRawMode(false);
-        };
-        escCleanup = cleanup;
-        process.stdin.on('data', onData);
-      });
+      // Listen for ESC to abort the running command
+      resetAbort();
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
+      process.stdin.resume();
+      const onData = (chunk: Buffer) => {
+        if (chunk.length === 1 && chunk[0] === 0x1b) {
+          abortCommand();
+        }
+      };
+      process.stdin.on('data', onData);
 
       try {
-        await Promise.race([routePromise, abortPromise]);
+        await route(trimmed);
       } catch (err: any) {
-        if (cancelled) {
+        if (err?.name === 'AbortError') {
           log.print('\n⏹ 命令已取消');
         } else {
           throw err;
         }
       } finally {
-        escCleanup?.();
+        process.stdin.removeListener('data', onData);
+        process.stdin.pause();
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
       }
 
       createRl();

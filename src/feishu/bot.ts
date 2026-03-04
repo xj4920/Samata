@@ -463,7 +463,7 @@ function startWSClient(config: { appId: string; appSecret: string }): void {
   wsClient = new Lark.WSClient({
     appId: config.appId,
     appSecret: config.appSecret,
-    loggerLevel: Lark.LoggerLevel.error,
+    loggerLevel: Lark.LoggerLevel.info,
   });
 
   wsClient.start({ eventDispatcher });

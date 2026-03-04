@@ -1,8 +1,5 @@
-import { marked } from 'marked';
-import { markedTerminal } from 'marked-terminal';
+import { renderMarkdown } from './markdown.js';
 import { log } from './logger.js';
-
-marked.use(markedTerminal());
 
 export function renderTable(head: string[], rows: string[][]): void {
   const sep = head.map(() => '---');
@@ -12,6 +9,5 @@ export function renderTable(head: string[], rows: string[][]): void {
     ...rows.map(row => '| ' + row.map(cell => cell.replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ') + ' |'),
   ];
   const md = lines.join('\n');
-  const rendered = (marked(md) as string).trimEnd();
-  log.print(rendered);
+  log.print(renderMarkdown(md));
 }

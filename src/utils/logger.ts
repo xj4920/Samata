@@ -48,6 +48,8 @@ export const log = {
   error: (msg: string) => { console.log(chalk.red(msg)); logger.error(msg); },
   /** 终端暗色输出 + 写入日志文件（debug 级别） */
   dim: (msg: string) => { console.log(chalk.dim(msg)); logger.debug(msg); },
+  /** 仅写入日志文件，不输出到终端 */
+  file: (msg: string) => { logger.info(msg); },
   /** 仅输出到终端，不写日志文件（用于 CLI 交互显示） */
   print: (...args: any[]) => console.log(...args),
 };

@@ -193,7 +193,7 @@ export function startMonitor(): void {
     }
   }
   
-  log.print(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，监控发送人: ${cfg.senders.join(', ')}`);
+  log.file(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，监控发送人: ${cfg.senders.join(', ')}`);
   if (notifyTarget) {
     log.print(`[monitor] 通知目标: ${notifyTarget}`);
   }

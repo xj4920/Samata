@@ -10,12 +10,10 @@ import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
 import { log } from '../utils/logger.js';
-import { marked } from 'marked';
-import { markedTerminal } from 'marked-terminal';
+import { throwIfAborted } from '../utils/abort.js';
+import { renderMarkdown } from '../utils/markdown.js';
 import * as fs from 'fs';
 import * as path from 'path';
-
-marked.use(markedTerminal());
 
 const showThinking = () => process.env.SHOW_THINKING !== 'false';
 
@@ -585,10 +583,24 @@ export function getSystemPrompt(user?: User): string {
 }
 
 /**
+ * Strip <think> blocks from model output.
+ * When showThinking is true, extracted thoughts are printed via log.dim().
+ */
+function stripThinkBlocks(text: string, showThinkingOpt: boolean): string {
+  if (showThinkingOpt) {
+    for (const m of text.matchAll(/<think>([\s\S]*?)<\/think>/g)) {
+      const thought = m[1].trim();
+      if (thought) log.dim(`💭 ${thought}`);
+    }
+  }
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
+/**
  * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
  * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
  */
-async function callLLM(params: CreateMessageParams, streamText: boolean): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = getProvider();
 
   if (streamText && provider.createMessageStream) {
@@ -596,6 +608,7 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
       let result: CreateMessageResult | null = null;
       let buffer = '';
       for await (const event of provider.createMessageStream(params)) {
+        throwIfAborted();
         if (event.type === 'text_delta') {
           buffer += event.text;
         } else if (event.type === 'done') {
@@ -603,9 +616,12 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
         }
       }
       if (buffer) {
-        log.print();
-        const rendered = marked(buffer) as string;
-        process.stdout.write(rendered.trimEnd() + '\n');
+        const clean = stripThinkBlocks(buffer, showThinkingOpt);
+        if (clean) {
+          log.print();
+          const rendered = renderMarkdown(clean);
+          process.stdout.write(rendered.trimEnd() + '\n');
+        }
       }
       if (!result) throw new Error('Stream ended without done event');
       return { result, streamed: !!buffer };
@@ -614,6 +630,7 @@ async function callLLM(params: CreateMessageParams, streamText: boolean): Promis
     }
   }
 
+  throwIfAborted();
   return { result: await provider.createMessage(params), streamed: false };
 }
 
@@ -653,7 +670,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
   } catch (err: any) {
     log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
     history.length = historyLenBefore;
@@ -662,6 +679,7 @@ export async function runAgenticChat(
 
   // Agentic loop: keep processing until no more tool calls
   while (response.stop_reason === 'tool_use') {
+    throwIfAborted();
     const assistantContent = response.content;
     history.push({ role: 'assistant', content: assistantContent });
 
@@ -680,6 +698,7 @@ export async function runAgenticChat(
           log.dim(`${logPrefix}🔧 调用工具: ${block.name}`);
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
+        throwIfAborted();
         let result: string;
         try {
           result = await executeTool(block.name, block.input);
@@ -697,7 +716,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
     } catch (err: any) {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
@@ -716,25 +735,27 @@ export async function runAgenticChat(
     }
   }
 
+  // 非流式回退时，文本未在 callLLM 中输出，这里兜底渲染
+  if (!streamed && textReply) {
+    const clean = stripThinkBlocks(textReply, showThinkingOpt);
+    if (clean) {
+      log.print();
+      const rendered = renderMarkdown(clean);
+      process.stdout.write(rendered.trimEnd() + '\n');
+    }
+  }
+
   return textReply;
 }
 
 export async function chat(userInput: string): Promise<void> {
   try {
-    const textReply = await runAgenticChat(conversationHistory, userInput, getCurrentUser(), {
+    await runAgenticChat(conversationHistory, userInput, getCurrentUser(), {
       streamEnabled: true,
       showThinking: showThinking(),
     });
-
-    // 如果没有通过流式输出，打印文本回复
-    // 注意：runAgenticChat 已经处理了流式输出，这里只处理非流式的情况
-    // 但由于 streamEnabled=true，文本应该已经输出了
-    // 这里保留原有逻辑以防万一
-    if (textReply && !textReply.trim()) {
-      // 如果返回空文本，可能是流式输出已经处理了
-      return;
-    }
   } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
     const msg = err?.message ?? String(err);
     log.print(`AI 请求失败: ${msg}`);
   }
