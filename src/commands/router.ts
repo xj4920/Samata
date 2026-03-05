@@ -5,6 +5,7 @@ import * as knowledgeCmd from './knowledge.js';
 import * as monitorCmd from './monitor.js';
 import * as tradeCmd from './trade.js';
 import * as plotCmd from './plot.js';
+import * as weworkQACmd from './wework-qa.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
@@ -30,6 +31,7 @@ const commands: Record<string, Command> = {
   status:  { description: '系统状态: /status', adminOnly: false, handler: monitorCmd.status },
   trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
   plot:    { description: '交易曲线图: /plot client=xx|party=xx [limit=N]', adminOnly: false, handler: plotCmd.handlePlot },
+  'wework-qa': { description: '企微Q&A提取: /wework-qa topic=主题 [people=人1,人2] [start=日期] [end=日期] [session=群名] [limit=N]', adminOnly: false, handler: weworkQACmd.weworkQA },
   faq:       { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add':  { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
   'faq-update': { description: '修改FAQ: /faq-update <id>', adminOnly: true, handler: knowledgeCmd.update },
