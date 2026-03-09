@@ -77,6 +77,13 @@ export function initSchema(): void {
   // Update existing rows to set updated_at = created_at if null
   db.prepare("UPDATE knowledge SET updated_at = created_at WHERE updated_at IS NULL").run();
 
+  // Migration: Add unique index on knowledge.question
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_question ON knowledge(question)");
+  } catch (e) {
+    // Index may already exist, ignore
+  }
+
   // Seed default users if empty
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
   if (count.c === 0) {

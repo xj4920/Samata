@@ -8,6 +8,8 @@ import 'dotenv/config';
 import Database from 'better-sqlite3';
 import readline from 'readline';
 import { v4 as uuid } from 'uuid';
+import { findSimilarQuestions } from '../src/utils/qa-dedup.js';
+import { initProviders } from '../src/llm/provider.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -27,6 +29,7 @@ interface PendingQA {
  * 主函数：交互式审核
  */
 async function reviewQA(topicName?: string) {
+  await initProviders();
   const db = new Database(DB_PATH);
 
   // 显示审核统计
@@ -64,7 +67,7 @@ async function reviewQA(topicName?: string) {
     const action = await askReviewAction();
 
     if (action === 'approve') {
-      const ok = approveQA(db, item);
+      const ok = await approveQA(db, item);
       approved++;
       reviewed++;
       if (ok) {
@@ -169,29 +172,57 @@ function displayQA(item: PendingQA) {
 }
 
 /**
- * 批准 Q&A（写入正式库）
+ * 批准 Q&A（写入正式库，含语义去重检查）
  */
-function approveQA(db: Database.Database, item: PendingQA, reviewer: string = 'admin'): boolean {
-  // 检查 knowledge 表中是否已存在相同问题
-  const existing = db.prepare(
-    'SELECT id, question FROM knowledge WHERE question = ?'
-  ).get(item.question) as { id: string; question: string } | undefined;
+async function approveQA(db: Database.Database, item: PendingQA, reviewer: string = 'admin'): Promise<boolean> {
+  // 语义去重检查
+  const dedupResult = await findSimilarQuestions(db, item.question);
 
-  if (existing) {
-    console.log(`\n⚠ 知识库中已存在相同问题（ID: ${existing.id.slice(0, 8)}），跳过写入`);
-    // 仍然标记为 approved，避免重复审核
-    db.prepare(`
-      UPDATE knowledge_pending
-      SET review_status = 'approved'
-      WHERE id = ?
-    `).run(item.id);
-    return false;
+  if (dedupResult.hasDuplicate) {
+    const top = dedupResult.candidates.find(c => c.semanticMatch) || dedupResult.candidates[0];
+    console.log(`\n⚠ 知识库中已存在相似问题：`);
+    console.log(`  已有: ${top.question}`);
+    console.log(`  相似度: ${(top.similarity * 100).toFixed(0)}%`);
+    if (top.answer) {
+      const preview = top.answer.length > 100 ? top.answer.substring(0, 100) + '...' : top.answer;
+      console.log(`  已有答案: ${preview}`);
+    }
+
+    const dupAction = await askDupAction();
+
+    if (dupAction === 'skip') {
+      // 标记 pending 为 approved 但不写入 knowledge
+      db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
+      console.log('⊙ 已跳过（不入库）');
+      return false;
+    }
+
+    if (dupAction === 'replace') {
+      // 替换已有记录
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM knowledge WHERE id = ?').run(top.id);
+
+        const createdAt = item.source_time || new Date().toISOString();
+        db.prepare(`
+          INSERT INTO knowledge
+          (id, question, answer, tags, related_users, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(uuid(), item.question, item.answer, item.tags, item.related_users, 'admin-001', createdAt, createdAt);
+
+        db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
+        db.prepare(`
+          INSERT INTO knowledge_review_log (pending_id, reviewer, action, comment, reviewed_at)
+          VALUES (?, ?, 'approve', ?, ?)
+        `).run(item.id, reviewer, `替换已有: ${top.id.slice(0, 8)}`, new Date().toISOString());
+      });
+      tx();
+      console.log(`✓ 已替换旧记录（${top.id.slice(0, 8)}）`);
+      return true;
+    }
+    // dupAction === 'add_anyway': 继续正常插入
   }
 
   const tx = db.transaction(() => {
-    // 1. 写入正式库
-    // create_time 使用 source_time (消息原始时间)，以便反映知识产生的实际时间
-    // update_time 也使用 source_time，以便后续按 update_time 排序/计算权重时，反映的是知识的时效性
     const createdAt = item.source_time || new Date().toISOString();
     const updatedAt = createdAt;
 
@@ -199,28 +230,12 @@ function approveQA(db: Database.Database, item: PendingQA, reviewer: string = 'a
       INSERT INTO knowledge
       (id, question, answer, tags, related_users, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      uuid(),
-      item.question,
-      item.answer,
-      item.tags,
-      item.related_users,
-      'admin-001',
-      createdAt,
-      updatedAt
-    );
+    `).run(uuid(), item.question, item.answer, item.tags, item.related_users, 'admin-001', createdAt, updatedAt);
 
-    // 2. 更新待审核表状态
-    db.prepare(`
-      UPDATE knowledge_pending
-      SET review_status = 'approved'
-      WHERE id = ?
-    `).run(item.id);
+    db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
 
-    // 3. 记录审核日志
     db.prepare(`
-      INSERT INTO knowledge_review_log
-      (pending_id, reviewer, action, reviewed_at)
+      INSERT INTO knowledge_review_log (pending_id, reviewer, action, reviewed_at)
       VALUES (?, ?, 'approve', ?)
     `).run(item.id, reviewer, new Date().toISOString());
   });
@@ -228,6 +243,25 @@ function approveQA(db: Database.Database, item: PendingQA, reviewer: string = 'a
   tx();
   return true;
 }
+
+/**
+ * 去重冲突时的交互式选择
+ */
+function askDupAction(): Promise<'skip' | 'replace' | 'add_anyway'> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question('\n操作 [s=跳过(不入库), r=替换已有, a=仍然添加]: ', answer => {
+      rl.close();
+      const action = answer.trim().toLowerCase();
+      if (action === 'r') resolve('replace');
+      else if (action === 'a') resolve('add_anyway');
+      else resolve('skip');
+    });
+  });
+}
+
+/**
+ * 编辑 Q&A（更新待审核表内容）
  */
 function editQA(
   db: Database.Database,
