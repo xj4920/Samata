@@ -136,11 +136,40 @@ async function repl(): Promise<void> {
     hintPrefix = '';
   };
 
+  // Multiline input support
+  let multilineBuffer: string[] = [];   // previous lines (already committed via Shift+Enter)
+  let multilineActive = false;
+
+  const resetMultiline = () => {
+    multilineBuffer = [];
+    multilineActive = false;
+  };
+
+  const getFullInput = (currentLine: string): string => {
+    if (multilineBuffer.length === 0) return currentLine;
+    return [...multilineBuffer, currentLine].join('\n');
+  };
+
   const attachTtyOverride = () => {
     if (typeof (rl as any)._ttyWrite === 'function') {
       const origTtyWrite = (rl as any)._ttyWrite;
       (rl as any)._ttyWrite = function (s: string, key: any) {
         const hintsVisible = currentHits.length > 0;
+
+        // Shift+Enter: commit current line to buffer, start new line
+        if (key && key.name === 'return' && key.shift) {
+          clearHints();
+          const currentLine = (rl as any).line as string ?? '';
+          multilineBuffer.push(currentLine);
+          multilineActive = true;
+          // Move to next line and show continuation prompt
+          origStdoutWrite('\n');
+          setLine('');
+          // Overwrite prompt for continuation
+          (rl as any)._prompt = '  ... ';
+          (rl as any)._refreshLine();
+          return;
+        }
 
         if (hintsVisible && key) {
           if (key.name === 'down' || key.name === 'up') {
@@ -189,12 +218,16 @@ async function repl(): Promise<void> {
 
   const prompt = (): Promise<string> =>
     new Promise((resolve, reject) => {
+      resetMultiline();
       const onClose = () => reject(new Error('ExitPromptError'));
       rl.once('close', onClose);
       rl.question('衍语> ', (answer) => {
         rl.removeListener('close', onClose);
         clearHints();
-        resolve(answer);
+        // Replace literal \n sequences with real newlines
+        const full = getFullInput(answer).replace(/\\n/g, '\n');
+        resetMultiline();
+        resolve(full);
       });
     });
 

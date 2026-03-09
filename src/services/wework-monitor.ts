@@ -132,7 +132,7 @@ async function poll(): Promise<void> {
       const msg = `<b>[企微监控]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
       await sendNotification(msg);
       const displayTime = time ? time.replace('T', ' ').replace('Z', '') : time;
-      log.dim(`[monitor] 推送消息: ${sender} @ ${displayTime}`);
+      log.file(`[monitor] 推送消息: ${sender} @ ${displayTime}`);
     }
 
     lastSeenTime = rows[rows.length - 1].time ?? lastSeenTime;

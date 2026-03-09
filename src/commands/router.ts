@@ -10,6 +10,7 @@ import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
+import { handleQA } from './qa.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startFeishuBot, stopFeishuBot, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
@@ -31,7 +32,8 @@ const commands: Record<string, Command> = {
   status:  { description: '系统状态: /status', adminOnly: false, handler: monitorCmd.status },
   trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
   plot:    { description: '交易曲线图: /plot client=xx|party=xx [limit=N]', adminOnly: false, handler: plotCmd.handlePlot },
-  'wework-qa': { description: '企微Q&A提取: /wework-qa topic=主题 [people=人1,人2] [start=日期] [end=日期] [session=群名] [limit=N]', adminOnly: false, handler: weworkQACmd.weworkQA },
+  'wework-qa': { description: '企微Q&A提取: /wework-qa topics=关键词1,关键词2 [people=人1,人2] [start=日期] [end=日期] [session=群名] [limit=N]', adminOnly: false, handler: weworkQACmd.weworkQA },
+  qa:          { description: 'Q&A管线: /qa <clean|extract|merge|review|validate|score> [topic]', adminOnly: true, handler: handleQA },
   faq:       { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add':  { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
   'faq-update': { description: '修改FAQ: /faq-update <id>', adminOnly: true, handler: knowledgeCmd.update },

@@ -64,6 +64,44 @@ export function setModelOverride(model: string | null): void {
   modelOverride = model;
 }
 
+/** 任务类型定义 */
+export type TaskType = 'extraction' | 'scoring' | 'classification' | 'summary';
+
+/**
+ * 根据任务类型获取对应的模型
+ * 支持通过环境变量配置不同任务使用不同模型
+ */
+export function getModelForTask(task: TaskType): string {
+  const taskModels: Record<TaskType, string> = {
+    extraction: process.env.MODEL_EXTRACTION || getModelName(),
+    scoring: process.env.MODEL_SCORING || getModelName(),
+    classification: process.env.MODEL_CLASSIFICATION || getModelName(),
+    summary: process.env.MODEL_SUMMARY || getModelName(),
+  };
+
+  return taskModels[task];
+}
+
+/**
+ * 根据任务类型获取对应的 provider
+ * 支持不同任务使用不同的 provider
+ */
+export function getProviderForTask(task: TaskType): LLMProvider {
+  const providerMap: Record<TaskType, string> = {
+    extraction: process.env.PROVIDER_EXTRACTION || '',
+    scoring: process.env.PROVIDER_SCORING || '',
+    classification: process.env.PROVIDER_CLASSIFICATION || '',
+    summary: process.env.PROVIDER_SUMMARY || '',
+  };
+
+  const providerName = providerMap[task];
+  if (providerName && providers.has(providerName as ProviderName)) {
+    return providers.get(providerName as ProviderName)!;
+  }
+
+  return getProvider();
+}
+
 export function getAvailableProviders(): ProviderName[] {
   return [...providers.keys()];
 }

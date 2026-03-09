@@ -211,8 +211,7 @@ export class FeishuAPI {
     if (data.code !== 0) {
       throw new Error(`发送消息失败: ${data.msg} (code: ${data.code})`);
     }
-
-    log.dim(`[飞书] 消息已发送至 ${receiveIdType}: ${receiveId}`);
+    log.file(`[飞书] 消息已发送至 ${receiveIdType}: ${receiveId}`);
   }
 
   /**
