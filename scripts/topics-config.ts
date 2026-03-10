@@ -37,8 +37,8 @@ export const TOPICS: TopicConfig[] = [
   },
 
   {
-    name: '专线接入',
-    keywords: ['专线', 'COLO', 'colo', '托管', '机房', '交叉连接', 'cross connect', '光纤', '网络接入', 'IDC', 'VPN'],
+    name: '接入方式',
+    keywords:['专线', 'API', 'api', 'Colo', 'colo', '托管', '机房', '交叉连接', 'VPN', 'vpn', '光纤', '网络接入', '线路', '带宽', '机柜'],
     priority: 4,
   },
 

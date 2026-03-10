@@ -1,240 +1,270 @@
-# 企微 Q&A 提取流程设计
+# 企微 Q&A 提取流程
 
 ## 整体架构
 
+系统有两条提取路径，共享底层的消息聚合和 LLM 提取能力：
+
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│  主题配置    │ ──▶ │  跨群消息聚合  │ ──▶ │  LLM 提取     │ ──▶ │  待审核表    │
-│ (topics)    │     │ (增量过滤)    │     │ (分窗口处理)  │     │ (pending)   │
-└─────────────┘     └──────────────┘     └──────────────┘     └──────┬──────┘
-                                                                     │
-                                                                     ▼
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│  知识库      │ ◀── │  写入正式库   │ ◀── │  人工审核     │ ◀── │  审核通知    │
-│ (knowledge) │     │ (approved)   │     │ (CLI 工具)   │     │ (定时提醒)   │
-└─────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
+                           ┌─────────────────────────────────────────────────┐
+                           │             /qa 管线（完整流程）                  │
+┌─────────────┐            │                                                 │
+│  主题配置    │ ─────────▶│  extract → merge → review → 入库 knowledge      │
+│ (topics)    │            │  (增量提取)  (合并去重) (人工审核)                 │
+└─────────────┘            │                                                 │
+      │                    │  辅助命令: clean / validate / score              │
+      │                    └─────────────────────────────────────────────────┘
+      │
+      │                    ┌─────────────────────────────────────────────────┐
+      │                    │         /wework-qa（轻量查询）                    │
+      └──────────────────▶│  关键词搜索 → 过滤 → LLM 提取 → 直接输出          │
+                           │  (无持久化，无审核流程)                            │
+                           └─────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 阶段一：主题定义
+## 路径一：/wework-qa 轻量提取
 
-预先维护一份主题清单，每个主题包含：
-- 名称（如"FIX协议对接"）
-- 关键词组（如 `['FIX', 'fix协议', 'fix认证']`）
-- 优先级（决定提取顺序）
-- 相关群组（可选，缩小搜索范围）
+`src/commands/wework-qa.ts` 提供即时提取能力，不写入数据库，适合临时查询。
 
-主题是提取的最小单位。一个主题的讨论通常散落在多个群里，所以不按群提取，按主题提取。
-
----
-
-## 阶段二：跨群消息聚合
+### 流程
 
 ```
-主题: "FIX协议对接"
-关键词: ['FIX', 'fix协议', 'fix认证']
-
-     关键词 "FIX"                关键词 "fix协议"            关键词 "fix认证"
-         │                           │                          │
-         ▼                           ▼                          ▼
-  ┌──────────────┐           ┌──────────────┐          ┌──────────────┐
-  │ LinkRiver群   │           │ Jump对接群    │          │ Schonfeld群   │
-  │  12 条消息    │           │  8 条消息     │          │  3 条消息     │
-  └──────┬───────┘           └──────┬───────┘          └──────┬───────┘
-         │                          │                         │
-         └──────────┬───────────────┴─────────────────────────┘
-                    ▼
-            ┌──────────────┐
-            │  去重 + 合并   │  按消息指纹（时间+发送人+会话）去重
-            │  按时间排序    │
-            └──────┬───────┘
-                   ▼
-            共 19 条唯一消息（跨 3 个群）
-```
-
-关键点：同一条消息可能被多个关键词命中，用消息指纹去重。
-
----
-
-## 阶段三：增量过滤（避免重复提取）
-
-```
-19 条聚合消息
+关键词搜索（每个关键词 fetchWeworkMessages, limit=500）
        │
        ▼
-┌─────────────────────────────────┐
-│  逐条查询 message_processing_log │
-│  检查该消息是否已被该主题处理过     │
-└──────────────┬──────────────────┘
-               │
-       ┌───────┼───────┐
-       ▼       ▼       ▼
-    新消息   已处理    内容变化
-   (未见过)  (跳过)   (重新处理)
-    11 条     7 条      1 条
-       │                │
-       └───────┬────────┘
-               ▼
-        12 条待处理消息
+消息指纹去重（time-sender-content）
+       │
+       ▼
+时间/人员过滤（可选）
+       │
+       ▼
+LLM 提取（generateTopicPrompt → 单次调用）
+       │
+       ▼
+直接输出 QAPair[]
 ```
+
+### 入口
+
+**CLI** — `/wework-qa topics=FIX,fix协议 [people=张三] [start=2024-01-01] [end=2024-12-31] [session=群名] [limit=10]`
+
+**Agent Tool** — `extract_wework_qa`（`src/llm/agent.ts` 中注册，薄包装调用 `extractWeworkQA()`）
+
+---
+
+## 路径二：/qa 完整管线
+
+通过 `src/commands/qa.ts` 统一入口，调用 `scripts/` 下的独立脚本。数据持久化到 SQLite（`data/yanyu.db`）。
+
+```
+/qa extract [topic] [limit]     增量提取
+/qa merge [topic]               合并相似 QA（交互式）
+/qa review [topic]              人工审核（交互式）
+/qa validate [topic]            完整性验证
+/qa score <topic>               质量评分
+/qa clean <topic>               清理主题数据（重新提取）
+```
+
+### 阶段一：主题定义
+
+`scripts/topics-config.ts` 维护主题清单，每个主题包含：
+- **名称**（如 `FIX协议对接`）
+- **关键词组**（如 `['FIX', 'fix协议', 'fix认证']`）
+- **优先级** 1-5（5 最高）
+- **相关群组**（可选，缩小搜索范围）
+- **时间范围**（可选）
+
+当前主题分级：
+
+| 优先级 | 主题 |
+|--------|------|
+| 5 | FIX协议对接、API认证问题、交易拒单处理 |
+| 4 | 专线接入、北上资金数据、估值计算、风控配置、断线重连机制 |
+| 3 | 交易数据加工、开户流程、查询功能、算法单 |
+| 2 | 系统部署、时延优化、日志排查 |
+
+同时维护标准 QA 标签列表 `QA_TAGS`，供 LLM 提取时分类。
+
+### 阶段二：增量提取（/qa extract）
+
+`scripts/incremental-extract.ts`，核心流程：
+
+```
+1. 跨群消息聚合
+       │  每个关键词 fetchWeworkMessages(limit=1000)
+       │  相关群组过滤（relatedGroups）
+       │  消息指纹去重 + 按时间排序
+       ▼
+2. 增量过滤
+       │  查询 message_processing_log 表
+       │  分类：新消息 / 已处理(跳过) / 内容变化(重新处理)
+       │  版本升级时强制重新提取
+       ▼
+3. 分窗口 LLM 提取
+       │  固定窗口 100 条，时间跨度 >7 天强制切分
+       │  每个窗口独立调用 LLM（带重试，指数退避）
+       │  JSON 格式校验 + 修复
+       ▼
+4. 跨窗口去重
+       │  问题前 50 字符相同视为重复
+       ▼
+5. 质量评分（≤20 条时自动评分）
+       │  调用 qa-quality-scorer（1-5 分）
+       ▼
+6. 写入 knowledge_pending 表（review_status = 'pending'）
+7. 标记 message_processing_log（消息已被该主题处理）
+8. 更新 topic_extraction_metadata（扫描范围、QA 数等元数据）
+```
+
+#### 增量过滤机制
 
 每条消息有两个标识：
-- **消息指纹**（时间+发送人+会话的 hash）→ 判断是否见过
-- **内容 hash** → 判断内容是否变化（极少发生，但可能有消息撤回重发）
+- **消息指纹**（`generateMessageFingerprint(time, sender, content, session)`）→ 判断是否见过
+- **内容 hash**（`contentHash`）→ 判断内容是否变化
 
-每条消息还记录了"已被哪些主题处理过"，所以同一条消息可以被不同主题各处理一次，但同一主题不会重复处理。
+每条消息记录了"已被哪些主题处理过"（`processed_topics` 逗号分隔），同一条消息可被不同主题各处理一次，但同一主题不会重复处理。
 
----
-
-## 阶段四：分窗口 LLM 提取
-
-```
-12 条待处理消息（按时间排序）
-       │
-       ▼
-┌─────────────────────────────┐
-│  按时间间隔分组               │
-│  间隔 > 60 分钟 → 新窗口     │
-│  单窗口 > 100 条 → 强制分割   │
-└──────────────┬──────────────┘
-               │
-       ┌───────┼───────┐
-       ▼       ▼       ▼
-    窗口 1   窗口 2   窗口 3
-    5 条     4 条     3 条
-       │       │       │
-       ▼       ▼       ▼
-    LLM 提取  LLM 提取  LLM 提取
-    2 个 QA   1 个 QA   0 个 QA
-       │       │
-       └───┬───┘
-           ▼
-    ┌──────────────┐
-    │  跨窗口去重   │  问题前 50 字符相同视为重复
-    └──────┬───────┘
-           ▼
-      3 个唯一 QA
-```
-
-为什么要分窗口：
-- 避免单次 LLM 调用 token 过多，影响提取质量
-- 时间间隔大的消息属于不同对话，混在一起会干扰 LLM 判断
-- 每个窗口内的消息是一段连贯的讨论，更容易提取出完整的 Q&A
-
-LLM 提取时的关键 prompt 要求：
-- 综合多个群组的回答，提炼最完整的答案
-- 问题泛化为通用问题（去掉特定客户名等）
-- 排除临时性安排、个性化需求、简单确认等低价值内容
-
----
-
-## 阶段五：写入待审核表
-
-```
-3 个 QA
-   │
-   ▼
-┌──────────────────────────┐
-│  写入 knowledge_pending   │
-│                          │
-│  每条记录包含：            │
-│  - 问题 / 答案            │
-│  - 来源群组 / 时间         │
-│  - 来源消息 ID 列表        │  ← 溯源用
-│  - 主题名称               │
-│  - 提取版本号              │  ← 逻辑变更时可重新提取
-│  - 审核状态 = pending      │
-│  - LLM 自评分（可选）      │
-└──────────────────────────┘
-```
-
-同时更新：
-- `message_processing_log`：标记这 12 条消息已被"FIX协议对接"主题处理
-- `topic_extraction_metadata`：更新该主题的扫描范围、消息数、QA 数等元数据
-
----
-
-## 阶段六：人工审核
-
-```
-                    待审核队列
-                        │
-                        ▼
-              ┌───────────────────┐
-              │  选择审核模式       │
-              │  - 按主题          │
-              │  - 按优先级        │
-              │  - 全部            │
-              └────────┬──────────┘
-                       │
-                       ▼
-              ┌───────────────────┐
-              │  展示单条 QA       │
-              │  问题 / 答案       │
-              │  来源 / 时间       │
-              │  质量评分          │
-              └────────┬──────────┘
-                       │
-           ┌───────┬───┴───┬───────┐
-           ▼       ▼       ▼       ▼
-        批准(a)  拒绝(r)  编辑(e)  跳过(s)
-           │       │       │
-           │       │       ▼
-           │       │    修改问题/答案
-           │       │       │
-           ▼       ▼       ▼
-      ┌────────────────────────┐
-      │  记录审核日志            │
-      │  (谁、什么时间、什么操作) │
-      │  (编辑的记录修改前后对比) │
-      └────────┬───────────────┘
-               │
-        ┌──────┴──────┐
-        ▼             ▼
-   批准/编辑        拒绝
-        │             │
-        ▼             ▼
-  写入 knowledge   标记 rejected
-  (正式知识库)     (不写入，保留记录)
-```
-
----
-
-## 阶段七：完整性验证
-
-定期运行验证脚本，检查每个主题：
-
-```
-对每个主题：
-  1. 重新用关键词搜索全量消息
-  2. 比对 message_processing_log
-  3. 输出报告：
-     - 是否有未处理的消息？（新增的聊天记录）
-     - 时间覆盖是否有缺口？（某段时间没有消息，是真的没有还是遗漏了）
-     - 提取率是否合理？（QA数 / 消息数，过低说明 prompt 或关键词需要调整）
-```
-
----
-
-## 提取版本控制
-
-当优化了 LLM prompt 或提取逻辑时：
+#### 提取版本控制
 
 ```
 EXTRACTION_VERSION: 1 → 2
 
-已用 v1 提取的消息会被重新处理：
-  - 旧的 pending QA 保留（不删除）
-  - 新版本提取的 QA 作为新记录写入 pending
-  - 人工审核时可以对比新旧版本的提取质量
+已用 v1 提取的消息会被重新处理（forceReExtract）
+新提取的 QA 作为新记录写入 pending（INSERT OR IGNORE）
 ```
 
-这样保证了提取逻辑迭代时，历史数据不会丢失，也不会被错误覆盖。
+### 阶段三：相似合并（/qa merge）
+
+`scripts/merge-qa.ts`，在提取和审核之间运行，减少审核工作量：
+
+```
+1. 获取 pending QA（至少 3 条才触发）
+       │
+       ▼
+2. LLM 相似性检测
+       │  字符 bigram Jaccard 排序（相似问题聚在一起，无 LLM 开销）
+       │  排序后分批 30 条，发送问题列表给 LLM
+       │  Union-Find 合并传递性相似组（[0,1] + [1,2] → [0,1,2]）
+       ▼
+3. 交互式合并
+       │  展示每组相似问题
+       │  操作选项:
+       │    a = 自动合并（LLM 精炼问题，保留最佳答案）
+       │    p = 手动选主答案
+       │    c = 合并问题+答案（LLM 同时合并 Q 和 A）
+       │    s = 跳过
+       │    q = 退出
+       ▼
+4. 执行合并
+       │  主项：更新 question/answer、合并 tags/related_users/source_message_ids
+       │  被合并项：review_status → 'merged'，记录 merged_into_id
+       │  记录审核日志（merge / merge-primary）
+```
+
+### 阶段四：人工审核（/qa review）
+
+`scripts/review-qa.ts`，交互式逐条审核：
+
+```
+            待审核队列
+            （按 review_priority DESC, auto_quality_score DESC 排序）
+                │
+                ▼
+        ┌───────────────────┐
+        │  展示单条 QA       │
+        │  主题/标签/来源/时间│
+        │  质量评分          │
+        │  问题/答案         │
+        └────────┬──────────┘
+                 │
+     ┌───────┬───┴───┬───────┐
+     ▼       ▼       ▼       ▼
+  批准(a)  编辑(e)  拒绝(r)  跳过(s) / 退出(q)
+     │       │       │
+     ▼       │       ▼
+  语义去重   │    标记 rejected
+  检查      │    记录审核日志
+  (qa-dedup)│
+     │       │
+  ┌──┴──┐    │
+  │重复？│    │
+  └──┬──┘    │
+  ┌──┴──┐    ▼
+  │s/r/a│  修改 Q&A
+  └──┬──┘  review_status → 'edited'
+     ▼     记录审核日志
+  写入 knowledge 正式库
+  review_status → 'approved'
+  记录审核日志
+```
+
+审核批准时的语义去重（`src/utils/qa-dedup.ts`）：
+- Layer 1：字符 bigram Jaccard 相似度筛选
+- Layer 2：LLM 语义判定（仅对 top-N 候选）
+- 发现重复时可选：跳过(不入库) / 替换已有 / 仍然添加
+
+### 阶段五：辅助工具
+
+**质量评分** — `/qa score <topic>`（`scripts/score-topic.ts`）
+- 对未评分的 pending QA 调用 LLM 评估（1-5 分）
+
+**完整性验证** — `/qa validate [topic]`（`scripts/validate-extraction-coverage.ts`）
+- 检查主题提取元数据、提取率、待审核/已批准数量
+- 检测时间覆盖缺口（>30 天间隔）
+
+**清理重置** — `/qa clean <topic>`（`scripts/clean-topic.ts`）
+- 删除审核日志、pending QA、消息处理标记、主题元数据
+- 用于从头重新提取
+
+---
+
+## 主题专属 Prompt
+
+`src/utils/topic-prompts.ts` 为不同主题定制提取策略。
+
+### 匹配逻辑（`getTopicPromptConfig()`）
+
+1. 精确匹配主题名称
+2. 关键词包含匹配
+3. 兜底返回"通用"配置
+
+### Prompt 配置（`TopicPromptConfig`）
+
+| 字段 | 说明 |
+|------|------|
+| `extractionStrategy` | 专属提取策略（如 FIX 主题强调字段编号、错误代码、泛化要求） |
+| `mustExtractTypes` | 必须提取的内容类型列表 |
+| `extractionFocus` | 提取重点和质量要求 |
+| `examples` | 提取示例（few-shot） |
+
+已配置专属 prompt 的主题：
+- **FIX协议对接** — tag 字段、错误代码、消息类型，严格泛化客户信息
+- **费率与限额** — 数值、计算公式、分层信息
+- **交易标的范围** — 标的清单、准入条件、限制说明
+- **异常交易认定** — 判定标准、阈值、监控规则
+- **专线接入** — 接入方式、申请流程、故障排查，严格泛化客户信息
+- **通用** — 兜底配置
+
+### 生成的 Prompt 结构
+
+```
+1. 角色定义 + 主题名称
+2. 主题专属提取策略
+3. 必须提取的内容类型
+4. 可用标签列表（QA_TAGS）
+5. 严格排除的内容（临时安排、个性化需求、简单确认等）
+6. 提取标准 + 数量限制
+7. 提取示例（few-shot）
+8. 聊天记录格式说明 + 实际聊天记录
+9. 输出格式要求（JSON 数组）
+```
 
 ---
 
 ## 数据库表结构
+
+SQLite 数据库 `data/yanyu.db`，建表脚本 `scripts/init-qa-extraction-db.sql`。
 
 ### message_processing_log（消息处理追踪）
 
@@ -261,6 +291,7 @@ EXTRACTION_VERSION: 1 → 2
 | total_qa_extracted | INTEGER | 提取 QA 总数 |
 | date_range_start | TEXT | 已扫描时间范围起点 |
 | date_range_end | TEXT | 已扫描时间范围终点 |
+| related_groups | TEXT | 相关群组（JSON） |
 | extraction_version | INTEGER | 提取逻辑版本号 |
 | status | TEXT | pending / in_progress / completed / needs_review |
 
@@ -271,29 +302,59 @@ EXTRACTION_VERSION: 1 → 2
 | id | TEXT PK | 唯一标识 |
 | question | TEXT | 问题 |
 | answer | TEXT | 答案 |
-| tags | TEXT | 标签 |
-| related_users | TEXT | 相关人员 |
+| tags | TEXT | 标签（逗号分隔） |
+| related_users | TEXT | 回答者（最多 2 位，逗号分隔） |
 | source_session | TEXT | 来源群组 |
 | source_time | TEXT | 来源时间 |
 | source_message_ids | TEXT | 来源消息 ID 列表（JSON） |
 | topic_name | TEXT | 所属主题 |
 | extraction_version | INTEGER | 提取版本号 |
 | extracted_at | TEXT | 提取时间 |
-| review_status | TEXT | pending / approved / rejected / edited |
+| extracted_by | TEXT | 提取者（默认 auto-extractor） |
+| review_status | TEXT | pending / approved / rejected / edited / merged |
 | review_priority | INTEGER | 审核优先级 1-5 |
 | auto_quality_score | REAL | LLM 自评分 |
+| merged_into_id | TEXT | 被合并到的目标 QA ID |
+
+UNIQUE 约束：`(question, topic_name)`
 
 ### knowledge_review_log（审核日志）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | INTEGER PK | 自增 ID |
-| pending_id | TEXT | 关联 pending 表 |
+| pending_id | TEXT FK | 关联 pending 表 |
 | reviewer | TEXT | 审核人 |
-| action | TEXT | approve / reject / edit / skip |
+| action | TEXT | approve / reject / edit / skip / merge / merge-primary |
 | comment | TEXT | 审核备注 |
 | original_question | TEXT | 编辑前问题 |
 | original_answer | TEXT | 编辑前答案 |
 | edited_question | TEXT | 编辑后问题 |
 | edited_answer | TEXT | 编辑后答案 |
 | reviewed_at | TEXT | 审核时间 |
+
+### review_stats（审核统计视图）
+
+按 `topic_name` 汇总 total / pending / approved / rejected / edited / merged。
+
+---
+
+## 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `scripts/topics-config.ts` | 主题清单（名称、关键词、优先级）+ QA 标签列表 |
+| `src/utils/topic-prompts.ts` | 主题专属 prompt 配置 + prompt 生成 |
+| `src/commands/wework-qa.ts` | 轻量提取（消息聚合 + 过滤 + LLM 调用 + CLI 入口） |
+| `src/commands/qa.ts` | /qa 管线入口（dispatch 到 scripts/） |
+| `scripts/incremental-extract.ts` | 增量提取（分窗口 + 持久化 + 版本控制） |
+| `scripts/merge-qa.ts` | 相似 QA 合并（LLM 检测 + 交互式合并） |
+| `scripts/review-qa.ts` | 人工审核（批准/编辑/拒绝 + 语义去重检查） |
+| `scripts/score-topic.ts` | QA 质量评分 |
+| `scripts/validate-extraction-coverage.ts` | 提取完整性验证 |
+| `scripts/clean-topic.ts` | 清理主题数据 |
+| `scripts/init-qa-extraction-db.sql` | 数据库建表脚本 |
+| `src/utils/qa-quality-scorer.ts` | LLM 质量评分（1-5 分） |
+| `src/utils/qa-dedup.ts` | 语义去重（bigram Jaccard + LLM 两层过滤） |
+| `src/utils/message-fingerprint.ts` | 消息指纹生成 |
+| `src/llm/agent.ts` | Agent tool 注册（extract_wework_qa） |
