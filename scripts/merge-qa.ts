@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import readline from 'readline';
 import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/provider.js';
 import { parseLLMJsonArray } from '../src/utils/json-repair.js';
+import { sortBySimilarity } from '../src/utils/text-similarity.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -254,85 +255,14 @@ async function processTopicMerge(
 }
 
 // ============ LLM 相似性检测 ============
-
-/**
- * 字符 bigram Jaccard 相似度（复用 qa-dedup.ts 的思路，无 LLM 开销）
- */
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[（）()\[\]{}「」""''、，。？！：；·\-—《》<>\/\\|~`@#$%^&*+=]/g, '')
-    .replace(/[,.?!:;'"]/g, '');
-}
-
-function charBigrams(text: string): Set<string> {
-  const n = normalize(text);
-  const bigrams = new Set<string>();
-  for (let i = 0; i < n.length - 1; i++) {
-    bigrams.add(n.slice(i, i + 2));
-  }
-  return bigrams;
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1.0;
-  let intersection = 0;
-  for (const g of a) {
-    if (b.has(g)) intersection++;
-  }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-/**
- * 按语义相似度排序问题列表，使相似的问题相邻
- * 贪心策略：从第一个开始，每次选与当前问题最相似的未访问问题作为下一个
- */
-function sortBySimilarity(items: PendingQA[]): { sorted: PendingQA[]; originalIndices: number[] } {
-  if (items.length <= 1) {
-    return { sorted: [...items], originalIndices: items.map((_, i) => i) };
-  }
-
-  const bigrams = items.map(item => charBigrams(item.question));
-  const visited = new Set<number>();
-  const order: number[] = [];
-
-  // 从第一个问题开始
-  let current = 0;
-  visited.add(current);
-  order.push(current);
-
-  while (order.length < items.length) {
-    let bestIdx = -1;
-    let bestSim = -1;
-
-    for (let i = 0; i < items.length; i++) {
-      if (visited.has(i)) continue;
-      const sim = jaccardSimilarity(bigrams[current], bigrams[i]);
-      if (sim > bestSim) {
-        bestSim = sim;
-        bestIdx = i;
-      }
-    }
-
-    visited.add(bestIdx);
-    order.push(bestIdx);
-    current = bestIdx;
-  }
-
-  return {
-    sorted: order.map(i => items[i]),
-    originalIndices: order,
-  };
-}
+// normalize, charBigrams, jaccardSimilarity, sortBySimilarity 已提取到 src/utils/text-similarity.ts
 
 async function detectSimilarGroups(items: PendingQA[]): Promise<SimilarGroup[]> {
   const BATCH_SIZE = 30;
 
   // 先按 bigram 相似度排序，使语义相近的问题聚在一起
   console.log('  按语义相似度排序...');
-  const { sorted, originalIndices } = sortBySimilarity(items);
+  const { sorted, originalIndices } = sortBySimilarity(items, item => item.question);
 
   const batches: PendingQA[][] = [];
   for (let i = 0; i < sorted.length; i += BATCH_SIZE) {

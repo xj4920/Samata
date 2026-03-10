@@ -5,6 +5,7 @@
 import type Database from 'better-sqlite3';
 import { parseLLMJsonArray } from './json-repair.js';
 import { getProviderForTask, getModelForTask } from '../llm/provider.js';
+import { charBigrams, jaccardSimilarity } from './text-similarity.js';
 
 export interface DedupCandidate {
   id: string;
@@ -36,39 +37,7 @@ const DEFAULTS = {
 };
 
 // ============ Layer 1: 字符 bigram Jaccard ============
-
-/**
- * 标准化文本：小写、去空格、去标点
- */
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[（）()\[\]{}「」""''、，。？！：；·\-—《》<>\/\\|~`@#$%^&*+=]/g, '')
-    .replace(/[,.?!:;'"]/g, '');
-}
-
-/**
- * 提取字符 bigram 集合（适合中文，无需分词）
- */
-function charBigrams(text: string): Set<string> {
-  const n = normalize(text);
-  const bigrams = new Set<string>();
-  for (let i = 0; i < n.length - 1; i++) {
-    bigrams.add(n.slice(i, i + 2));
-  }
-  return bigrams;
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1.0;
-  let intersection = 0;
-  for (const g of a) {
-    if (b.has(g)) intersection++;
-  }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
+// normalize, charBigrams, jaccardSimilarity 已提取到 text-similarity.ts
 
 interface KnowledgeRow {
   id: string;
