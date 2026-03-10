@@ -3,6 +3,7 @@
  * 两层过滤：Layer 1 字符 bigram Jaccard（无 LLM 开销） → Layer 2 LLM 语义判定（仅对 top-N 候选）
  */
 import type Database from 'better-sqlite3';
+import { parseLLMJsonArray } from './json-repair.js';
 import { getProviderForTask, getModelForTask } from '../llm/provider.js';
 
 export interface DedupCandidate {
@@ -98,36 +99,6 @@ function layer1Filter(
 
 // ============ Layer 2: LLM 语义判定 ============
 
-function extractJsonArray(raw: string): string | null {
-  let text = raw.trim();
-  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) text = codeBlockMatch[1].trim();
-
-  const first = text.indexOf('[');
-  const last = text.lastIndexOf(']');
-  if (first === -1 || last === -1 || last <= first) return null;
-  text = text.substring(first, last + 1);
-
-  text = text.replace(/,\s*]/g, ']').replace(/,\s*}/g, '}').trim();
-
-  let brackets = 0;
-  let inStr = false;
-  let esc = false;
-  for (const ch of text) {
-    if (esc) { esc = false; continue; }
-    if (ch === '\\') { esc = true; continue; }
-    if (ch === '"') { inStr = !inStr; continue; }
-    if (inStr) continue;
-    if (ch === '[') brackets++;
-    if (ch === ']') brackets--;
-  }
-  if (brackets !== 0) return null;
-
-  return text;
-}
-
 async function layer2LLMCheck(
   newQuestion: string,
   candidates: DedupCandidate[]
@@ -166,20 +137,17 @@ ${candidateList}
   const textBlock = response.content.find(b => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') return candidates;
 
-  const jsonText = extractJsonArray(textBlock.text);
-  if (!jsonText) return candidates;
-
   try {
-    const results = JSON.parse(jsonText) as Array<{ index: number; duplicate: boolean; confidence: number }>;
+    const results = parseLLMJsonArray<{ index: number; duplicate: boolean; confidence: number }>(textBlock.text);
     for (const r of results) {
-      const idx = r.index - 1; // 1-based → 0-based
+      const idx = r.index - 1;
       if (idx >= 0 && idx < candidates.length) {
         candidates[idx].semanticMatch = r.duplicate;
         candidates[idx].confidence = r.confidence;
       }
     }
   } catch {
-    // JSON 解析失败，保持 candidates 原样（semanticMatch 为 undefined）
+    // 解析失败，保持 candidates 原样
   }
 
   return candidates;

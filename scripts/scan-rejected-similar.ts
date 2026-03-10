@@ -8,6 +8,7 @@ import 'dotenv/config';
 import Database from 'better-sqlite3';
 import readline from 'readline';
 import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/provider.js';
+import { parseLLMJsonArray } from '../src/utils/json-repair.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -34,44 +35,7 @@ interface SimilarMatch {
   confidence: 'high' | 'medium';
 }
 
-// ============ JSON 提取（复用 merge-qa 的逻辑） ============
-
-function extractJsonArray(raw: string): string | null {
-  let text = raw.trim();
-  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) {
-    text = codeBlockMatch[1].trim();
-  }
-
-  const firstBracket = text.indexOf('[');
-  const lastBracket = text.lastIndexOf(']');
-  if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) {
-    return null;
-  }
-  text = text.substring(firstBracket, lastBracket + 1);
-
-  text = text
-    .replace(/,\s*]/g, ']')
-    .replace(/,\s*}/g, '}')
-    .trim();
-
-  let brackets = 0;
-  let inString = false;
-  let escape = false;
-  for (const ch of text) {
-    if (escape) { escape = false; continue; }
-    if (ch === '\\') { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === '[') brackets++;
-    if (ch === ']') brackets--;
-  }
-  if (brackets !== 0) return null;
-
-  return text;
-}
+// ============ JSON 提取 ============
 
 // ============ 数据加载 ============
 
@@ -212,13 +176,7 @@ ${pendingList}
     const content = response.content[0];
     if (content.type !== 'text') return [];
 
-    const jsonText = extractJsonArray(content.text);
-    if (!jsonText) {
-      console.error(`    无法从 LLM 响应中提取 JSON 数组`);
-      return [];
-    }
-
-    const matches: SimilarMatch[] = JSON.parse(jsonText);
+    const matches: SimilarMatch[] = parseLLMJsonArray(content.text);
 
     // 校验索引有效性
     const maxPending = pendingOffset + pendingBatch.length - 1;

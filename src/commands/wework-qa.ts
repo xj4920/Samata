@@ -2,6 +2,7 @@ import { fetchWeworkMessages, WeworkMessage } from './wework.js';
 import { log } from '../utils/logger.js';
 import { getProvider, getModelName } from '../llm/provider.js';
 import { generateTopicPrompt } from '../utils/topic-prompts.js';
+import { parseLLMJsonArray } from '../utils/json-repair.js';
 
 export interface QAPair {
   question: string;
@@ -148,30 +149,16 @@ async function extractQAWithLLM(
     const provider = getProvider();
     const response = await provider.createMessage({
       model: getModelName(),
-      max_tokens: 8000,
-      system: '你是一个业务知识提取专家。请直接返回 JSON 结果，不要使用 <think> 标签或其他思考过程标记。',
+      max_tokens: 16000,
+      system: '你是一个业务知识提取专家。请直接返回 JSON 结果，不要使用 markdown 代码块包裹，不要使用 <think> 标签或其他思考过程标记。',
       tools: [],
       messages: [{ role: 'user', content: prompt }],
     });
 
-    // 解析 LLM 返回的 JSON
     const content = response.content[0];
-    if (content.type !== 'text') {
-      return [];
-    }
+    if (content.type !== 'text') return [];
 
-    // 提取 JSON 部分（可能包含在 markdown 代码块中）
-    let jsonText = content.text.trim();
-
-    // 移除 <think> 标签（MiniMax 等模型可能输出思考过程）
-    jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-    const jsonMatch = jsonText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[1];
-    }
-
-    const qaPairs = JSON.parse(jsonText) as Array<{
+    const qaPairs = parseLLMJsonArray<{
       question: string;
       answer: string;
       tags?: string[];
@@ -179,7 +166,7 @@ async function extractQAWithLLM(
       questioner: string;
       answerer: string;
       context?: string;
-    }>;
+    }>(content.text);
 
     // 补充 session 信息
     return qaPairs.map(qa => {

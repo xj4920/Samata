@@ -1,5 +1,6 @@
 import { getProviderForTask, getModelForTask } from '../llm/provider.js';
 import { log } from './logger.js';
+import { parseLLMJsonObject } from './json-repair.js';
 import type { QAPair } from '../commands/wework-qa.js';
 
 export interface QualityScore {
@@ -44,21 +45,12 @@ A: ${qa.answer}
       return { score: 3, reason: '评分失败', model };
     }
 
-    // 提取 JSON（可能包含在 markdown 代码块中）
-    let jsonText = content.text.trim();
-    jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-    const jsonMatch = jsonText.match(/\{[^}]+\}/);
-    if (jsonMatch) {
-      const result = JSON.parse(jsonMatch[0]);
-      return {
-        score: Math.max(1, Math.min(5, result.score)), // 限制在 1-5
-        reason: result.reason || '',
-        model,
-      };
-    }
-
-    return { score: 3, reason: '解析失败', model };
+    const result = parseLLMJsonObject<{ score: number; reason: string }>(content.text);
+    return {
+      score: Math.max(1, Math.min(5, result.score)),
+      reason: result.reason || '',
+      model,
+    };
   } catch (err: any) {
     log.error(`质量评分失败: ${err.message}`);
     return { score: 3, reason: `评分异常: ${err.message}`, model: 'error' };

@@ -13,6 +13,7 @@ import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/p
 import { log } from '../src/utils/logger.js';
 import { TOPICS, TopicConfig, getTopicsByPriority } from './topics-config.js';
 import { generateTopicPrompt, getTopicPromptConfig } from '../src/utils/topic-prompts.js';
+import { parseLLMJsonArray } from '../src/utils/json-repair.js';
 
 const DB_PATH = './data/yanyu.db';
 const EXTRACTION_VERSION = 1; // 每次修改提取逻辑时递增
@@ -494,63 +495,6 @@ async function extractQAFromMessagesWithRetry(
 }
 
 /**
- * 校验 JSON 格式完整性
- */
-function validateJsonCompleteness(jsonText: string): { valid: boolean; error?: string } {
-  // 1. 检查括号匹配
-  const brackets = { '[': 0, '{': 0 };
-  let inString = false;
-  let escapeNext = false;
-
-  for (let i = 0; i < jsonText.length; i++) {
-    const char = jsonText[i];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escapeNext = true;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) continue;
-
-    if (char === '[') brackets['[']++;
-    if (char === ']') brackets['[']--;
-    if (char === '{') brackets['{']++;
-    if (char === '}') brackets['{']--;
-  }
-
-  // 2. 检查是否有未闭合的字符串
-  if (inString) {
-    return { valid: false, error: '存在未闭合的字符串' };
-  }
-
-  // 3. 检查括号是否匹配
-  if (brackets['['] !== 0) {
-    return { valid: false, error: `方括号不匹配 (差值: ${brackets['[']})` };
-  }
-  if (brackets['{'] !== 0) {
-    return { valid: false, error: `花括号不匹配 (差值: ${brackets['{']})` };
-  }
-
-  // 4. 检查是否以数组开始和结束
-  const trimmed = jsonText.trim();
-  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
-    return { valid: false, error: '不是有效的 JSON 数组格式' };
-  }
-
-  return { valid: true };
-}
-
-/**
  * 从消息组中提取 Q&A
  */
 async function extractQAFromMessages(
@@ -570,8 +514,8 @@ async function extractQAFromMessages(
 
     const response = await provider.createMessage({
       model,
-      max_tokens: 8000,
-      system: '你是一个业务知识提取专家。请直接返回 JSON 结果。',
+      max_tokens: 16000,
+      system: '你是一个业务知识提取专家。请直接返回 JSON 结果，不要使用 markdown 代码块包裹。',
       tools: [],
       messages: [{ role: 'user', content: prompt }],
     });
@@ -579,39 +523,7 @@ async function extractQAFromMessages(
     const content = response.content[0];
     if (content.type !== 'text') return [];
 
-    let jsonText = content.text.trim();
-    jsonText = jsonText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-    const jsonMatch = jsonText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[1];
-    } else {
-      // 定位第一个 [ 和最后一个 ]
-      const firstBracket = jsonText.indexOf('[');
-      const lastBracket = jsonText.lastIndexOf(']');
-      if (firstBracket !== -1 && lastBracket > firstBracket) {
-        jsonText = jsonText.substring(firstBracket, lastBracket + 1);
-      }
-    }
-
-    // JSON 修复：移除常见错误
-    jsonText = jsonText
-      .replace(/,\s*]/g, ']')      // 移除数组末尾多余逗号
-      .replace(/,\s*}/g, '}')      // 移除对象末尾多余逗号
-      .trim();
-
-    // 空数组是合法结果（该窗口无可提取 QA）
-    if (jsonText === '[]') return [];
-
-    // 校验 JSON 完整性
-    const validation = validateJsonCompleteness(jsonText);
-    if (!validation.valid) {
-      console.error(`    JSON 格式不完整: ${validation.error}`);
-      console.error(`    JSON 前 500 字符:\n${jsonText.substring(0, 500)}`);
-      throw new Error(`JSON 格式不完整: ${validation.error}`);
-    }
-
-    let qaPairs: Array<{
+    const qaPairs = parseLLMJsonArray<{
       question: string;
       answer: string;
       tags?: string[];
@@ -619,17 +531,7 @@ async function extractQAFromMessages(
       questioner: string;
       answerer: string;
       context?: string;
-    }>;
-
-    try {
-      qaPairs = JSON.parse(jsonText);
-    } catch (parseErr: any) {
-      // JSON 解析失败，输出调试信息
-      console.error(`    JSON 解析错误: ${parseErr.message}`);
-      console.error(`    原始响应前 500 字符:\n${content.text.substring(0, 500)}`);
-      console.error(`    提取的 JSON 前 500 字符:\n${jsonText.substring(0, 500)}`);
-      throw parseErr;
-    }
+    }>(content.text);
 
     // 关联消息 ID
     const messageIdMap = new Map<string, string>();
@@ -652,7 +554,7 @@ async function extractQAFromMessages(
     });
   } catch (err: any) {
     console.error(`    LLM 提取失败: ${err.message}`);
-    return [];
+    throw err;
   }
 }
 

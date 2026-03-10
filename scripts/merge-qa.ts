@@ -10,6 +10,7 @@ import 'dotenv/config';
 import Database from 'better-sqlite3';
 import readline from 'readline';
 import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/provider.js';
+import { parseLLMJsonArray } from '../src/utils/json-repair.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -255,58 +256,87 @@ async function processTopicMerge(
 // ============ LLM 相似性检测 ============
 
 /**
- * 从 LLM 响应中提取 JSON 数组
- * 处理各种返回格式：纯 JSON、markdown 代码块、前后带文字等
+ * 字符 bigram Jaccard 相似度（复用 qa-dedup.ts 的思路，无 LLM 开销）
  */
-function extractJsonArray(raw: string): string | null {
-  let text = raw.trim();
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[（）()\[\]{}「」""''、，。？！：；·\-—《》<>\/\\|~`@#$%^&*+=]/g, '')
+    .replace(/[,.?!:;'"]/g, '');
+}
 
-  // 1. 去除 <think> 标签
-  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+function charBigrams(text: string): Set<string> {
+  const n = normalize(text);
+  const bigrams = new Set<string>();
+  for (let i = 0; i < n.length - 1; i++) {
+    bigrams.add(n.slice(i, i + 2));
+  }
+  return bigrams;
+}
 
-  // 2. 尝试从 markdown 代码块中提取
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) {
-    text = codeBlockMatch[1].trim();
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1.0;
+  let intersection = 0;
+  for (const g of a) {
+    if (b.has(g)) intersection++;
+  }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/**
+ * 按语义相似度排序问题列表，使相似的问题相邻
+ * 贪心策略：从第一个开始，每次选与当前问题最相似的未访问问题作为下一个
+ */
+function sortBySimilarity(items: PendingQA[]): { sorted: PendingQA[]; originalIndices: number[] } {
+  if (items.length <= 1) {
+    return { sorted: [...items], originalIndices: items.map((_, i) => i) };
   }
 
-  // 3. 定位第一个 [ 和最后一个 ]
-  const firstBracket = text.indexOf('[');
-  const lastBracket = text.lastIndexOf(']');
-  if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) {
-    return null;
+  const bigrams = items.map(item => charBigrams(item.question));
+  const visited = new Set<number>();
+  const order: number[] = [];
+
+  // 从第一个问题开始
+  let current = 0;
+  visited.add(current);
+  order.push(current);
+
+  while (order.length < items.length) {
+    let bestIdx = -1;
+    let bestSim = -1;
+
+    for (let i = 0; i < items.length; i++) {
+      if (visited.has(i)) continue;
+      const sim = jaccardSimilarity(bigrams[current], bigrams[i]);
+      if (sim > bestSim) {
+        bestSim = sim;
+        bestIdx = i;
+      }
+    }
+
+    visited.add(bestIdx);
+    order.push(bestIdx);
+    current = bestIdx;
   }
-  text = text.substring(firstBracket, lastBracket + 1);
 
-  // 4. 修复常见 JSON 错误
-  text = text
-    .replace(/,\s*]/g, ']')   // 移除数组末尾多余逗号
-    .replace(/,\s*}/g, '}')   // 移除对象末尾多余逗号
-    .trim();
-
-  // 5. 校验括号匹配
-  let brackets = 0;
-  let inString = false;
-  let escape = false;
-  for (const ch of text) {
-    if (escape) { escape = false; continue; }
-    if (ch === '\\') { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === '[') brackets++;
-    if (ch === ']') brackets--;
-  }
-  if (brackets !== 0) return null;
-
-  return text;
+  return {
+    sorted: order.map(i => items[i]),
+    originalIndices: order,
+  };
 }
 
 async function detectSimilarGroups(items: PendingQA[]): Promise<SimilarGroup[]> {
   const BATCH_SIZE = 30;
-  const batches: PendingQA[][] = [];
 
-  for (let i = 0; i < items.length; i += BATCH_SIZE) {
-    batches.push(items.slice(i, i + BATCH_SIZE));
+  // 先按 bigram 相似度排序，使语义相近的问题聚在一起
+  console.log('  按语义相似度排序...');
+  const { sorted, originalIndices } = sortBySimilarity(items);
+
+  const batches: PendingQA[][] = [];
+  for (let i = 0; i < sorted.length; i += BATCH_SIZE) {
+    batches.push(sorted.slice(i, i + BATCH_SIZE));
   }
 
   const allGroups: SimilarGroup[] = [];
@@ -318,7 +348,13 @@ async function detectSimilarGroups(items: PendingQA[]): Promise<SimilarGroup[]> 
     console.log(`  批次 ${b + 1}/${batches.length} (${batch.length} 条)`);
 
     const groups = await findSimilarInBatchWithRetry(batch, offset);
-    allGroups.push(...groups);
+
+    // 将排序后的索引映射回原始索引
+    for (const group of groups) {
+      group.indices = group.indices.map(i => originalIndices[i]);
+      group.suggested_primary = originalIndices[group.suggested_primary] ?? group.indices[0];
+      allGroups.push(group);
+    }
 
     if (b < batches.length - 1) {
       await sleep(100);
@@ -402,15 +438,7 @@ ${questionList}
 
     _lastBatchHadError = false;
 
-    const jsonText = extractJsonArray(content.text);
-    if (!jsonText) {
-      _lastBatchHadError = true;
-      console.error(`    无法从 LLM 响应中提取 JSON 数组`);
-      console.error(`    原始响应前 300 字符:\n${content.text.substring(0, 300)}`);
-      return [];
-    }
-
-    const groups: SimilarGroup[] = JSON.parse(jsonText);
+    const groups: SimilarGroup[] = parseLLMJsonArray(content.text);
 
     // 校验索引有效性
     const maxIndex = indexOffset + items.length - 1;
