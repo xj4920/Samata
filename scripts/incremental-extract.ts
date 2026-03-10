@@ -5,6 +5,7 @@
  * Usage: npx tsx scripts/incremental-extract.ts [topic-name]
  */
 import 'dotenv/config';
+import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { fetchWeworkMessages, WeworkMessage } from '../src/commands/wework.js';
 import { generateMessageFingerprint } from '../src/utils/message-fingerprint.js';
@@ -600,17 +601,52 @@ function markMessagesAsProcessed(
 }
 
 /**
- * Q&A 去重
+ * 标准化文本：小写、去空格、去标点（与 qa-dedup.ts 一致）
+ */
+function normalizeQuestion(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[（）()\[\]{}「」""''、，。？！：；·\-—《》<>\/\\|~`@#$%^&*+=]/g, '')
+    .replace(/[,.?!:;'"]/g, '');
+}
+
+function charBigrams(text: string): Set<string> {
+  const n = normalizeQuestion(text);
+  const bigrams = new Set<string>();
+  for (let i = 0; i < n.length - 1; i++) {
+    bigrams.add(n.slice(i, i + 2));
+  }
+  return bigrams;
+}
+
+function bigramJaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1.0;
+  let intersection = 0;
+  for (const g of a) {
+    if (b.has(g)) intersection++;
+  }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const DEDUP_SIMILARITY_THRESHOLD = 0.6;
+
+/**
+ * Q&A 去重：使用 bigram Jaccard 相似度
  */
 function deduplicateQAPairs(qaPairs: QAPairWithSources[]): QAPairWithSources[] {
   const unique: QAPairWithSources[] = [];
-  const seen = new Set<string>();
+  const bigramCache: Set<string>[] = [];
 
   for (const qa of qaPairs) {
-    const key = qa.question.slice(0, 50);
-    if (!seen.has(key)) {
-      seen.add(key);
+    const qBigrams = charBigrams(qa.question);
+    const isDup = bigramCache.some(
+      existing => bigramJaccard(qBigrams, existing) >= DEDUP_SIMILARITY_THRESHOLD
+    );
+    if (!isDup) {
       unique.push(qa);
+      bigramCache.push(qBigrams);
     }
   }
 
@@ -618,7 +654,16 @@ function deduplicateQAPairs(qaPairs: QAPairWithSources[]): QAPairWithSources[] {
 }
 
 /**
- * 保存 Q&A 到待审核表
+ * 基于归一化 question 生成稳定 ID（跨主题去重关键）
+ */
+function generateQAContentId(question: string): string {
+  const normalized = normalizeQuestion(question);
+  const hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+  return `pending-${hash}`;
+}
+
+/**
+ * 保存 Q&A 到待审核表（含跨主题 bigram Jaccard 去重）
  */
 function saveQAPairsToPending(
   db: Database.Database,
@@ -632,12 +677,27 @@ function saveQAPairsToPending(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  // 加载所有 pending 状态的 question 用于跨主题去重
+  const existingPending = db.prepare(
+    `SELECT question FROM knowledge_pending WHERE review_status = 'pending'`
+  ).all() as { question: string }[];
+  const existingBigrams = existingPending.map(r => charBigrams(r.question));
+
   const now = new Date().toISOString();
+  let skipped = 0;
 
   for (const qa of qaPairs) {
-    const id = `pending-${topicName}-${qa.time}-${Date.now()}`;
+    // 跨主题相似度检查
+    const qBigrams = charBigrams(qa.question);
+    const hasSimilar = existingBigrams.some(
+      existing => bigramJaccard(qBigrams, existing) >= DEDUP_SIMILARITY_THRESHOLD
+    );
+    if (hasSimilar) {
+      skipped++;
+      continue;
+    }
 
-    // 使用提取到的标签，如果为空则默认使用主题名
+    const id = generateQAContentId(qa.question);
     const tags = qa.tags && qa.tags.length > 0 ? qa.tags.join(',') : topicName;
 
     const answerer = qa.answerer?.trim();
@@ -660,6 +720,13 @@ function saveQAPairsToPending(
       now,
       qualityScore
     );
+
+    // 加入缓存，后续 QA 也能去重
+    existingBigrams.push(qBigrams);
+  }
+
+  if (skipped > 0) {
+    console.log(`  跳过 ${skipped} 个跨主题重复 Q&A`);
   }
 }
 
