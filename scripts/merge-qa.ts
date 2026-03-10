@@ -835,7 +835,7 @@ function askMergeAction(): Promise<string> {
       else if (action === 'c') resolve('combine');
       else if (action === 's') resolve('skip');
       else if (action === 'q') resolve('quit');
-      else resolve('skip');
+      else resolve('combine');
     });
   });
 }
