@@ -9,7 +9,7 @@ import { generateMessageFingerprint } from '../utils/message-fingerprint.js';
 import { scoreQAQuality } from '../utils/qa-quality-scorer.js';
 import { getProviderForTask, getModelForTask, initProviders } from '../llm/provider.js';
 import { log } from '../utils/logger.js';
-import { TOPICS, TopicConfig, getTopicsByPriority } from '../config/topics.js';
+import { TOPICS, TopicConfig, getTopicsByPriority, QA_EXTRACTION_CONFIG } from '../config/topics.js';
 import { generateTopicPrompt, getTopicPromptConfig } from '../utils/topic-prompts.js';
 import { parseLLMJsonArray } from '../utils/json-repair.js';
 
@@ -210,6 +210,7 @@ async function aggregateTopicMessages(topic: TopicConfig): Promise<WeworkMessage
     const messages = await fetchWeworkMessages({
       keyword: keyword.trim(),
       limit: 1000,
+      contextLines: QA_EXTRACTION_CONFIG.CONTEXT_LINES,
     });
 
     for (const msg of messages) {
@@ -318,8 +319,8 @@ function groupByConversationWindow(
 ): WeworkMessage[][] {
   if (messages.length === 0) return [];
 
-  const WINDOW_SIZE = 100; // 固定窗口大小
-  const MAX_TIME_GAP_DAYS = 7; // 最大时间跨度（天）
+  const WINDOW_SIZE = QA_EXTRACTION_CONFIG.WINDOW_SIZE;
+  const MAX_TIME_GAP_DAYS = QA_EXTRACTION_CONFIG.MAX_TIME_GAP_DAYS;
   const groups: WeworkMessage[][] = [];
   let current: WeworkMessage[] = [];
 

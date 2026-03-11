@@ -37,7 +37,7 @@ export const TOPICS: TopicConfig[] = [
   },
   {
     name: '北向借券',
-    keywords: ['约券', 'hkpublic', '券息', '召回', 'recall', 'RECALL', '广发通'],
+    keywords: ['约券', 'hkpublic', '券息', '召回', 'recall', 'RECALL', '广发通', '密钥'],
     priority: 5,
   },
   {
@@ -133,6 +133,18 @@ export function getHighPriorityTopics(): TopicConfig[] {
 export function getTopicsByPriority(): TopicConfig[] {
   return [...TOPICS].sort((a, b) => b.priority - a.priority);
 }
+
+/**
+ * QA 提取窗口分组配置
+ */
+export const QA_EXTRACTION_CONFIG = {
+  /** 每个窗口最大消息数 */
+  WINDOW_SIZE: 1000,
+  /** 窗口内最大时间跨度（天），超过则强制切分 */
+  MAX_TIME_GAP_DAYS: 30,
+  /** 关键词命中时前后各带多少条消息作为上下文 */
+  CONTEXT_LINES: 5,
+};
 
 /**
  * 标准 QA 标签列表

@@ -23,8 +23,10 @@ export async function fetchWeworkMessages(params: {
   sender?: string;
   keyword?: string;
   limit?: number;
+  contextLines?: number;
 }): Promise<WeworkMessage[]> {
   const limit = params.limit ?? 100;
+  const contextLines = params.contextLines ?? 0;
   const entries = readdirSync(DUMP_DIR, { withFileTypes: true });
 
   const sessionDirs: { name: string; path: string }[] = [];
@@ -44,13 +46,40 @@ export async function fetchWeworkMessages(params: {
 
     for (const file of files) {
       const lines = readFileSync(join(dir.path, file), 'utf-8').split('\n');
-      for (const line of lines) {
-        const parsed = parseMsgLine(line);
-        if (!parsed) continue;
-        if (params.sender && !parsed.sender.includes(params.sender)) continue;
-        if (params.keyword && !parsed.content.includes(params.keyword)) continue;
-        messages.push({ ...parsed, session: dir.name });
+
+      if (params.keyword && contextLines > 0) {
+        // 带上下文模式：先解析所有消息，再按命中索引扩展上下文
+        const allParsed: { time: string; sender: string; content: string }[] = [];
+        for (const line of lines) {
+          const parsed = parseMsgLine(line);
+          if (!parsed) continue;
+          if (params.sender && !parsed.sender.includes(params.sender)) continue;
+          allParsed.push(parsed);
+        }
+
+        const includeIndices = new Set<number>();
+        for (let i = 0; i < allParsed.length; i++) {
+          if (allParsed[i].content.includes(params.keyword)) {
+            for (let j = Math.max(0, i - contextLines); j <= Math.min(allParsed.length - 1, i + contextLines); j++) {
+              includeIndices.add(j);
+            }
+          }
+        }
+
+        for (const idx of Array.from(includeIndices).sort((a, b) => a - b)) {
+          messages.push({ ...allParsed[idx], session: dir.name });
+        }
+      } else {
+        // 原有逻辑：仅返回命中消息
+        for (const line of lines) {
+          const parsed = parseMsgLine(line);
+          if (!parsed) continue;
+          if (params.sender && !parsed.sender.includes(params.sender)) continue;
+          if (params.keyword && !parsed.content.includes(params.keyword)) continue;
+          messages.push({ ...parsed, session: dir.name });
+        }
       }
+
       if (messages.length >= limit * 2) break;
     }
   }
