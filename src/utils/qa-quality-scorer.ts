@@ -28,9 +28,11 @@ A: ${qa.answer}
 
 请返回 JSON 格式：{"score": 4, "reason": "问题清晰，答案详细且具有普适性"}`;
 
+  const model = getModelForTask('scoring');
+  let rawText = '';
+
   try {
     const provider = getProviderForTask('scoring');
-    const model = getModelForTask('scoring');
 
     const response = await provider.createMessage({
       model,
@@ -45,13 +47,18 @@ A: ${qa.answer}
       return { score: 3, reason: '评分失败', model };
     }
 
-    const result = parseLLMJsonObject<{ score: number; reason: string }>(content.text);
+    rawText = content.text;
+    const result = parseLLMJsonObject<{ score: number; reason: string }>(rawText);
     return {
       score: Math.max(1, Math.min(5, result.score)),
       reason: result.reason || '',
       model,
     };
   } catch (err: any) {
+    // JSON 解析失败时，尝试从纯文本中提取分数
+    const fallback = extractScoreFromText(rawText);
+    if (fallback) return { ...fallback, model };
+
     log.error(`质量评分失败: ${err.message}`);
     return { score: 3, reason: `评分异常: ${err.message}`, model: 'error' };
   }
@@ -76,6 +83,17 @@ export async function batchScoreQA(qaPairs: QAPair[]): Promise<Map<string, Quali
   }
 
   return scores;
+}
+
+/**
+ * 从纯文本中提取评分（JSON 解析失败时的 fallback）
+ * 匹配如 "4分"、"score: 4"、"评分：4" 等模式
+ */
+function extractScoreFromText(text: string): { score: number; reason: string } | null {
+  if (!text) return null;
+  const m = text.match(/(?:score|评分|分数)["\s:：]*([1-5])/i) || text.match(/([1-5])\s*分/);
+  if (!m) return null;
+  return { score: Number(m[1]), reason: '(从文本提取)' };
 }
 
 function sleep(ms: number): Promise<void> {
