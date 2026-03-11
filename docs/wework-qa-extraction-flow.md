@@ -264,7 +264,7 @@ EXTRACTION_VERSION: 1 → 2
 
 ## 数据库表结构
 
-SQLite 数据库 `data/yanyu.db`，建表脚本 `scripts/init-qa-extraction-db.sql`。
+SQLite 数据库 `data/yanyu.db`，建表脚本 `sql/init-qa-extraction-db.sql`。
 
 ### message_processing_log（消息处理追踪）
 
@@ -353,7 +353,7 @@ UNIQUE 约束：`(question, topic_name)`
 | `scripts/score-topic.ts` | QA 质量评分 |
 | `scripts/validate-extraction-coverage.ts` | 提取完整性验证 |
 | `scripts/clean-topic.ts` | 清理主题数据 |
-| `scripts/init-qa-extraction-db.sql` | 数据库建表脚本 |
+| `sql/init-qa-extraction-db.sql` | 数据库建表脚本 |
 | `src/utils/qa-quality-scorer.ts` | LLM 质量评分（1-5 分） |
 | `src/utils/qa-dedup.ts` | 语义去重（bigram Jaccard + LLM 两层过滤） |
 | `src/utils/message-fingerprint.ts` | 消息指纹生成 |

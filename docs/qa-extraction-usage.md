@@ -18,7 +18,7 @@
 
 ```bash
 # 创建必要的数据库表
-sqlite3 data/yanyu.db < scripts/init-qa-extraction-db.sql
+sqlite3 data/yanyu.db < sql/init-qa-extraction-db.sql
 ```
 
 ### 2. 配置主题

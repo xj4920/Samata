@@ -10,7 +10,7 @@
 
 ### 1. 数据库表结构 ✅
 
-**文件**: `scripts/init-qa-extraction-db.sql`
+**文件**: `sql/init-qa-extraction-db.sql`
 
 创建了 4 张核心表 + 1 个统计视图：
 
@@ -261,7 +261,7 @@ npx tsx scripts/validate-extraction-coverage.ts
 ### 1. 初始化（已完成）
 
 ```bash
-sqlite3 data/yanyu.db < scripts/init-qa-extraction-db.sql
+sqlite3 data/yanyu.db < sql/init-qa-extraction-db.sql
 ```
 
 ### 2. 运行提取
