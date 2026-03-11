@@ -1,24 +1,14 @@
 /**
- * QA 质量评分脚本
+ * QA 质量评分模块
  * 对指定主题下未评分的 pending QA 进行 LLM 质量评分
- *
- * Usage: npx tsx scripts/score-topic.ts <topic-name>
  */
-import 'dotenv/config';
 import Database from 'better-sqlite3';
-import { initProviders } from '../src/llm/provider.js';
-import { scoreQAQuality } from '../src/utils/qa-quality-scorer.js';
+import { initProviders } from '../llm/provider.js';
+import { scoreQAQuality } from '../utils/qa-quality-scorer.js';
 
 const DB_PATH = './data/yanyu.db';
-const topicName = process.argv[2];
 
-if (!topicName) {
-  console.error('用法: npx tsx scripts/score-topic.ts <topic-name>');
-  console.error('示例: npx tsx scripts/score-topic.ts FIX协议对接');
-  process.exit(1);
-}
-
-async function main() {
+export async function scoreTopicQA(topicName: string) {
   await initProviders();
 
   const db = new Database(DB_PATH);
@@ -63,5 +53,3 @@ async function main() {
   db.close();
   console.log(`\n✓ 评分完成，共 ${scored} 条\n`);
 }
-
-main().catch(console.error);

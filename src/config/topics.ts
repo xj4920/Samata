@@ -26,21 +26,31 @@ export const TOPICS: TopicConfig[] = [
     priority: 5
   },
   {
-    name: 'API认证问题',
-    keywords: ['认证失败', 'token过期', 'API密钥', '签名错误', '登录失败'],
+    name: '接入方式',
+    keywords:['专线', 'API', 'api', 'Colo', 'colo', '托管', '机房', '交叉连接', 'VPN', 'vpn', '光纤', '网络接入', '线路', '带宽', '机柜'],
+    priority: 5,
+  },
+  {
+    name: '北向极速',
+    keywords: ['QFII', '经纪ATP', 'ARC', 'Level2', 'lv2', 'AMD', '碎股', 'HKFT'],
+    priority: 5,
+  },
+  {
+    name: '北向借券',
+    keywords: ['约券', 'hkpublic', '券息', '召回', 'recall', 'RECALL', '广发通'],
     priority: 5,
   },
   {
     name: '交易拒单处理',
-    keywords: ['拒单', '订单被拒', '下单失败', '资金不足', '持仓不足'],
+    keywords: ['拒单', '订单被拒', '下单失败', '资金不足', '持仓不足', '自成交', '对敲', '高频撤单', '异常交易', '风控'],
+    priority: 5,
+  },
+  {
+    name: '算法单',
+    keywords: ['TWAP', 'VWAP', '算法单', '算法交易', 'POV', 'haoxing', '皓兴', 'HX-SMART-TWAP', 'HX-SMART-VWAP', 'KF-TWAP-PLU', 'KF-VWAP-PLUS', 'FT-WAP-AI', 'FT-WAP-AI-PLUS', '卡方', '非凸'],
     priority: 5,
   },
 
-  {
-    name: '接入方式',
-    keywords:['专线', 'API', 'api', 'Colo', 'colo', '托管', '机房', '交叉连接', 'VPN', 'vpn', '光纤', '网络接入', '线路', '带宽', '机柜'],
-    priority: 4,
-  },
 
   // ========== 中高优先级主题（4分）==========
   {
@@ -83,11 +93,7 @@ export const TOPICS: TopicConfig[] = [
     keywords: ['持仓查询', '资金查询', '订单查询', '成交查询', '查询接口'],
     priority: 3,
   },
-  {
-    name: '算法单',
-    keywords: ['TWAP', 'VWAP', '算法单', '算法交易', 'POV'],
-    priority: 3,
-  },
+
 
   // ========== 低优先级主题（2分）==========
   {

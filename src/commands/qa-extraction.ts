@@ -1,20 +1,17 @@
 /**
- * 增量提取脚本
+ * 增量提取模块
  * 按主题跨群聚合消息，增量过滤，分窗口提取 Q&A，写入待审核表
- *
- * Usage: npx tsx scripts/incremental-extract.ts [topic-name]
  */
-import 'dotenv/config';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { fetchWeworkMessages, WeworkMessage } from '../src/commands/wework.js';
-import { generateMessageFingerprint } from '../src/utils/message-fingerprint.js';
-import { scoreQAQuality } from '../src/utils/qa-quality-scorer.js';
-import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/provider.js';
-import { log } from '../src/utils/logger.js';
-import { TOPICS, TopicConfig, getTopicsByPriority } from './topics-config.js';
-import { generateTopicPrompt, getTopicPromptConfig } from '../src/utils/topic-prompts.js';
-import { parseLLMJsonArray } from '../src/utils/json-repair.js';
+import { fetchWeworkMessages, WeworkMessage } from './wework.js';
+import { generateMessageFingerprint } from '../utils/message-fingerprint.js';
+import { scoreQAQuality } from '../utils/qa-quality-scorer.js';
+import { getProviderForTask, getModelForTask, initProviders } from '../llm/provider.js';
+import { log } from '../utils/logger.js';
+import { TOPICS, TopicConfig, getTopicsByPriority } from '../config/topics.js';
+import { generateTopicPrompt, getTopicPromptConfig } from '../utils/topic-prompts.js';
+import { parseLLMJsonArray } from '../utils/json-repair.js';
 
 const DB_PATH = './data/yanyu.db';
 const EXTRACTION_VERSION = 1; // 每次修改提取逻辑时递增
@@ -25,7 +22,7 @@ interface ProcessedMessage {
   content_hash: string;
 }
 
-interface QAPairWithSources {
+export interface QAPairWithSources {
   question: string;
   answer: string;
   tags?: string[];
@@ -40,7 +37,7 @@ interface QAPairWithSources {
 /**
  * 主函数：增量提取指定主题的 Q&A
  */
-async function incrementalExtract(topicName?: string, limit?: number) {
+export async function incrementalExtract(topicName?: string, limit?: number) {
   console.log('\n' + '='.repeat(80));
   console.log('企微 Q&A 增量提取');
   if (limit) console.log(`限制提取数量: ${limit}`);
@@ -100,11 +97,11 @@ async function extractTopicQA(db: Database.Database, topic: TopicConfig, limit?:
   // 2. 跨群聚合消息
   console.log('\n📥 聚合消息...');
   const allMessages = await aggregateTopicMessages(topic);
-  
+
   if (topic.relatedGroups && topic.relatedGroups.length > 0) {
     console.log(`  群组过滤: 仅限 [${topic.relatedGroups.join(', ')}] 相关群组`);
   }
-  
+
   console.log(`  找到 ${allMessages.length} 条相关消息`);
 
   if (allMessages.length === 0) {
@@ -145,13 +142,13 @@ async function extractTopicQA(db: Database.Database, topic: TopicConfig, limit?:
     console.log(`  处理窗口 ${i + 1}/${conversationGroups.length} (${group.length} 条消息)`);
 
     const result = await extractQAFromMessagesWithRetry(group, topic.name, 3);
-    
+
     if (result.success) {
       allQAPairs.push(...result.qaPairs);
       // 只有成功提取时才标记为已处理
       markMessagesAsProcessed(db, group, topic.name);
       console.log(`    提取 ${result.qaPairs.length} 个 Q&A`);
-      
+
       if (limit && allQAPairs.length >= limit) {
         console.log(`\n🛑 已达到提取限制 (${limit} 个)，停止处理后续窗口`);
         break;
@@ -359,110 +356,6 @@ function groupByConversationWindow(
 
   if (current.length > 0) groups.push(current);
   return groups;
-}
-
-/**
- * 判断是否应该切分对话
- */
-function shouldSplitConversation(
-  currentMsg: WeworkMessage,
-  prevMsg: WeworkMessage,
-  timeDiffMinutes: number,
-  currentParticipants: Set<string>,
-  currentKeywords: Set<string>
-): boolean {
-  // 1. 超长时间间隔（12 小时以上）→ 必定切分
-  if (timeDiffMinutes > 720) {
-    return true;
-  }
-
-  // 2. 短时间间隔（30 分钟内）→ 倾向不切分
-  if (timeDiffMinutes <= 30) {
-    return false;
-  }
-
-  // 3. 中等时间间隔（30-720 分钟）→ 综合判断
-  const msgKeywords = extractKeywords(currentMsg.content);
-  const topicSimilarity = calculateKeywordSimilarity(currentKeywords, msgKeywords);
-
-  // 话题高度相关（相似度 > 0.3）→ 不切分
-  if (topicSimilarity > 0.3) {
-    return false;
-  }
-
-  // 参与人完全不同 + 话题不相关 + 间隔 > 60 分钟 → 切分
-  const hasCommonParticipants = currentParticipants.has(currentMsg.sender);
-  if (!hasCommonParticipants && topicSimilarity < 0.1 && timeDiffMinutes > 60) {
-    return true;
-  }
-
-  // 默认：间隔 > 90 分钟 → 切分
-  return timeDiffMinutes > 90;
-}
-
-/**
- * 提取消息关键词（简单实现：提取 2-10 字的中文词组）
- */
-function extractKeywords(content: string): Set<string> {
-  const keywords = new Set<string>();
-
-  // 提取常见技术术语和业务词汇
-  const patterns = [
-    /FIX[协议]?/g,
-    /API/gi,
-    /接口/g,
-    /报单/g,
-    /行情/g,
-    /撤单/g,
-    /成交/g,
-    /持仓/g,
-    /资金/g,
-    /风控/g,
-    /测试/g,
-    /生产/g,
-    /环境/g,
-    /配置/g,
-    /问题/g,
-    /错误/g,
-    /[\u4e00-\u9fa5]{2,10}/g, // 2-10 字的中文词组
-  ];
-
-  for (const pattern of patterns) {
-    const matches = content.match(pattern);
-    if (matches) {
-      matches.forEach(m => keywords.add(m.toLowerCase()));
-    }
-  }
-
-  return keywords;
-}
-
-/**
- * 合并关键词集合（保留最近的关键词，限制大小）
- */
-function mergeKeywords(set1: Set<string>, set2: Set<string>): Set<string> {
-  const merged = new Set([...set1, ...set2]);
-
-  // 限制关键词集合大小，避免过度膨胀
-  if (merged.size > 50) {
-    const arr = Array.from(merged);
-    return new Set(arr.slice(-50)); // 保留最近的 50 个
-  }
-
-  return merged;
-}
-
-/**
- * 计算关键词相似度（Jaccard 系数）
- */
-function calculateKeywordSimilarity(set1: Set<string>, set2: Set<string>): number {
-  if (set1.size === 0 && set2.size === 0) return 1;
-  if (set1.size === 0 || set2.size === 0) return 0;
-
-  const intersection = new Set([...set1].filter(x => set2.has(x)));
-  const union = new Set([...set1, ...set2]);
-
-  return intersection.size / union.size;
 }
 
 /**
@@ -788,9 +681,3 @@ function updateTopicStatus(db: Database.Database, topicName: string, status: str
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
-// 运行提取
-const topicName = process.argv[2];
-const limitArg = process.argv[3];
-const limit = limitArg ? parseInt(limitArg, 10) : undefined;
-incrementalExtract(topicName, limit).catch(console.error);

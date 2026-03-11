@@ -2,6 +2,11 @@
 
 ## 环境规范
 - 永远使用本地的 venv 环境执行 Python 命令（`source venv/bin/activate` 或使用 `venv/bin/python`）
+- **严禁在代码中 hardcode 绝对路径**。所有路径必须通过环境变量、配置文件或相对路径获取，不得在源码中写死如 `/Users/xxx/...` 这类绝对路径
+
+## 项目结构规范
+- `scripts/` 目录仅存放脚本，严禁在其中编写业务代码
+- 所有代码统一放到 `src/` 目录，按功能分类管理
 
 ## 数据注意事项
 - InfluxDB（`messages` 库 `wework` 表）的 `time` 字段存储的是北京时间（CST），但标记为 UTC（`Z` 后缀）。实际 UTC = 存储时间 - 8 小时。做时间过滤时需加 8 小时偏移对齐。

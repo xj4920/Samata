@@ -1,8 +1,6 @@
 /**
+ * 知识库导入模块
  * 从 Obsidian 知识库条目目录导入 QA 数据到 knowledge 表
- * 只导入 问题 和 方案 均非空的条目
- *
- * Usage: npx tsx scripts/import-knowledge.ts
  */
 import Database from 'better-sqlite3';
 import { parse as parseYaml } from 'yaml';
@@ -10,8 +8,7 @@ import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 
-const KB_DIR = '/Users/simon/Documents/my/XBase/g_个人材料/📚 知识管理系统/知识库条目';
-const DB_PATH = path.resolve(import.meta.dirname!, '../data/yanyu.db');
+const DB_PATH = './data/yanyu.db';
 
 // Parse YAML frontmatter from markdown file content
 function parseFrontmatter(content: string): Record<string, unknown> | null {
@@ -41,9 +38,9 @@ function formatList(val: unknown): string | null {
   return null;
 }
 
-function main() {
+export function importKnowledge(kbDir: string) {
   // Read all .md files
-  const files = fs.readdirSync(KB_DIR).filter((f) => f.endsWith('.md'));
+  const files = fs.readdirSync(kbDir).filter((f) => f.endsWith('.md'));
   console.log(`找到 ${files.length} 个 .md 文件`);
 
   const db = new Database(DB_PATH);
@@ -65,7 +62,7 @@ function main() {
   let skippedParseFail = 0;
 
   for (const file of files) {
-    const filePath = path.join(KB_DIR, file);
+    const filePath = path.join(kbDir, file);
     const content = fs.readFileSync(filePath, 'utf-8');
     const fm = parseFrontmatter(content);
 
@@ -123,5 +120,3 @@ function main() {
   console.log(`  跳过(已存在): ${skippedDup}`);
   console.log(`  跳过(解析失败): ${skippedParseFail}`);
 }
-
-main();

@@ -1,4 +1,4 @@
-import { getTopicConfig, QA_TAGS } from '../../scripts/topics-config.js';
+import { getTopicConfig, QA_TAGS } from '../config/topics.js';
 
 /**
  * 主题专属 Prompt 配置

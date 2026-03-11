@@ -1,17 +1,14 @@
 /**
- * Q&A 相似项合并工具
+ * Q&A 相似项合并模块
  * 在提取和审核之间运行，将语义相近的 pending QA 合并，减少 review 工作量
  *
  * 流程: 提取 → 合并 → 审核 → 入库
- *
- * Usage: npx tsx scripts/merge-qa.ts [topic-name]
  */
-import 'dotenv/config';
 import Database from 'better-sqlite3';
 import readline from 'readline';
-import { getProviderForTask, getModelForTask, initProviders } from '../src/llm/provider.js';
-import { parseLLMJsonArray } from '../src/utils/json-repair.js';
-import { sortBySimilarity } from '../src/utils/text-similarity.js';
+import { getProviderForTask, getModelForTask, initProviders } from '../llm/provider.js';
+import { parseLLMJsonArray } from '../utils/json-repair.js';
+import { sortBySimilarity } from '../utils/text-similarity.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -66,7 +63,7 @@ function runMigrations(db: Database.Database) {
 
 // ============ 主函数 ============
 
-async function mergeQA(topicName?: string) {
+export async function mergeQA(topicName?: string) {
   await initProviders();
 
   console.log(`相似性检测模型: ${getModelForTask('classification')}`);
@@ -255,7 +252,6 @@ async function processTopicMerge(
 }
 
 // ============ LLM 相似性检测 ============
-// normalize, charBigrams, jaccardSimilarity, sortBySimilarity 已提取到 src/utils/text-similarity.ts
 
 async function detectSimilarGroups(items: PendingQA[]): Promise<SimilarGroup[]> {
   const BATCH_SIZE = 30;
@@ -302,13 +298,9 @@ async function findSimilarInBatchWithRetry(
 ): Promise<SimilarGroup[]> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const groups = await findSimilarInBatch(items, indexOffset);
-    // findSimilarInBatch 内部已 catch，失败返回 []
-    // 但如果是 JSON 解析失败我们希望重试，所以用一个标记
     if (groups.length > 0 || attempt === maxRetries) {
       return groups;
     }
-    // 第一次返回空可能是真的没有相似组，但也可能是解析失败
-    // 我们只在出错时重试（通过 _lastBatchHadError 标记）
     if (!_lastBatchHadError) return groups;
     const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
     console.log(`    等待 ${waitTime}ms 后重试 (${attempt}/${maxRetries})...`);
@@ -407,13 +399,7 @@ function mergeTransitiveGroups(groups: SimilarGroup[]): SimilarGroup[] {
     if (ra !== rb) parent.set(ra, rb);
   }
 
-  // 保存每个组的 reason 和 suggested_primary
-  const groupInfo = new Map<string, { reason: string; suggested_primary: number }>();
-
   for (const group of groups) {
-    const key = group.indices.sort((a, b) => a - b).join(',');
-    groupInfo.set(key, { reason: group.reason, suggested_primary: group.suggested_primary });
-
     for (let i = 1; i < group.indices.length; i++) {
       union(group.indices[0], group.indices[i]);
     }
@@ -474,6 +460,14 @@ function displayMergeGroup(items: PendingQA[], group: SimilarGroup) {
   console.log(`\n  相似原因: ${group.reason}`);
 }
 
+interface MergeResult {
+  question: string;
+  answer: string;
+  tags: string;
+  related_users: string;
+  source_time: string;
+}
+
 function printMergeResult(result: MergeResult, mergedCount: number) {
   console.log('\n' + '-'.repeat(80));
   console.log(`  Q: ${result.question}`);
@@ -505,14 +499,6 @@ function selectPrimary(items: PendingQA[], suggestedPrimary: number, indices: nu
 
 // ============ 合并执行 ============
 
-interface MergeResult {
-  question: string;
-  answer: string;
-  tags: string;
-  related_users: string;
-  source_time: string;
-}
-
 function executeMerge(
   db: Database.Database,
   primary: PendingQA,
@@ -523,7 +509,7 @@ function executeMerge(
   let result: MergeResult;
 
   const tx = db.transaction(() => {
-    // 1. 先标记被合并项（避免后续更新主项 question 时触发 UNIQUE 约束冲突）
+    // 1. 先标记被合并项
     for (const item of mergedItems) {
       db.prepare(`
         UPDATE knowledge_pending
@@ -532,7 +518,7 @@ function executeMerge(
       `).run(primary.id, item.id);
     }
 
-    // 2. 更新主项内容（如有编辑/合并答案）
+    // 2. 更新主项内容
     if (updatedQuestion || updatedAnswer) {
       db.prepare(`
         UPDATE knowledge_pending
@@ -638,9 +624,6 @@ function executeMerge(
 
 // ============ LLM 问题精炼与答案合并 ============
 
-/**
- * 用 LLM 将多个相似问题精炼为一个最佳问题
- */
 async function refineQuestionWithLLM(items: PendingQA[]): Promise<string> {
   const questionList = items
     .map((item, i) => `${i + 1}. ${item.question}`)
@@ -684,9 +667,6 @@ ${questionList}`;
   return best[0].question;
 }
 
-/**
- * 用 LLM 同时合并问题和答案
- */
 async function combineQAWithLLM(items: PendingQA[]): Promise<{ question: string; answer: string }> {
   const qaText = items
     .map((item, i) => `问题 ${i + 1}: ${item.question}\n答案 ${i + 1}:\n${item.answer}`)
@@ -723,7 +703,6 @@ ${qaText}`;
       let text = content.text.trim();
       text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
-      // 用分隔符提取问题和答案
       const questionMatch = text.match(/【问题】\s*([\s\S]*?)(?=【答案】)/);
       const answerMatch = text.match(/【答案】\s*([\s\S]*)/);
       if (questionMatch && answerMatch) {
@@ -792,7 +771,3 @@ function askPickPrimary(count: number): Promise<number> {
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
-// 运行合并
-const topicName = process.argv[2];
-mergeQA(topicName).catch(console.error);

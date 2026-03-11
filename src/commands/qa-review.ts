@@ -1,15 +1,12 @@
 /**
- * 人工审核工具
+ * 人工审核模块
  * 交互式 CLI，用于审核待审核表中的 Q&A
- *
- * Usage: npx tsx scripts/review-qa.ts [topic-name]
  */
-import 'dotenv/config';
 import Database from 'better-sqlite3';
 import readline from 'readline';
 import { v4 as uuid } from 'uuid';
-import { findSimilarQuestions } from '../src/utils/qa-dedup.js';
-import { initProviders } from '../src/llm/provider.js';
+import { findSimilarQuestions } from '../utils/qa-dedup.js';
+import { initProviders, getProviderForTask, getModelForTask } from '../llm/provider.js';
 
 const DB_PATH = './data/yanyu.db';
 
@@ -28,7 +25,7 @@ interface PendingQA {
 /**
  * 主函数：交互式审核
  */
-async function reviewQA(topicName?: string) {
+export async function reviewQA(topicName?: string) {
   await initProviders();
   const db = new Database(DB_PATH);
 
@@ -191,14 +188,12 @@ async function approveQA(db: Database.Database, item: PendingQA, reviewer: strin
     const dupAction = await askDupAction();
 
     if (dupAction === 'skip') {
-      // 标记 pending 为 approved 但不写入 knowledge
       db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
       console.log('⊙ 已跳过（不入库）');
       return false;
     }
 
     if (dupAction === 'replace') {
-      // 替换已有记录
       const tx = db.transaction(() => {
         db.prepare('DELETE FROM knowledge WHERE id = ?').run(top.id);
 
@@ -219,6 +214,56 @@ async function approveQA(db: Database.Database, item: PendingQA, reviewer: strin
       console.log(`✓ 已替换旧记录（${top.id.slice(0, 8)}）`);
       return true;
     }
+
+    if (dupAction === 'merge_question') {
+      console.log('  正在用 LLM 合并问题...');
+      const mergedQuestion = await mergeQuestionsWithLLM(top.question, item.question);
+      console.log(`  合并后问题: ${mergedQuestion}`);
+
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM knowledge WHERE id = ?').run(top.id);
+        const createdAt = item.source_time || new Date().toISOString();
+        db.prepare(`
+          INSERT INTO knowledge
+          (id, question, answer, tags, related_users, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(uuid(), mergedQuestion, item.answer, item.tags, item.related_users, 'admin-001', createdAt, createdAt);
+        db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
+        db.prepare(`
+          INSERT INTO knowledge_review_log (pending_id, reviewer, action, comment, reviewed_at)
+          VALUES (?, ?, 'approve', ?, ?)
+        `).run(item.id, reviewer, `合并问题，替换: ${top.id.slice(0, 8)}`, new Date().toISOString());
+      });
+      tx();
+      console.log(`✓ 已合并问题并替换旧记录（${top.id.slice(0, 8)}）`);
+      return true;
+    }
+
+    if (dupAction === 'merge_all') {
+      console.log('  正在用 LLM 合并问题和答案...');
+      const merged = await combineQAWithLLM(top.question, top.answer, item.question, item.answer);
+      console.log(`  合并后问题: ${merged.question}`);
+      console.log(`  合并后答案: ${merged.answer.substring(0, 100)}${merged.answer.length > 100 ? '...' : ''}`);
+
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM knowledge WHERE id = ?').run(top.id);
+        const createdAt = item.source_time || new Date().toISOString();
+        db.prepare(`
+          INSERT INTO knowledge
+          (id, question, answer, tags, related_users, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(uuid(), merged.question, merged.answer, item.tags, item.related_users, 'admin-001', createdAt, createdAt);
+        db.prepare(`UPDATE knowledge_pending SET review_status = 'approved' WHERE id = ?`).run(item.id);
+        db.prepare(`
+          INSERT INTO knowledge_review_log (pending_id, reviewer, action, comment, reviewed_at)
+          VALUES (?, ?, 'approve', ?, ?)
+        `).run(item.id, reviewer, `合并Q&A，替换: ${top.id.slice(0, 8)}`, new Date().toISOString());
+      });
+      tx();
+      console.log(`✓ 已合并问题+答案并替换旧记录（${top.id.slice(0, 8)}）`);
+      return true;
+    }
+
     // dupAction === 'add_anyway': 继续正常插入
   }
 
@@ -245,17 +290,111 @@ async function approveQA(db: Database.Database, item: PendingQA, reviewer: strin
 }
 
 /**
+ * 用 LLM 精炼两个相似问题为一个最佳问题
+ */
+async function mergeQuestionsWithLLM(q1: string, q2: string): Promise<string> {
+  const prompt = `以下是两个语义相似的知识库问题，请合并精炼为一个最佳问题。
+
+要求：
+- 涵盖两个问题的关键信息点
+- 表述清晰、简洁、专业
+- 直接返回精炼后的问题文本，不要编号、引号或其他格式
+
+问题1: ${q1}
+问题2: ${q2}`;
+
+  try {
+    const provider = getProviderForTask('summary');
+    const model = getModelForTask('summary');
+    const response = await provider.createMessage({
+      model,
+      max_tokens: 500,
+      system: '你是一个知识库编辑专家。请直接返回精炼后的问题，不要任何额外说明。',
+      tools: [],
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const content = response.content[0];
+    if (content.type === 'text') {
+      let text = content.text.trim();
+      text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      if (text) return text;
+    }
+  } catch (err: any) {
+    console.error(`  LLM 精炼问题失败: ${err.message}`);
+  }
+  return q2; // fallback: 用新问题
+}
+
+/**
+ * 用 LLM 合并两组 Q&A 的问题和答案
+ */
+async function combineQAWithLLM(
+  existingQ: string, existingA: string,
+  newQ: string, newA: string
+): Promise<{ question: string; answer: string }> {
+  const prompt = `以下是两组语义相似的知识库 Q&A，请合并为一组最佳 Q&A。
+
+要求：
+- 问题：涵盖两个问题的关键信息点，表述清晰简洁专业
+- 答案：保留所有独特的信息点，去除重复内容，组织成结构清晰的回答
+
+请严格按以下格式返回，不要添加任何其他内容：
+【问题】
+合并后的问题
+【答案】
+合并后的答案
+
+问题1: ${existingQ}
+答案1:
+${existingA}
+
+问题2: ${newQ}
+答案2:
+${newA}`;
+
+  try {
+    const provider = getProviderForTask('summary');
+    const model = getModelForTask('summary');
+    const response = await provider.createMessage({
+      model,
+      max_tokens: 4000,
+      system: '你是一个知识库编辑专家，擅长合并和整理知识内容。请严格按指定格式返回。',
+      tools: [],
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const content = response.content[0];
+    if (content.type === 'text') {
+      let text = content.text.trim();
+      text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const questionMatch = text.match(/【问题】\s*([\s\S]*?)(?=【答案】)/);
+      const answerMatch = text.match(/【答案】\s*([\s\S]*)/);
+      if (questionMatch && answerMatch) {
+        const question = questionMatch[1].trim();
+        const answer = answerMatch[1].trim();
+        if (question && answer) return { question, answer };
+      }
+    }
+  } catch (err: any) {
+    console.error(`  LLM 合并 Q&A 失败: ${err.message}`);
+  }
+  // fallback: 拼接
+  return { question: newQ, answer: `${existingA}\n\n补充:\n${newA}` };
+}
+
+/**
  * 去重冲突时的交互式选择
  */
-function askDupAction(): Promise<'skip' | 'replace' | 'add_anyway'> {
+function askDupAction(): Promise<'skip' | 'replace' | 'add_anyway' | 'merge_question' | 'merge_all'> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
-    rl.question('\n操作 [s=跳过(不入库), r=替换已有, a=仍然添加]: ', answer => {
+    rl.question('\n操作 [s=跳过(不入库), r=替换已有, a=仍然添加, mq=合并问题, ma=合并问题+答案]: ', answer => {
       rl.close();
       const action = answer.trim().toLowerCase();
       if (action === 'r') resolve('replace');
       else if (action === 'a') resolve('add_anyway');
-      else resolve('skip');
+      else if (action === 'mq') resolve('merge_question');
+      else if (action === 'ma') resolve('merge_all');
+      else resolve('merge_all');
     });
   });
 }
@@ -271,14 +410,12 @@ function editQA(
   reviewer: string = 'admin'
 ) {
   const tx = db.transaction(() => {
-    // 1. 更新待审核表内容
     db.prepare(`
       UPDATE knowledge_pending
       SET question = ?, answer = ?, review_status = 'edited'
       WHERE id = ?
     `).run(newQuestion, newAnswer, item.id);
 
-    // 2. 记录审核日志
     db.prepare(`
       INSERT INTO knowledge_review_log
       (pending_id, reviewer, action, comment, reviewed_at)
@@ -304,14 +441,12 @@ function rejectQA(
   reviewer: string = 'admin'
 ) {
   const tx = db.transaction(() => {
-    // 1. 更新待审核表状态
     db.prepare(`
       UPDATE knowledge_pending
       SET review_status = 'rejected'
       WHERE id = ?
     `).run(item.id);
 
-    // 2. 记录审核日志
     db.prepare(`
       INSERT INTO knowledge_review_log
       (pending_id, reviewer, action, comment, reviewed_at)
@@ -367,7 +502,7 @@ function askReviewAction(): Promise<string> {
       else if (action === 'r') resolve('reject');
       else if (action === 's') resolve('skip');
       else if (action === 'q') resolve('quit');
-      else resolve('skip');
+      else resolve('approve');
     });
   });
 }
@@ -422,7 +557,3 @@ function askEdit(prompt: string, currentValue: string): Promise<string> {
     });
   });
 }
-
-// 运行审核
-const topicName = process.argv[2];
-reviewQA(topicName).catch(console.error);
