@@ -164,7 +164,7 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
   }
 }
 
-function handleClientSubcommand(sub: string, rest: string, feishuUserId: string): string | null {
+async function handleClientSubcommand(sub: string, rest: string, feishuUserId: string): Promise<string | null> {
   switch (sub) {
     case 'list': case '': {
       const filter: { state?: string; keyword?: string } = {};
@@ -173,7 +173,7 @@ function handleClientSubcommand(sub: string, rest: string, feishuUserId: string)
       const remaining = rest.replace(/state=\S+/, '').trim();
       if (remaining) filter.keyword = remaining;
       const clients = fetchClients(Object.keys(filter).length > 0 ? filter : undefined);
-      return formatClientList(clients);
+      return await formatClientList(clients);
     }
     case 'view': {
       if (!rest) return formatError('用法: /client view <客户名称或ID>');
@@ -400,7 +400,7 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
 
       const reply = await handleCommand(cmd, args, senderId);
       if (reply !== null) {
-        await api.sendText(chatId, reply);
+        await sendFeishuReply(chatId, reply);
         return;
       }
       // 未匹配的命令，fallthrough 到 AI Agent
