@@ -348,6 +348,52 @@ export class FeishuAPI {
   }
 
   /**
+   * 下载消息中的图片资源
+   * 文档：https://open.feishu.cn/document/server-docs/im-v1/image/get
+   */
+  async downloadImage(imageKey: string): Promise<Buffer> {
+    const token = await this.getTenantAccessToken();
+    const url = `https://open.feishu.cn/open-apis/im/v1/images/${imageKey}`;
+
+    const response = await fetch(url, this.fetchOpts({
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    }));
+
+    if (!response.ok) {
+      throw new Error(`下载图片失败: HTTP ${response.status}`);
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  /**
+   * 获取机器人自身信息（open_id 等）
+   * 文档：https://open.feishu.cn/document/server-docs/application-v6/bot-v3/get
+   */
+  async getBotInfo(): Promise<{ open_id: string; app_name: string }> {
+    const token = await this.getTenantAccessToken();
+    const url = 'https://open.feishu.cn/open-apis/bot/v3/info';
+
+    const response = await fetch(url, this.fetchOpts({
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    }));
+
+    const data = await response.json() as any;
+    if (data.code !== 0) {
+      throw new Error(`获取机器人信息失败: ${data.msg} (code: ${data.code})`);
+    }
+
+    return {
+      open_id: data.bot?.open_id || '',
+      app_name: data.bot?.app_name || '',
+    };
+  }
+
+  /**
    * 上传图片
    */
   async uploadImage(imageUrl: string): Promise<string | null> {

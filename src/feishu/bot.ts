@@ -20,7 +20,7 @@ import { buildCard } from './card.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { runAgenticChat } from '../llm/agent.js';
+import { runAgenticChat, type ImageInput } from '../llm/agent.js';
 import { getAgent, getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -54,6 +54,7 @@ let wsClient: InstanceType<typeof Lark.WSClient> | null = null;
 let httpServer: ReturnType<typeof createServer> | null = null;
 let running = false;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+let botOpenId = '';  // 机器人自身的 open_id，用于群聊 @mention 检测
 
 /**
  * 处理 AI 对话（含 tool use 循环）
@@ -62,7 +63,8 @@ async function handleAIChat(
   chatId: string,
   userInput: string,
   feishuUserId: string,
-  feishuUsername: string
+  feishuUsername: string,
+  images?: ImageInput[]
 ): Promise<string> {
   const session = getSession(feishuUserId, feishuUsername);
 
@@ -79,6 +81,7 @@ async function handleAIChat(
       logPrefix: `[飞书:${feishuUsername}] `,
       showThinking: true,
       agentConfig,
+      images,
     });
 
     return textReply || '（无回复内容）';
@@ -89,18 +92,33 @@ async function handleAIChat(
 
 /**
  * 将回复以飞书消息卡片发送，失败时回退到纯文本
+ * 群聊消息使用 reply（回复原消息）方式发送
  */
-async function sendFeishuReply(chatId: string, text: string): Promise<void> {
+async function sendFeishuReply(chatId: string, text: string, options?: { messageId?: string; isGroup?: boolean }): Promise<void> {
+  const useReply = options?.isGroup && options?.messageId;
+
   if (!text || text === '（无回复内容）') {
-    await api.sendText(chatId, text || '（无回复内容）');
+    if (useReply) {
+      await api.replyMessage(options.messageId!, 'text', { text: text || '（无回复内容）' });
+    } else {
+      await api.sendText(chatId, text || '（无回复内容）');
+    }
     return;
   }
   try {
     const card = buildCard(text);
-    await api.sendCard(chatId, card);
+    if (useReply) {
+      await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+    } else {
+      await api.sendCard(chatId, card);
+    }
   } catch (err: any) {
     log.warn(`[飞书] Card 构建失败，回退到纯文本: ${err.message}`);
-    await api.sendText(chatId, text);
+    if (useReply) {
+      await api.replyMessage(options.messageId!, 'text', { text });
+    } else {
+      await api.sendText(chatId, text);
+    }
   }
 }
 
@@ -258,20 +276,30 @@ function handleAgentCommand(args: string, feishuUserId: string): string {
  * 处理飞书消息事件（FeishuMessage 已统一为 v2 结构）
  */
 async function handleEvent(event: FeishuMessage): Promise<void> {
-  log.info(`[飞书] 收到消息: chat_id=${event.message.chat_id}, type=${event.message.message_type}`);
-
   const chatId = event.message.chat_id;
+  const chatType = event.message.chat_type;  // "p2p" | "group"
   const messageType = event.message.message_type;
+  const messageId = event.message.message_id;
+  const isGroup = chatType === 'group';
 
-  // 只处理私聊消息（v2: "p2p"）
-  if (event.message.chat_type !== 'p2p') {
-    log.dim(`[飞书] 忽略群聊消息: ${chatId}`);
-    return;
+  log.info(`[飞书] 收到消息: chat_id=${chatId}, chat_type=${chatType}, type=${messageType}`);
+
+  // 群聊：只响应 @bot 的消息
+  if (isGroup) {
+    const mentions = event.message.mentions || [];
+    const mentionedBot = botOpenId
+      ? mentions.some(m => m.id.open_id === botOpenId)
+      : mentions.length > 0;  // 未获取到 botOpenId 时，有 @mention 就响应
+    if (!mentionedBot) {
+      log.dim(`[飞书] 群聊消息未 @bot，忽略: ${chatId}`);
+      return;
+    }
   }
 
   // 解析消息内容
   // WSClient 可能传入已解析的对象，Webhook 传入 JSON 字符串，统一处理
   let text = '';
+  let images: ImageInput[] | undefined;
   try {
     const raw = event.message.content;
     const content = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -290,24 +318,54 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         }
       }
       text = [title, ...lines].filter(Boolean).join('\n');
+    } else if (messageType === 'image') {
+      // image 类型的 content 结构：{ image_key: "img_xxx" }
+      const imageKey = content.image_key;
+      if (imageKey) {
+        try {
+          const buf = await api.downloadImage(imageKey);
+          images = [{
+            data: buf.toString('base64'),
+            mediaType: 'image/png', // 飞书图片统一当 png 处理
+          }];
+          text = '请描述这张图片';
+          log.dim(`[飞书] 下载图片成功: ${imageKey} (${buf.length} bytes)`);
+        } catch (err: any) {
+          log.error(`[飞书] 下载图片失败: ${err.message}`);
+          text = '';
+        }
+      }
     } else {
-      // image / file / audio 等暂不支持，提示用户
+      // file / audio 等暂不支持，提示用户
       text = '';
     }
   } catch {
     text = event.message.content || '';
   }
 
+  // 群聊：从文本中去掉 @mention 占位符（如 @_user_1）
+  if (isGroup && event.message.mentions?.length) {
+    for (const m of event.message.mentions) {
+      if (m.key) {
+        text = text.replace(m.key, '');
+      }
+    }
+    text = text.trim();
+  }
+
   // 获取发送者信息
   const senderId = event.sender.sender_id.open_id || event.sender.sender_id.user_id || '';
   const senderName = `user_${senderId.slice(-6)}`;
 
-  log.dim(`[飞书] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}`);
+  log.dim(`[飞书] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}, group=${isGroup}`);
+
+  // 群聊回复选项：群里以 reply 方式回复原消息
+  const replyOpts = isGroup ? { messageId, isGroup: true } : undefined;
 
   // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
   if (text.startsWith('/debug')) {
     try {
-      await api.sendText(chatId, `你的飞书用户 ID: ${senderId}`);
+      await sendFeishuReply(chatId, `你的飞书用户 ID: ${senderId}`, replyOpts);
     } catch (err: any) {
       log.error(`[飞书] /debug 发送失败: ${err.message}`);
     }
@@ -325,19 +383,20 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     // 处理内置命令
     if (text === '/start') {
       const role = isAdminFeishuUser(senderId) ? '管理员' : '普通用户';
-      await api.sendText(chatId,
+      await sendFeishuReply(chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
         `你可以：\n` +
         `• 直接输入自然语言提问\n` +
         `• 使用 /help 查看可用命令\n` +
-        `• 使用 /reset 重置对话上下文`
+        `• 使用 /reset 重置对话上下文`,
+        replyOpts
       );
       return;
     }
 
     if (text === '/help') {
-      await api.sendText(chatId,
+      await sendFeishuReply(chatId,
         `📋 *衍语 Bot 命令*\n\n` +
         `*基础命令：*\n` +
         `/start - 开始使用\n` +
@@ -357,21 +416,22 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         `/agent - 查看当前 Agent\n` +
         `/agent list - 列出所有 Agent\n` +
         `/agent <name> - 切换 Agent\n\n` +
-        `💡 也可以直接输入自然语言，AI 助手会帮你处理！`
+        `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
+        replyOpts
       );
       return;
     }
 
     if (text === '/reset') {
       resetSession(senderId);
-      await api.sendText(chatId, '✅ 对话上下文已重置');
+      await sendFeishuReply(chatId, '✅ 对话上下文已重置', replyOpts);
       return;
     }
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
       if (!isAdminFeishuUser(senderId)) {
-        await api.sendText(chatId, '❌ 仅管理员可切换模型');
+        await sendFeishuReply(chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
       const arg = text.replace(/^\/model\s*/, '').trim();
@@ -379,13 +439,13 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         const available = getAvailableProviders();
         const current = getProviderName();
         const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-        await api.sendText(chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`);
+        await sendFeishuReply(chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`, replyOpts);
       } else {
         const ok = switchProvider(arg as ProviderName);
         if (ok) {
-          await api.sendText(chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`);
+          await sendFeishuReply(chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`, replyOpts);
         } else {
-          await api.sendText(chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`);
+          await sendFeishuReply(chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`, replyOpts);
         }
       }
       return;
@@ -400,21 +460,21 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
 
       const reply = await handleCommand(cmd, args, senderId);
       if (reply !== null) {
-        await sendFeishuReply(chatId, reply);
+        await sendFeishuReply(chatId, reply, replyOpts);
         return;
       }
       // 未匹配的命令，fallthrough 到 AI Agent
     }
 
     // 自然语言 → AI Agent
-    const reply = await handleAIChat(chatId, text, senderId, senderName);
-    await sendFeishuReply(chatId, reply);
+    const reply = await handleAIChat(chatId, text, senderId, senderName, images);
+    await sendFeishuReply(chatId, reply, replyOpts);
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
     log.error(`[飞书] 处理消息出错: ${err.message}${cause}`);
     try {
-      await api.sendText(chatId, `❌ 处理出错: ${err.message}`);
+      await sendFeishuReply(chatId, `❌ 处理出错: ${err.message}`, replyOpts);
     } catch { /* ignore send error */ }
   }
 }
@@ -475,10 +535,16 @@ export async function handleWebhookRequest(
     const v1 = body.event;
     if (v1.type === 'message') {
       // 将 v1 扁平结构转换为 v2 FeishuMessage 格式
+      const isGroupV1 = v1.chat_type !== 'private';
       const contentStr =
         v1.msg_type === 'text'
           ? JSON.stringify({ text: v1.text_without_at_bot || v1.text || '' })
           : (v1.text || '');
+      // v1 群聊消息如果有 text_without_at_bot，说明 bot 被 @了，构造 mentions
+      const mentions: FeishuMessage['message']['mentions'] =
+        isGroupV1 && v1.text_without_at_bot && botOpenId
+          ? [{ key: '', id: { open_id: botOpenId }, name: 'bot' }]
+          : undefined;
       const event: FeishuMessage = {
         sender: {
           sender_id: {
@@ -493,9 +559,10 @@ export async function handleWebhookRequest(
           parent_id: v1.parent_id,
           create_time: v1.create_time || '',
           chat_id: v1.open_chat_id,
-          chat_type: v1.chat_type === 'private' ? 'p2p' : v1.chat_type,
+          chat_type: v1.chat_type === 'private' ? 'p2p' : 'group',
           message_type: v1.msg_type || 'text',
           content: contentStr,
+          mentions,
         },
       };
       handleEvent(event).catch(err => {
@@ -588,6 +655,15 @@ export async function startFeishuBot(options?: {
     log.error(`[飞书] API 连接失败: ${err.message}`);
     log.print(`[飞书] API 连接失败: ${err.message}`);
     return;
+  }
+
+  // 获取机器人自身 open_id，用于群聊 @mention 检测
+  try {
+    const botInfo = await api.getBotInfo();
+    botOpenId = botInfo.open_id;
+    log.info(`[飞书] 机器人 open_id: ${botOpenId} (${botInfo.app_name})`);
+  } catch (err: any) {
+    log.warn(`[飞书] 获取机器人信息失败，群聊 @mention 检测将使用宽松模式: ${err.message}`);
   }
 
   // 定时清理过期会话（每 30 分钟）
