@@ -15,6 +15,7 @@ import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminTelegram
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User } from '../auth/rbac.js';
 import { runAgenticChat } from '../llm/agent.js';
+import { getAgent, getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -52,10 +53,14 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
   // 临时切换当前用户上下文（tool handler 依赖）
   setCurrentUser(session.user);
 
+  // 解析当前 session 使用的 Agent
+  const agentConfig = getAgent(session.agentName);
+
   const textReply = await runAgenticChat(session.history, userInput, session.user, {
     streamEnabled: false,
     logPrefix: `[TG:${telegramUsername}] `,
     showThinking: true,
+    agentConfig,
   });
 
   return textReply || '（无回复内容）';
@@ -113,6 +118,9 @@ async function handleCommand(cmd: string, args: string, telegramUserId: number):
       }
       return null; // skill save/run/del 需要更复杂的处理，走 AI
     }
+    case 'agent': {
+      return handleAgentCommand(args, telegramUserId);
+    }
     default:
       return null; // 未匹配的命令
   }
@@ -162,6 +170,40 @@ function handleClientSubcommand(sub: string, rest: string, telegramUserId: numbe
     default:
       return formatError('用法: /client <list|view|history|add|advance> [参数]');
   }
+}
+
+function handleAgentCommand(args: string, telegramUserId: number): string {
+  const parts = args.trim().split(/\s+/);
+  const sub = (parts[0] || '').toLowerCase();
+
+  // /agent — show current agent
+  if (!sub) {
+    const session = getSession(telegramUserId, '');
+    const agent = getAgent(session.agentName);
+    return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
+  }
+
+  // /agent list — list all agents
+  if (sub === 'list') {
+    const agents = getAllAgents();
+    const session = getSession(telegramUserId, '');
+    const lines = agents.map(a => {
+      const marker = a.name === session.agentName ? '▶ ' : '  ';
+      return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
+    });
+    return `可用 Agent:\n${lines.join('\n')}`;
+  }
+
+  // /agent <name> — switch agent
+  const agent = getAgent(sub);
+  if (agent.name !== sub && sub !== 'otcclaw') {
+    return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
+  }
+
+  const session = getSession(telegramUserId, '');
+  session.agentName = agent.name;
+  session.history = [];
+  return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
 }
 
 /**
@@ -215,6 +257,10 @@ async function handleMessage(msg: TgMessage): Promise<void> {
         `*查询命令：*\n` +
         `/trade <参数> - 交易查询\n` +
         `/faq <关键词> - 搜索知识库\n\n` +
+        `*Agent 管理：*\n` +
+        `/agent - 查看当前 Agent\n` +
+        `/agent list - 列出所有 Agent\n` +
+        `/agent <name> - 切换 Agent\n\n` +
         `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
         'Markdown'
       );

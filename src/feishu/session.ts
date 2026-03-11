@@ -4,6 +4,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { User } from '../auth/rbac.js';
+import { resolveAgent } from '../llm/agents/config.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -11,6 +12,7 @@ export interface FeishuSession {
   user: User;                                   // 映射到系统用户
   history: Anthropic.MessageParam[];            // 对话历史
   lastActive: number;                            // 最后活跃时间戳
+  agentName: string;                             // 当前使用的 Agent 名称
 }
 
 const sessions = new Map<string, FeishuSession>();
@@ -30,6 +32,7 @@ export function getSession(feishuUserId: string, feishuUsername: string): Feishu
   let session = sessions.get(feishuUserId);
   if (!session) {
     const role = adminIds.has(feishuUserId) ? 'admin' : 'user';
+    const agent = resolveAgent('feishu', feishuUserId);
     session = {
       feishuUserId,
       feishuUsername,
@@ -40,6 +43,7 @@ export function getSession(feishuUserId: string, feishuUsername: string): Feishu
       },
       history: [],
       lastActive: Date.now(),
+      agentName: agent.name,
     };
     sessions.set(feishuUserId, session);
   }
@@ -52,6 +56,8 @@ export function resetSession(feishuUserId: string): boolean {
   const session = sessions.get(feishuUserId);
   if (session) {
     session.history = [];
+    const agent = resolveAgent('feishu', feishuUserId);
+    session.agentName = agent.name;
     return true;
   }
   return false;

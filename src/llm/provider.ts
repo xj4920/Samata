@@ -106,11 +106,16 @@ export function getAvailableProviders(): ProviderName[] {
   return [...providers.keys()];
 }
 
+let _initialized = false;
+
 /**
  * 初始化所有可用的 provider，根据 LLM_PROVIDER env var 选择默认
  * 返回是否至少有一个 provider 可用
+ * 幂等：多次调用只初始化一次
  */
 export async function initProviders(): Promise<boolean> {
+  if (_initialized) return providers.size > 0;
+
   // 延迟导入避免循环依赖
   const { createAnthropicProvider } = await import('./claude.js');
   const { createMinimaxProvider } = await import('./minimax.js');
@@ -162,5 +167,6 @@ export async function initProviders(): Promise<boolean> {
   }
 
   log.success(`AI 助手已启用 [${currentName}/${getModelName()}]`);
+  _initialized = true;
   return true;
 }

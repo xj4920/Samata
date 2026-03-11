@@ -4,6 +4,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { User } from '../auth/rbac.js';
+import { resolveAgent } from '../llm/agents/config.js';
 
 export interface TelegramSession {
   telegramUserId: number;
@@ -11,6 +12,7 @@ export interface TelegramSession {
   user: User;                                   // 映射到系统用户
   history: Anthropic.MessageParam[];            // 对话历史
   lastActive: number;                            // 最后活跃时间戳
+  agentName: string;                             // 当前使用的 Agent 名称
 }
 
 const sessions = new Map<number, TelegramSession>();
@@ -30,6 +32,7 @@ export function getSession(telegramUserId: number, telegramUsername: string): Te
   let session = sessions.get(telegramUserId);
   if (!session) {
     const role = adminIds.has(telegramUserId) ? 'admin' : 'user';
+    const agent = resolveAgent('telegram', String(telegramUserId));
     session = {
       telegramUserId,
       telegramUsername,
@@ -40,6 +43,7 @@ export function getSession(telegramUserId: number, telegramUsername: string): Te
       },
       history: [],
       lastActive: Date.now(),
+      agentName: agent.name,
     };
     sessions.set(telegramUserId, session);
   }
@@ -52,6 +56,8 @@ export function resetSession(telegramUserId: number): boolean {
   const session = sessions.get(telegramUserId);
   if (session) {
     session.history = [];
+    const agent = resolveAgent('telegram', String(telegramUserId));
+    session.agentName = agent.name;
     return true;
   }
   return false;

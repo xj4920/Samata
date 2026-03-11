@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
+import type { AgentConfig } from './agents/config.js';
+import { getAgentTools, getDefaultAgent, getAllAgents, getAgent, saveAgent, deleteAgent } from './agents/config.js';
+import { buildSystemPrompt } from './agents/prompt.js';
+import { saveMemory as saveMemoryFn, searchMemory as searchMemoryFn, deleteMemory as deleteMemoryFn } from './agents/memory.js';
 import { fetchSystemStatus } from '../commands/monitor.js';
 import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
@@ -209,12 +213,13 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'save_skill',
-    description: '创建或更新一个 skill（可复用的提示词模板），支持 {param} 占位符',
+    description: '创建或更新一个 skill（可复用的提示词模板），支持 {param} 占位符。可指定 scope 为当前 Agent 专属',
     input_schema: {
       type: 'object' as const,
       properties: {
         name: { type: 'string', description: 'skill 名称' },
         prompt: { type: 'string', description: 'skill 的 prompt 模板，支持 {param} 占位符' },
+        scope: { type: 'string', description: "'global'（全局，所有 Agent 可用）或 'agent'（仅当前 Agent 可用）。默认 global" },
       },
       required: ['name', 'prompt'],
     },
@@ -265,6 +270,94 @@ const tools: Anthropic.Tool[] = [
         limit: { type: 'number', description: '返回 Q&A 对数量上限，默认 10' },
       },
       required: [],
+    },
+  },
+  // --- Agent management tools ---
+  {
+    name: 'list_agents',
+    description: '列出所有可用的 Agent',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'get_agent',
+    description: '查看某个 Agent 的详细配置',
+    input_schema: {
+      type: 'object' as const,
+      properties: { name: { type: 'string', description: 'Agent 名称' } },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'save_agent',
+    description: '创建或更新 Agent（仅管理员）。支持 LLM 自举创建新 Agent。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Agent 唯一名称（英文）' },
+        display_name: { type: 'string', description: 'Agent 显示名称' },
+        description: { type: 'string', description: 'Agent 职责描述' },
+        system_prompt: { type: 'string', description: '自定义 system prompt（不传则使用默认）' },
+        model: { type: 'string', description: '指定模型（不传则使用全局默认）' },
+        provider: { type: 'string', description: '指定 provider（不传则使用全局默认）' },
+        tools_mode: { type: 'string', description: "'all' | 'allowlist' | 'blocklist'" },
+        tools_list: { type: 'array', items: { type: 'string' }, description: '工具名称列表（配合 tools_mode 使用）' },
+        max_history: { type: 'number', description: '最大历史消息数，默认 80' },
+      },
+      required: ['name', 'display_name'],
+    },
+  },
+  {
+    name: 'delete_agent',
+    description: '删除 Agent（仅管理员，不可删除默认 agent）',
+    input_schema: {
+      type: 'object' as const,
+      properties: { name: { type: 'string', description: 'Agent 名称' } },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'switch_agent',
+    description: '切换当前会话使用的 Agent。切换后会清空对话历史。',
+    input_schema: {
+      type: 'object' as const,
+      properties: { name: { type: 'string', description: '要切换到的 Agent 名称' } },
+      required: ['name'],
+    },
+  },
+  // --- Memory management tools ---
+  {
+    name: 'save_memory',
+    description: '保存一条记忆/事实到持久化存储，跨会话可用。当对话中出现重要事实、用户偏好、关键信息时主动调用。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        content: { type: 'string', description: '要记住的事实或信息（最大500字符）' },
+        scope: { type: 'string', description: "'global'（全局，所有 Agent 可见）或 'agent'（仅当前 Agent 可见）。默认 global" },
+        category: { type: 'string', description: "可选分类: 'fact' | 'preference' | 'rule' | 'context'" },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'search_memory',
+    description: '搜索已保存的记忆/事实',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        keyword: { type: 'string', description: '搜索关键词' },
+      },
+      required: ['keyword'],
+    },
+  },
+  {
+    name: 'delete_memory',
+    description: '删除一条已保存的记忆（仅管理员）',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: '记忆 ID 或 ID 前缀' },
+      },
+      required: ['id'],
     },
   },
 ];
@@ -364,21 +457,25 @@ function handleRollbackClient(input: { name_or_id: string }): string {
 }
 
 function handleListSkills(): string {
-  const skills = getAllSkills();
+  const agentId = getCurrentAgent()?.id;
+  const skills = getAllSkills(agentId);
   return JSON.stringify(skills.map(s => ({
     name: s.name,
     prompt: s.prompt,
     params: [...s.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]),
+    agent_id: s.agent_id,
   })));
 }
 
 function handleGetSkill(input: { name: string }): string {
-  const skill = getSkillByName(input.name);
+  const agentId = getCurrentAgent()?.id;
+  const skill = getSkillByName(input.name, agentId);
   if (!skill) return JSON.stringify({ error: `未找到 skill: ${input.name}` });
   return JSON.stringify({
     name: skill.name,
     prompt: skill.prompt,
     params: [...skill.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]),
+    agent_id: skill.agent_id,
   });
 }
 
@@ -443,8 +540,9 @@ function handleReadFile(input: { path: string; max_lines?: number }): string {
   }
 }
 
-function handleSaveSkill(input: { name: string; prompt: string }): string {
-  return JSON.stringify(saveSkill(input.name, input.prompt));
+function handleSaveSkill(input: { name: string; prompt: string; scope?: string }): string {
+  const agentId = input.scope === 'agent' ? getCurrentAgent()?.id ?? undefined : undefined;
+  return JSON.stringify(saveSkill(input.name, input.prompt, agentId));
 }
 
 function handleDeleteSkill(input: { name: string }): string {
@@ -536,6 +634,83 @@ async function handleExtractWeworkQA(input: {
   }
 }
 
+// --- Memory management handlers ---
+
+function handleSaveMemory(input: { content: string; scope?: string; category?: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可保存记忆' });
+  const currentAgentId = getCurrentAgent()?.id;
+  const result = saveMemoryFn({
+    content: input.content,
+    scope: (input.scope as 'global' | 'agent') ?? 'global',
+    agentId: input.scope === 'agent' ? currentAgentId ?? undefined : undefined,
+    category: input.category,
+    source: 'manual',
+  });
+  return JSON.stringify(result);
+}
+
+function handleSearchMemory(input: { keyword: string }): string {
+  const currentAgentId = getCurrentAgent()?.id;
+  const items = searchMemoryFn(input.keyword, currentAgentId ?? undefined);
+  return JSON.stringify(items);
+}
+
+function handleDeleteMemory(input: { id: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可删除记忆' });
+  return JSON.stringify(deleteMemoryFn(input.id));
+}
+
+// --- Agent management handlers ---
+
+function handleListAgents(): string {
+  const agents = getAllAgents();
+  return JSON.stringify(agents.map(a => ({ name: a.name, displayName: a.displayName, description: a.description, toolsMode: a.toolsMode })));
+}
+
+function handleGetAgent(input: { name: string }): string {
+  const agent = getAgent(input.name);
+  return JSON.stringify(agent);
+}
+
+function handleSaveAgent(input: {
+  name: string;
+  display_name: string;
+  description?: string;
+  system_prompt?: string;
+  model?: string;
+  provider?: string;
+  tools_mode?: string;
+  tools_list?: string[];
+  max_history?: number;
+}): string {
+  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可创建/更新 Agent' });
+  const result = saveAgent({
+    name: input.name,
+    displayName: input.display_name,
+    description: input.description,
+    systemPrompt: input.system_prompt,
+    model: input.model,
+    provider: input.provider,
+    toolsMode: input.tools_mode as any,
+    toolsList: input.tools_list,
+    maxHistory: input.max_history,
+  });
+  return JSON.stringify(result);
+}
+
+function handleDeleteAgent(input: { name: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可删除 Agent' });
+  return JSON.stringify(deleteAgent(input.name));
+}
+
+function handleSwitchAgent(input: { name: string }): string {
+  const agent = getAgent(input.name);
+  if (agent.name !== input.name && input.name !== 'otcclaw') {
+    return JSON.stringify({ error: `未找到 Agent: ${input.name}` });
+  }
+  return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})` });
+}
+
 export async function executeTool(name: string, input: any): Promise<string> {
   switch (name) {
     case 'query_clients': return handleQueryClients(input);
@@ -559,6 +734,14 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'write_file': return handleWriteFile(input);
     case 'reload_app': return handleReloadApp();
     case 'extract_wework_qa': return handleExtractWeworkQA(input);
+    case 'list_agents': return handleListAgents();
+    case 'get_agent': return handleGetAgent(input);
+    case 'save_agent': return handleSaveAgent(input);
+    case 'delete_agent': return handleDeleteAgent(input);
+    case 'switch_agent': return handleSwitchAgent(input);
+    case 'save_memory': return handleSaveMemory(input);
+    case 'search_memory': return handleSearchMemory(input);
+    case 'delete_memory': return handleDeleteMemory(input);
     default: return JSON.stringify({ error: `未知工具: ${name}` });
   }
 }
@@ -591,7 +774,22 @@ function trimHistory(history: Anthropic.MessageParam[], maxLen: number = MAX_HIS
 
 // --- Conversation state ---
 let conversationHistory: Anthropic.MessageParam[] = [];
+let currentAgent: AgentConfig | undefined;
 
+export function setCurrentAgent(agent: AgentConfig | undefined): void {
+  currentAgent = agent;
+}
+
+export function getCurrentAgent(): AgentConfig | undefined {
+  return currentAgent;
+}
+
+/** All globally registered tools */
+export function getGlobalTools(): Anthropic.Tool[] {
+  return tools;
+}
+
+/** @deprecated Use getGlobalTools() + getAgentTools() instead */
 export function getTools(): Anthropic.Tool[] {
   return tools;
 }
@@ -695,20 +893,26 @@ export async function runAgenticChat(
     streamEnabled?: boolean;
     logPrefix?: string;
     showThinking?: boolean;
+    agentConfig?: AgentConfig;
   } = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking() } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig } = options;
 
-  trimHistory(history);
+  const agent = agentConfig;
+  const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
+  const activeTools = agent ? getAgentTools(agent, tools) : tools;
+  const systemPrompt = agent ? buildSystemPrompt(agent, user) : getSystemPrompt(user);
+
+  trimHistory(history, maxHistory);
 
   const historyLenBefore = history.length;
   history.push({ role: 'user', content: userInput });
 
   const makeParams = (): CreateMessageParams => ({
-    model: getModelName(),
+    model: agent?.model ?? getModelName(),
     max_tokens: 4096,
-    system: getSystemPrompt(user),
-    tools,
+    system: systemPrompt,
+    tools: activeTools,
     messages: history,
   });
 
@@ -798,6 +1002,7 @@ export async function chat(userInput: string): Promise<void> {
     await runAgenticChat(conversationHistory, userInput, getCurrentUser(), {
       streamEnabled: true,
       showThinking: showThinking(),
+      agentConfig: currentAgent,
     });
   } catch (err: any) {
     if (err?.name === 'AbortError') throw err;
@@ -808,4 +1013,5 @@ export async function chat(userInput: string): Promise<void> {
 
 export function resetConversation(): void {
   conversationHistory = [];
+  currentAgent = undefined;
 }

@@ -2,6 +2,7 @@ import { getDb } from '../db/connection.js';
 import { getCurrentUser } from '../auth/rbac.js';
 import { recordEvent } from '../models/event.js';
 import { chat } from '../llm/agent.js';
+import { getAgentById } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { v4 as uuid } from 'uuid';
@@ -10,33 +11,42 @@ export interface Skill {
   id: string;
   name: string;
   prompt: string;
+  agent_id: string | null;
   created_by: string;
   created_at: string;
 }
 
-export function getAllSkills(): Skill[] {
+export function getAllSkills(agentId?: string): Skill[] {
   const db = getDb();
+  if (agentId) {
+    return db.prepare('SELECT * FROM skills WHERE agent_id IS NULL OR agent_id = ? ORDER BY created_at DESC').all(agentId) as Skill[];
+  }
   return db.prepare('SELECT * FROM skills ORDER BY created_at DESC').all() as Skill[];
 }
 
-export function getSkillByName(name: string): Skill | null {
+export function getSkillByName(name: string, agentId?: string): Skill | null {
   const db = getDb();
-  return (db.prepare('SELECT * FROM skills WHERE name = ?').get(name) as Skill) ?? null;
+  if (agentId) {
+    // Prefer agent-specific skill, fall back to global
+    const agentSkill = db.prepare('SELECT * FROM skills WHERE name = ? AND agent_id = ?').get(name, agentId) as Skill | undefined;
+    if (agentSkill) return agentSkill;
+  }
+  return (db.prepare('SELECT * FROM skills WHERE name = ? AND agent_id IS NULL').get(name) as Skill) ?? null;
 }
 
-export function saveSkill(name: string, prompt: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } {
+export function saveSkill(name: string, prompt: string, agentId?: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } {
   const db = getDb();
   const user = getCurrentUser();
-  const existing = getSkillByName(name);
+  const existing = getSkillByName(name, agentId);
 
   if (existing) {
-    db.prepare('UPDATE skills SET prompt = ? WHERE name = ?').run(prompt, name);
-    recordEvent('skill', existing.id, 'update', { name, prompt });
+    db.prepare('UPDATE skills SET prompt = ?, agent_id = ? WHERE id = ?').run(prompt, agentId ?? null, existing.id);
+    recordEvent('skill', existing.id, 'update', { name, prompt, agent_id: agentId });
     return { success: true, action: 'updated', name };
   } else {
     const id = uuid();
-    db.prepare('INSERT INTO skills (id, name, prompt, created_by) VALUES (?, ?, ?, ?)').run(id, name, prompt, user.id);
-    recordEvent('skill', id, 'create', { name, prompt });
+    db.prepare('INSERT INTO skills (id, name, prompt, agent_id, created_by) VALUES (?, ?, ?, ?, ?)').run(id, name, prompt, agentId ?? null, user.id);
+    recordEvent('skill', id, 'create', { name, prompt, agent_id: agentId });
     return { success: true, action: 'created', name, id: id.slice(0, 8) };
   }
 }
@@ -103,14 +113,18 @@ function listSkills(): void {
     return params.length > 0 ? params.join(', ') : '-';
   };
 
-  const head = ['名称', '参数', 'Prompt 摘要', '创建者', '创建时间'];
-  const tableRows = skills.map(s => [
-    s.name,
-    extractParams(s),
-    s.prompt.length > 60 ? s.prompt.slice(0, 57) + '...' : s.prompt,
-    s.created_by ?? '-',
-    s.created_at ?? '-',
-  ]);
+  const head = ['名称', 'Agent', '参数', 'Prompt 摘要', '创建者', '创建时间'];
+  const tableRows = skills.map(s => {
+    const agentLabel = s.agent_id ? (getAgentById(s.agent_id)?.name ?? s.agent_id.slice(0, 8)) : '全局';
+    return [
+      s.name,
+      agentLabel,
+      extractParams(s),
+      s.prompt.length > 60 ? s.prompt.slice(0, 57) + '...' : s.prompt,
+      s.created_by ?? '-',
+      s.created_at ?? '-',
+    ];
+  });
 
   renderTable(head, tableRows);
   log.print(`共 ${skills.length} 个 skill`);

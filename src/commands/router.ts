@@ -10,6 +10,8 @@ import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
+import { handleAgent } from './agent.js';
+import { handleMemory } from './memory-cmd.js';
 import { handleQA } from './qa.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
@@ -40,6 +42,8 @@ const commands: Record<string, Command> = {
   'faq-del':  { description: '删除FAQ: /faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },
   plugin:  { description: '插件: /plugin list | /plugin <name> [args]', adminOnly: false, handler: handlePlugin },
   skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
+  agent:   { description: 'Agent: /agent list | switch | info | del', adminOnly: false, handler: handleAgent },
+  memory:  { description: 'Memory: /memory list | add | search | del', adminOnly: false, handler: handleMemory },
   watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
   bot:     { description: 'Bot: /bot <tg|feishu> <start|stop|status>', adminOnly: true, handler: handleBot },
   model:   { description: '切换模型: /model [list | <provider>]', adminOnly: true, handler: handleModel },
