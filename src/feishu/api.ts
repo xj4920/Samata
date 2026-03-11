@@ -215,6 +215,13 @@ export class FeishuAPI {
   }
 
   /**
+   * 发送消息卡片（interactive card）
+   */
+  async sendCard(chatId: string, card: object): Promise<void> {
+    await this.sendMessage(chatId, 'interactive', JSON.stringify(card));
+  }
+
+  /**
    * 发送文本消息
    */
   async sendText(chatId: string, text: string): Promise<void> {

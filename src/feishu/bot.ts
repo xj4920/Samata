@@ -16,10 +16,12 @@ import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
+import { buildCard } from './card.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
 import { runAgenticChat } from '../llm/agent.js';
+import { getAgent, getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -69,15 +71,36 @@ async function handleAIChat(
   setCurrentUser(session.user);
 
   try {
+    // 解析当前 session 使用的 Agent
+    const agentConfig = getAgent(session.agentName);
+
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[飞书:${feishuUsername}] `,
       showThinking: true,
+      agentConfig,
     });
 
     return textReply || '（无回复内容）';
   } finally {
     setCurrentUser(prevUser);
+  }
+}
+
+/**
+ * 将回复以飞书消息卡片发送，失败时回退到纯文本
+ */
+async function sendFeishuReply(chatId: string, text: string): Promise<void> {
+  if (!text || text === '（无回复内容）') {
+    await api.sendText(chatId, text || '（无回复内容）');
+    return;
+  }
+  try {
+    const card = buildCard(text);
+    await api.sendCard(chatId, card);
+  } catch (err: any) {
+    log.warn(`[飞书] Card 构建失败，回退到纯文本: ${err.message}`);
+    await api.sendText(chatId, text);
   }
 }
 
@@ -132,6 +155,9 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
         return formatSkillList(skills);
       }
       return null; // skill save/run/del 需要更复杂的处理，走 AI
+    }
+    case 'agent': {
+      return handleAgentCommand(args, feishuUserId);
     }
     default:
       return null; // 未匹配的命令
@@ -192,6 +218,40 @@ function handleClientSubcommand(sub: string, rest: string, feishuUserId: string)
     default:
       return formatError('用法: /client <list|view|history|add|advance> [参数]');
   }
+}
+
+function handleAgentCommand(args: string, feishuUserId: string): string {
+  const parts = args.trim().split(/\s+/);
+  const sub = (parts[0] || '').toLowerCase();
+
+  // /agent — show current agent
+  if (!sub) {
+    const session = getSession(feishuUserId, '');
+    const agent = getAgent(session.agentName);
+    return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
+  }
+
+  // /agent list — list all agents
+  if (sub === 'list') {
+    const agents = getAllAgents();
+    const session = getSession(feishuUserId, '');
+    const lines = agents.map(a => {
+      const marker = a.name === session.agentName ? '▶ ' : '  ';
+      return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
+    });
+    return `可用 Agent:\n${lines.join('\n')}`;
+  }
+
+  // /agent <name> — switch agent
+  const agent = getAgent(sub);
+  if (agent.name !== sub && sub !== 'otcclaw') {
+    return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
+  }
+
+  const session = getSession(feishuUserId, '');
+  session.agentName = agent.name;
+  session.history = [];
+  return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
 }
 
 /**
@@ -293,6 +353,10 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         `*查询命令：*\n` +
         `/trade <参数> - 交易查询\n` +
         `/faq <关键词> - 搜索知识库\n\n` +
+        `*Agent 管理：*\n` +
+        `/agent - 查看当前 Agent\n` +
+        `/agent list - 列出所有 Agent\n` +
+        `/agent <name> - 切换 Agent\n\n` +
         `💡 也可以直接输入自然语言，AI 助手会帮你处理！`
       );
       return;
@@ -344,7 +408,7 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
 
     // 自然语言 → AI Agent
     const reply = await handleAIChat(chatId, text, senderId, senderName);
-    await api.sendText(chatId, reply);
+    await sendFeishuReply(chatId, reply);
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
