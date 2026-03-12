@@ -118,14 +118,25 @@ function validateExtractionCoverage(topicFilter?: string) {
     console.log(`  状态: ${metadata.status}`);
     console.log(`  最后提取: ${metadata.last_extraction_time}`);
     console.log(`  扫描消息: ${metadata.total_messages_scanned} 条`);
-    console.log(`  提取 Q&A: ${metadata.total_qa_extracted} 个`);
+
+    // 从 knowledge_pending 表实时统计（single source of truth），避免 metadata 中仅记录最后一次运行的数量
+    const qaCounts = db
+      .prepare(
+        `SELECT COUNT(*) as total,
+                SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN review_status = 'approved' THEN 1 ELSE 0 END) as approved
+         FROM knowledge_pending WHERE topic_name = ?`
+      )
+      .get(topic.name) as { total: number; pending: number; approved: number };
+
+    console.log(`  提取 Q&A: ${qaCounts.total} 个`);
     console.log(
       `  时间范围: ${metadata.date_range_start} ~ ${metadata.date_range_end}`
     );
 
     const extractionRate =
       metadata.total_messages_scanned > 0
-        ? ((metadata.total_qa_extracted / metadata.total_messages_scanned) * 100).toFixed(2)
+        ? ((qaCounts.total / metadata.total_messages_scanned) * 100).toFixed(2)
         : 0;
 
     console.log(`  提取率: ${extractionRate}% (Q&A数 / 消息数)`);
@@ -134,21 +145,8 @@ function validateExtractionCoverage(topicFilter?: string) {
       console.log(`  ⚠️  提取率偏低，可能需要优化 prompt 或关键词`);
     }
 
-    const pendingCount = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM knowledge_pending WHERE topic_name = ? AND review_status = 'pending'`
-      )
-      .get(topic.name) as { count: number };
-
-    console.log(`  待审核: ${pendingCount.count} 个`);
-
-    const approvedCount = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM knowledge_pending WHERE topic_name = ? AND review_status = 'approved'`
-      )
-      .get(topic.name) as { count: number };
-
-    console.log(`  已批准: ${approvedCount.count} 个`);
+    console.log(`  待审核: ${qaCounts.pending} 个`);
+    console.log(`  已批准: ${qaCounts.approved} 个`);
 
     const gaps = findTimeGaps(db, topic.name);
     if (gaps.length > 0) {
