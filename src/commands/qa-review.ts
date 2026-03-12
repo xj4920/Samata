@@ -29,6 +29,11 @@ export async function reviewQA(topicName?: string) {
   await initProviders();
   const db = new Database(DB_PATH);
 
+  // 显示使用的模型
+  const summaryProvider = getProviderForTask('summary');
+  const summaryModel = getModelForTask('summary');
+  console.log(`审核辅助模型: ${summaryProvider.name}/${summaryModel}`);
+
   // 显示审核统计
   showReviewStats(db);
 

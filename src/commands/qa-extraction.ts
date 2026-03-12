@@ -60,6 +60,13 @@ export async function incrementalExtract(topicName?: string, limit?: number) {
     return;
   }
 
+  // 显示各步骤使用的模型
+  const extractionProvider = getProviderForTask('extraction');
+  const extractionModel = getModelForTask('extraction');
+  const scoringProvider = getProviderForTask('scoring');
+  const scoringModel = getModelForTask('scoring');
+  console.log(`提取模型: ${extractionProvider.name}/${extractionModel}`);
+  console.log(`评分模型: ${scoringProvider.name}/${scoringModel}`);
   console.log(`待处理主题: ${topics.length} 个\n`);
 
   for (const topic of topics) {

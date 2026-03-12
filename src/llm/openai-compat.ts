@@ -14,13 +14,19 @@ export interface OAITool {
 
 export interface OAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null;
+  content?: string | OAIContentPart[] | null;
   tool_calls?: Array<{
     id: string;
     type: 'function';
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+}
+
+export interface OAIContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string };
 }
 
 /* ----------------------------------------------------------------
@@ -46,12 +52,25 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
       if (typeof msg.content === 'string') {
         result.push({ role: 'user', content: msg.content });
       } else if (Array.isArray(msg.content)) {
+        // 检查是否包含图片 block — 如果有则需要用 multipart content
+        const parts: OAIContentPart[] = [];
+        const toolResults: OAIMessage[] = [];
+
         for (const block of msg.content) {
           if (block.type === 'text') {
-            result.push({ role: 'user', content: block.text });
+            parts.push({ type: 'text', text: block.text });
+          } else if (block.type === 'image') {
+            // Anthropic image block → OpenAI image_url (data URI)
+            const src = (block as any).source;
+            if (src?.type === 'base64' && src.data) {
+              parts.push({
+                type: 'image_url',
+                image_url: { url: `data:${src.media_type};base64,${src.data}` },
+              });
+            }
           } else if (block.type === 'tool_result') {
             const tb = block as Anthropic.ToolResultBlockParam;
-            result.push({
+            toolResults.push({
               role: 'tool',
               tool_call_id: tb.tool_use_id,
               content: typeof tb.content === 'string'
@@ -60,6 +79,13 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
             });
           }
         }
+
+        // 如果有图片或文本 parts，生成一条 multipart user message
+        if (parts.length > 0) {
+          result.push({ role: 'user', content: parts });
+        }
+        // tool results 仍然单独生成
+        result.push(...toolResults);
       }
     } else if (msg.role === 'assistant') {
       const textParts: string[] = [];

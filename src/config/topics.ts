@@ -32,17 +32,22 @@ export const TOPICS: TopicConfig[] = [
   },
   {
     name: '北向极速',
-    keywords: ['QFII', '经纪ATP', 'ARC', 'Level2', 'lv2', 'AMD', '碎股', 'HKFT'],
+    keywords: ['QFII', '经纪ATP', 'ARC', 'Level2', 'lv2', 'AMD', '碎股', 'HKFT', 'hkft'],
     priority: 5,
   },
   {
     name: '北向借券',
-    keywords: ['约券', 'hkpublic', '券息', '召回', 'recall', 'RECALL', '广发通', '密钥'],
+    keywords: ['约券', '券池', '券源', 'hkpublic', '券息', '召回', 'recall', 'RECALL', '广发通', '密钥', 'SBL', '约券API', '融券利率', '融券成本', '融券费率'],
+    priority: 5,
+  },
+  {
+    name: '费率',
+    keywords: ['费率', '佣金', '手续费', 'bp', '滑点', '融资成本', '融资费率', '融资利率'],
     priority: 5,
   },
   {
     name: '交易拒单处理',
-    keywords: ['拒单', '订单被拒', '下单失败', '资金不足', '持仓不足', '自成交', '对敲', '高频撤单', '异常交易', '风控'],
+    keywords: ['拒单', '订单被拒', '下单失败', '资金不足', '持仓不足', '自成交', '对敲', '高频撤单', '异常交易', '事前阻断', '严重异常', '异常波动'],
     priority: 5,
   },
   {
@@ -50,20 +55,22 @@ export const TOPICS: TopicConfig[] = [
     keywords: ['TWAP', 'VWAP', '算法单', '算法交易', 'POV', 'haoxing', '皓兴', 'HX-SMART-TWAP', 'HX-SMART-VWAP', 'KF-TWAP-PLU', 'KF-VWAP-PLUS', 'FT-WAP-AI', 'FT-WAP-AI-PLUS', '卡方', '非凸'],
     priority: 5,
   },
-
-
+  {
+    name: '交易标的范围',
+    keywords: ['白名单', '白名单', '黑名单', '重点关注', '重点监控', '重点监测'],
+    priority: 5,
+  },
+  
   // ========== 中高优先级主题（4分）==========
   {
-    name: '北上资金数据',
-    keywords: ['北上', '南下', '港股通', '沪深港通', '北向资金'],
+    name: '延时数据',
+    keywords: ['延时', '穿透时间', 'ms', '毫秒', '微秒', '延迟', '性能优化', '响应时间'],
     priority: 4,
-    relatedGroups: ['磐松', '孝庸'],
   },
   {
     name: '估值计算',
-    keywords: ['估值', 'NAV', '净值计算', '盯市', '估值表'],
+    keywords: ['估值', 'PV', '盈亏', '重置', '盯市', '保证金', '履保', '敞口', '估值表', '估值报告'],
     priority: 4,
-    relatedGroups: ['Jinde'],
   },
   {
     name: '风控配置',
@@ -72,40 +79,23 @@ export const TOPICS: TopicConfig[] = [
   },
   {
     name: '断线重连机制',
-    keywords: ['断线', '重连', '连接断开', '心跳', '网络中断'],
+    keywords: ['断线', '重连', '连接断开', '心跳', '网络中断', '重推', 'seqnum'],
     priority: 4,
   },
 
   // ========== 中等优先级主题（3分）==========
   {
-    name: '交易数据加工',
-    keywords: ['数据加工', '成交回报', '持仓', '资金', '交易明细'],
-    priority: 3,
-    relatedGroups: ['Schonfeld'],
-  },
-  {
     name: '开户流程',
-    keywords: ['开户', '账户开通', 'KYC', '合规审核', '开户资料'],
+    keywords: ['开户', '账户开通', 'KYC', '合规审核', '开户资料', 'isda', 'ISDA', '客户资质'],
     priority: 3,
   },
   {
     name: '查询功能',
-    keywords: ['持仓查询', '资金查询', '订单查询', '成交查询', '查询接口'],
+    keywords: ['持仓查询', '资金查询', '查询持仓', '查询资金', '查询成交', '订单查询', '成交查询', '查询接口'],
     priority: 3,
   },
 
-
   // ========== 低优先级主题（2分）==========
-  {
-    name: '系统部署',
-    keywords: ['部署', '上线', '环境配置', '服务器', '安装'],
-    priority: 2,
-  },
-  {
-    name: '时延优化',
-    keywords: ['时延', '延迟', '性能优化', '加速', '响应时间'],
-    priority: 2,
-  },
   {
     name: '日志排查',
     keywords: ['日志', 'log', '排查', '调试', '错误日志'],
@@ -139,7 +129,7 @@ export function getTopicsByPriority(): TopicConfig[] {
  */
 export const QA_EXTRACTION_CONFIG = {
   /** 每个窗口最大消息数 */
-  WINDOW_SIZE: 1000,
+  WINDOW_SIZE: 300,
   /** 窗口内最大时间跨度（天），超过则强制切分 */
   MAX_TIME_GAP_DAYS: 30,
   /** 关键词命中时前后各带多少条消息作为上下文 */

@@ -106,6 +106,11 @@ export function getAvailableProviders(): ProviderName[] {
   return [...providers.keys()];
 }
 
+/** 按名称获取 provider（不切换全局状态） */
+export function getProviderByName(name: ProviderName): LLMProvider | undefined {
+  return providers.get(name);
+}
+
 let _initialized = false;
 
 /**

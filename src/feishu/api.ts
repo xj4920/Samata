@@ -348,12 +348,12 @@ export class FeishuAPI {
   }
 
   /**
-   * 下载消息中的图片资源
-   * 文档：https://open.feishu.cn/document/server-docs/im-v1/image/get
+   * 下载消息中的图片/文件资源
+   * 文档：https://open.feishu.cn/document/server-docs/im-v1/message-attachment/get
    */
-  async downloadImage(imageKey: string): Promise<Buffer> {
+  async downloadMessageResource(messageId: string, fileKey: string, type: 'image' | 'file' = 'image'): Promise<Buffer> {
     const token = await this.getTenantAccessToken();
-    const url = `https://open.feishu.cn/open-apis/im/v1/images/${imageKey}`;
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=${type}`;
 
     const response = await fetch(url, this.fetchOpts({
       method: 'GET',
@@ -363,7 +363,12 @@ export class FeishuAPI {
     }));
 
     if (!response.ok) {
-      throw new Error(`下载图片失败: HTTP ${response.status}`);
+      let detail = '';
+      try {
+        const body = await response.text();
+        detail = ` body=${body.slice(0, 300)}`;
+      } catch { /* ignore */ }
+      throw new Error(`下载资源失败: HTTP ${response.status}${detail}`);
     }
 
     return Buffer.from(await response.arrayBuffer());

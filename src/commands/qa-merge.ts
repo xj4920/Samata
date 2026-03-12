@@ -66,8 +66,10 @@ function runMigrations(db: Database.Database) {
 export async function mergeQA(topicName?: string) {
   await initProviders();
 
-  console.log(`相似性检测模型: ${getModelForTask('classification')}`);
-  console.log(`问题合并模型:   ${getModelForTask('summary')}`);
+  const classificationProvider = getProviderForTask('classification');
+  const summaryProvider = getProviderForTask('summary');
+  console.log(`相似性检测模型: ${classificationProvider.name}/${getModelForTask('classification')}`);
+  console.log(`问题合并模型:   ${summaryProvider.name}/${getModelForTask('summary')}`);
 
   const db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');

@@ -20,7 +20,7 @@ import { buildCard } from './card.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { runAgenticChat, type ImageInput } from '../llm/agent.js';
+import { runAgenticChat, type ImageInput, detectImageMediaType } from '../llm/agent.js';
 import { getAgent, getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -307,26 +307,53 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     if (messageType === 'text') {
       text = content.text || '';
     } else if (messageType === 'post') {
-      // post 类型的 content 结构：{ title, content: [[{ tag, text, ... }]] }
-      const title = content.title || '';
+      // post 类型的 content 结构：{ title, content: [[{ tag, text/image_key, ... }]] }
+      // 富文本中可能混合文字和图片（tag: "text" / "img" / "a" 等）
+      const postBody = content.zh_cn || content.en_us || content;
+      const title = postBody.title || '';
       const lines: string[] = [];
-      if (Array.isArray(content.content)) {
-        for (const line of content.content) {
+      const imageKeys: string[] = [];
+      if (Array.isArray(postBody.content)) {
+        for (const line of postBody.content) {
           if (Array.isArray(line)) {
-            lines.push(line.map((seg: any) => seg.text || '').join(''));
+            const textParts: string[] = [];
+            for (const seg of line as any[]) {
+              if (seg.tag === 'img' && seg.image_key) {
+                imageKeys.push(seg.image_key);
+              } else if (seg.text) {
+                textParts.push(seg.text);
+              }
+            }
+            if (textParts.length > 0) lines.push(textParts.join(''));
           }
         }
       }
       text = [title, ...lines].filter(Boolean).join('\n');
+
+      // 下载 post 中的图片
+      if (imageKeys.length > 0) {
+        images = [];
+        for (const key of imageKeys) {
+          try {
+            const buf = await api.downloadMessageResource(messageId, key);
+            images.push({ data: buf.toString('base64'), mediaType: detectImageMediaType(buf) });
+            log.dim(`[飞书] 下载 post 图片成功: ${key} (${buf.length} bytes)`);
+          } catch (err: any) {
+            log.error(`[飞书] 下载 post 图片失败: ${key} - ${err.message}`);
+          }
+        }
+        if (images.length === 0) images = undefined;
+        if (!text && images) text = '请描述这张图片';
+      }
     } else if (messageType === 'image') {
       // image 类型的 content 结构：{ image_key: "img_xxx" }
       const imageKey = content.image_key;
       if (imageKey) {
         try {
-          const buf = await api.downloadImage(imageKey);
+          const buf = await api.downloadMessageResource(messageId, imageKey);
           images = [{
             data: buf.toString('base64'),
-            mediaType: 'image/png', // 飞书图片统一当 png 处理
+            mediaType: detectImageMediaType(buf),
           }];
           text = '请描述这张图片';
           log.dim(`[飞书] 下载图片成功: ${imageKey} (${buf.length} bytes)`);

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getProvider, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
+import { getProvider, getProviderName, getProviderByName, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
 import type { AgentConfig } from './agents/config.js';
 import { getAgentTools, getDefaultAgent, getAllAgents, getAgent, saveAgent, deleteAgent } from './agents/config.js';
@@ -21,6 +21,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const showThinking = () => process.env.SHOW_THINKING !== 'false';
+
+/** 图片输入（base64 编码） */
+export interface ImageInput {
+  data: string;  // base64 encoded image data (no data URI prefix)
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+}
+
+/** 从 Buffer magic bytes 检测图片 MIME 类型 */
+export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+  return 'image/png'; // fallback
+}
 
 const tools: Anthropic.Tool[] = [
   {
@@ -237,7 +253,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'write_file',
-    description: '写入文件内容（仅限项目目录内，仅管理员可用）。可用于修改或新增源代码文件。',
+    description: '写入文件内容（仅限项目目录内，仅管理员可用）。可用于新建文件。修改已有文件请优先使用 edit_file。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -245,6 +261,19 @@ const tools: Anthropic.Tool[] = [
         content: { type: 'string', description: '要写入的文件内容' },
       },
       required: ['path', 'content'],
+    },
+  },
+  {
+    name: 'edit_file',
+    description: '搜索并替换文件中的指定内容（仅限项目目录内，仅管理员可用）。适合对已有文件做局部修改，无需重写整个文件。old_text 必须与文件中的内容完全匹配（包括缩进和换行）。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: '文件路径（相对于项目根目录或绝对路径）' },
+        old_text: { type: 'string', description: '要被替换的原始文本（必须精确匹配文件中的内容）' },
+        new_text: { type: 'string', description: '替换后的新文本' },
+      },
+      required: ['path', 'old_text', 'new_text'],
     },
   },
   {
@@ -590,21 +619,83 @@ function handleWriteFile(input: { path: string; content: string }): string {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(filePath, input.content, 'utf-8');
-    return JSON.stringify({ success: true, path: relative, bytes: Buffer.byteLength(input.content, 'utf-8') });
+    const willReload = markReloadIfSource(filePath);
+    return JSON.stringify({ success: true, path: relative, bytes: Buffer.byteLength(input.content, 'utf-8'), reload: willReload });
   } catch (err: any) {
     return JSON.stringify({ error: `写入失败: ${err.message}` });
   }
 }
 
+function handleEditFile(input: { path: string; old_text: string; new_text: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+
+  let filePath = input.path;
+  if (!path.isAbsolute(filePath)) {
+    filePath = path.resolve(PROJECT_ROOT, filePath);
+  }
+  filePath = path.normalize(filePath);
+
+  if (!filePath.startsWith(PROJECT_ROOT)) {
+    return JSON.stringify({ error: `路径不在项目目录内: ${filePath}` });
+  }
+
+  const relative = filePath.slice(PROJECT_ROOT.length);
+  for (const pattern of FORBIDDEN_PATTERNS) {
+    if (pattern.endsWith('/')) {
+      if (relative.startsWith(pattern) || relative.includes('/' + pattern)) {
+        return JSON.stringify({ error: `禁止写入路径: ${relative}` });
+      }
+    } else if (pattern.includes('*')) {
+      const [dir, ext] = pattern.split('*');
+      if (relative.startsWith(dir) && relative.endsWith(ext)) {
+        return JSON.stringify({ error: `禁止写入路径: ${relative}` });
+      }
+    } else {
+      if (relative === pattern || relative.endsWith('/' + pattern)) {
+        return JSON.stringify({ error: `禁止写入路径: ${relative}` });
+      }
+    }
+  }
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      return JSON.stringify({ error: `文件不存在: ${relative}` });
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const idx = content.indexOf(input.old_text);
+    if (idx === -1) {
+      return JSON.stringify({ error: '未找到匹配的 old_text，请确认内容完全一致（包括缩进和换行）' });
+    }
+    // 检查是否有多处匹配
+    const secondIdx = content.indexOf(input.old_text, idx + 1);
+    if (secondIdx !== -1) {
+      return JSON.stringify({ error: `old_text 在文件中匹配到多处（至少第 ${idx + 1} 和 ${secondIdx + 1} 字符处），请提供更精确的上下文以唯一定位` });
+    }
+    const newContent = content.slice(0, idx) + input.new_text + content.slice(idx + input.old_text.length);
+    fs.writeFileSync(filePath, newContent, 'utf-8');
+    const willReload = markReloadIfSource(filePath);
+    return JSON.stringify({ success: true, path: relative, bytes: Buffer.byteLength(newContent, 'utf-8'), reload: willReload });
+  } catch (err: any) {
+    return JSON.stringify({ error: `编辑失败: ${err.message}` });
+  }
+}
+
+let pendingReload = false;
+
+const SOURCE_EXT = /\.(ts|js|mts|mjs|json)$/;
+
+function markReloadIfSource(filePath: string): boolean {
+  if (SOURCE_EXT.test(filePath)) {
+    pendingReload = true;
+    return true;
+  }
+  return false;
+}
+
 function handleReloadApp(): string {
   if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
-  log.info('🔄 即将重载应用...');
-  setTimeout(async () => {
-    const { gracefulShutdown } = await import('../index.js');
-    gracefulShutdown();
-    process.exit(120);
-  }, 500);
-  return JSON.stringify({ success: true, message: '应用将在 0.5 秒后重启' });
+  pendingReload = true;
+  return JSON.stringify({ success: true, message: '将在当前对话轮次结束后重载应用' });
 }
 
 async function handleExtractWeworkQA(input: {
@@ -732,6 +823,7 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'save_skill': return handleSaveSkill(input);
     case 'delete_skill': return handleDeleteSkill(input);
     case 'write_file': return handleWriteFile(input);
+    case 'edit_file': return handleEditFile(input);
     case 'reload_app': return handleReloadApp();
     case 'extract_wework_qa': return handleExtractWeworkQA(input);
     case 'list_agents': return handleListAgents();
@@ -802,10 +894,9 @@ export function getSystemPrompt(user?: User): string {
 3. 回答关于客户的问题，提供数据分析
 4. 提供展业建议和话术参考
 5. 搜索知识库回答常见问题
-5. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码、并触发热重载使变更生效。
+5. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码，修改源码文件（.ts/.js/.json）后会自动热重载。
    - 使用 save_skill 创建可复用的提示词模板
-   - 使用 write_file 修改或新增源代码文件（仅限项目目录内）
-   - 修改代码后使用 reload_app 重启应用使变更生效
+   - 修改已有文件优先使用 edit_file（搜索替换），新建文件使用 write_file
    - 修改代码前请先用 read_file 了解现有代码结构
 
 当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
@@ -843,8 +934,8 @@ function stripThinkBlocks(text: string, showThinkingOpt: boolean): string {
  * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
  * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
  */
-async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false): Promise<{ result: CreateMessageResult; streamed: boolean }> {
-  const provider = getProvider();
+async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+  const provider = providerOverride ?? getProvider();
 
   if (streamText && provider.createMessageStream) {
     try {
@@ -894,22 +985,68 @@ export async function runAgenticChat(
     logPrefix?: string;
     showThinking?: boolean;
     agentConfig?: AgentConfig;
+    images?: ImageInput[];
   } = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images } = options;
 
   const agent = agentConfig;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
   const activeTools = agent ? getAgentTools(agent, tools) : tools;
   const systemPrompt = agent ? buildSystemPrompt(agent, user) : getSystemPrompt(user);
 
+  // 图片需要 vision 能力，选择支持 vision 的 provider
+  // 优先级：anthropic（原生支持）→ openrouter（通过 Claude vision）
+  let visionProvider: import('./provider.js').LLMProvider | undefined;
+  let visionModel: string | undefined;
+  if (images && images.length > 0) {
+    const currentProv = getProviderName();
+    if (currentProv === 'anthropic') {
+      // 原生 Anthropic 直接支持 image block，无需切换
+    } else {
+      // 尝试 openrouter（支持 Claude vision 的 OpenAI 兼容接口）
+      const openrouter = getProviderByName('openrouter');
+      if (openrouter) {
+        visionProvider = openrouter;
+        visionModel = process.env.OPENROUTER_VISION_MODEL || 'anthropic/claude-sonnet-4';
+        log.dim(`${logPrefix}📷 图片消息，临时使用 openrouter/${visionModel} 处理`);
+      } else {
+        // 回退到 anthropic
+        const anthropic = getProviderByName('anthropic');
+        if (anthropic) {
+          visionProvider = anthropic;
+          visionModel = anthropic.defaultModel;
+          log.dim(`${logPrefix}📷 图片消息，临时使用 anthropic/${visionModel} 处理`);
+        } else {
+          log.warn(`${logPrefix}⚠️ 当前 provider 不支持图片，且无可用 vision provider`);
+        }
+      }
+    }
+  }
+
   trimHistory(history, maxHistory);
 
   const historyLenBefore = history.length;
-  history.push({ role: 'user', content: userInput });
+
+  // 构建 user message：如果有图片则使用 content block 数组
+  if (images && images.length > 0) {
+    const contentBlocks: Anthropic.MessageParam['content'] = [];
+    for (const img of images) {
+      (contentBlocks as any[]).push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mediaType, data: img.data },
+      });
+    }
+    if (userInput) {
+      (contentBlocks as any[]).push({ type: 'text', text: userInput });
+    }
+    history.push({ role: 'user', content: contentBlocks });
+  } else {
+    history.push({ role: 'user', content: userInput });
+  }
 
   const makeParams = (): CreateMessageParams => ({
-    model: agent?.model ?? getModelName(),
+    model: visionModel ?? agent?.model ?? getModelName(),
     max_tokens: 4096,
     system: systemPrompt,
     tools: activeTools,
@@ -919,7 +1056,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, visionProvider));
   } catch (err: any) {
     log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
     history.length = historyLenBefore;
@@ -965,7 +1102,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, visionProvider));
     } catch (err: any) {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
@@ -994,15 +1131,63 @@ export async function runAgenticChat(
     }
   }
 
+  // 延迟执行 reload：等 agentic loop 结束、回复渲染完毕后再重启
+  if (pendingReload) {
+    pendingReload = false;
+    log.info('🔄 即将重载应用...');
+    setTimeout(async () => {
+      const { gracefulShutdown } = await import('../index.js');
+      gracefulShutdown();
+      process.exit(120);
+    }, 500);
+  }
+
   return textReply;
+}
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp)$/i;
+const IMAGE_PATH_RE = /(?:^|\s)((?:\/|\.\/|~\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
+
+/**
+ * 从用户输入中提取本地图片路径，返回 images 数组和去除路径后的文本
+ */
+function extractLocalImages(input: string): { text: string; images: ImageInput[] } {
+  const images: ImageInput[] = [];
+  const text = input.replace(IMAGE_PATH_RE, (match, filePath: string) => {
+    // 展开 ~ 为 HOME 目录
+    const resolved = filePath.startsWith('~/')
+      ? path.join(process.env.HOME || '', filePath.slice(1))
+      : path.resolve(filePath);
+    try {
+      if (!fs.existsSync(resolved)) return match; // 文件不存在，保留原文
+      const buf = fs.readFileSync(resolved);
+      const ext = path.extname(resolved).toLowerCase();
+      const mediaType: ImageInput['mediaType'] =
+        ext === '.png' ? 'image/png'
+        : ext === '.gif' ? 'image/gif'
+        : ext === '.webp' ? 'image/webp'
+        : 'image/jpeg';
+      images.push({ data: buf.toString('base64'), mediaType });
+      return ''; // 从文本中移除路径
+    } catch {
+      return match;
+    }
+  }).trim();
+
+  return { text: text || (images.length > 0 ? '请描述这张图片' : ''), images };
 }
 
 export async function chat(userInput: string): Promise<void> {
   try {
-    await runAgenticChat(conversationHistory, userInput, getCurrentUser(), {
+    const { text, images } = extractLocalImages(userInput);
+    if (images.length > 0) {
+      log.dim(`📎 已加载 ${images.length} 张图片`);
+    }
+    await runAgenticChat(conversationHistory, text, getCurrentUser(), {
       streamEnabled: true,
       showThinking: showThinking(),
       agentConfig: currentAgent,
+      images: images.length > 0 ? images : undefined,
     });
   } catch (err: any) {
     if (err?.name === 'AbortError') throw err;

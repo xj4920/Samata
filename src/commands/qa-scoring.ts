@@ -3,7 +3,7 @@
  * 对指定主题下未评分的 pending QA 进行 LLM 质量评分
  */
 import Database from 'better-sqlite3';
-import { initProviders } from '../llm/provider.js';
+import { initProviders, getProviderForTask, getModelForTask } from '../llm/provider.js';
 import { scoreQAQuality } from '../utils/qa-quality-scorer.js';
 
 const DB_PATH = './data/yanyu.db';
@@ -26,7 +26,10 @@ export async function scoreTopicQA(topicName: string) {
     return;
   }
 
-  console.log(`\n评分主题: ${topicName}，共 ${items.length} 条待评分\n`);
+  console.log(`\n评分主题: ${topicName}，共 ${items.length} 条待评分`);
+  const scoringProvider = getProviderForTask('scoring');
+  const scoringModel = getModelForTask('scoring');
+  console.log(`评分模型: ${scoringProvider.name}/${scoringModel}\n`);
 
   let scored = 0;
   for (const item of items) {
