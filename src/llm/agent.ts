@@ -968,6 +968,11 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
   return { result: await provider.createMessage(params), streamed: false };
 }
 
+export type ProgressEvent =
+  | { type: 'tool_start'; name: string }
+  | { type: 'tool_end'; name: string }
+  | { type: 'thinking'; text: string };
+
 /**
  * 通用的 agentic chat 函数，支持 CLI 和飞书bot复用
  * @param history 消息历史数组（会被修改）
@@ -986,9 +991,10 @@ export async function runAgenticChat(
     showThinking?: boolean;
     agentConfig?: AgentConfig;
     images?: ImageInput[];
+    onProgress?: (event: ProgressEvent) => void;
   } = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress } = options;
 
   const agent = agentConfig;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
@@ -1073,6 +1079,7 @@ export async function runAgenticChat(
       for (const block of assistantContent) {
         if (block.type === 'text' && block.text) {
           log.dim(`${logPrefix}💭 ${block.text}`);
+          onProgress?.({ type: 'thinking', text: block.text });
         }
       }
     }
@@ -1084,6 +1091,7 @@ export async function runAgenticChat(
           log.dim(`${logPrefix}🔧 调用工具: ${block.name}`);
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
+        onProgress?.({ type: 'tool_start', name: block.name });
         throwIfAborted();
         let result: string;
         try {
@@ -1091,6 +1099,7 @@ export async function runAgenticChat(
         } catch (err: any) {
           result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
         }
+        onProgress?.({ type: 'tool_end', name: block.name });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);

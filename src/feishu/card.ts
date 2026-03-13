@@ -48,3 +48,18 @@ export function buildCard(rawMarkdown: string): FeishuCard {
     },
   };
 }
+
+/**
+ * 构建"处理中"占位卡片
+ */
+export function buildThinkingCard(hint?: string): FeishuCard {
+  return {
+    schema: '2.0',
+    config: { wide_screen_mode: true },
+    body: {
+      elements: [
+        { tag: 'markdown', content: hint || '⏳ 处理中...' },
+      ],
+    },
+  };
+}

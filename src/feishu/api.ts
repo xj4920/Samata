@@ -166,8 +166,8 @@ export class FeishuAPI {
    * 发送消息（默认发送到群聊）
    * 文档：https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json
    */
-  async sendMessage(chatId: string, messageType: string, content: any): Promise<void> {
-    await this.sendMessageTo(chatId, 'chat_id', messageType, content);
+  async sendMessage(chatId: string, messageType: string, content: any): Promise<string> {
+    return this.sendMessageTo(chatId, 'chat_id', messageType, content);
   }
 
   /**
@@ -177,7 +177,7 @@ export class FeishuAPI {
    * @param messageType 消息类型
    * @param content 消息内容
    */
-  async sendMessageTo(receiveId: string, receiveIdType: FeishuReceiveIdType, messageType: string, content: any): Promise<void> {
+  async sendMessageTo(receiveId: string, receiveIdType: FeishuReceiveIdType, messageType: string, content: any): Promise<string> {
     const token = await this.getTenantAccessToken();
 
     const url = 'https://open.feishu.cn/open-apis/im/v1/messages';
@@ -211,21 +211,48 @@ export class FeishuAPI {
     if (data.code !== 0) {
       throw new Error(`发送消息失败: ${data.msg} (code: ${data.code})`);
     }
-    log.file(`[飞书] 消息已发送至 ${receiveIdType}: ${receiveId}`);
+    const msgId = data.data?.message_id || '';
+    log.file(`[飞书] 消息已发送至 ${receiveIdType}: ${receiveId} (msg_id=${msgId})`);
+    return msgId;
   }
 
   /**
    * 发送消息卡片（interactive card）
    */
-  async sendCard(chatId: string, card: object): Promise<void> {
-    await this.sendMessage(chatId, 'interactive', JSON.stringify(card));
+  async sendCard(chatId: string, card: object): Promise<string> {
+    return this.sendMessage(chatId, 'interactive', JSON.stringify(card));
   }
 
   /**
    * 发送文本消息
    */
-  async sendText(chatId: string, text: string): Promise<void> {
-    await this.sendMessage(chatId, 'text', { text });
+  async sendText(chatId: string, text: string): Promise<string> {
+    return this.sendMessage(chatId, 'text', { text });
+  }
+
+  /**
+   * 更新消息卡片内容（仅支持 interactive 类型）
+   * 文档：https://open.feishu.cn/document/server-docs/im-v1/message/patch
+   */
+  async updateCard(messageId: string, card: object): Promise<void> {
+    const token = await this.getTenantAccessToken();
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`;
+    const body = {
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
+    };
+    const response = await fetch(url, this.fetchOpts({
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    }));
+    const data = await response.json() as any;
+    if (data.code !== 0) {
+      throw new Error(`更新消息失败: ${data.msg} (code: ${data.code})`);
+    }
   }
 
   /**
@@ -250,7 +277,7 @@ export class FeishuAPI {
   /**
    * 回复消息（带 @ 提醒）
    */
-  async replyMessage(rootId: string, messageType: string, content: any): Promise<void> {
+  async replyMessage(rootId: string, messageType: string, content: any): Promise<string> {
     const token = await this.getTenantAccessToken();
 
     const url = 'https://open.feishu.cn/open-apis/im/v1/messages';
@@ -279,7 +306,9 @@ export class FeishuAPI {
       throw new Error(`回复消息失败: ${data.msg} (code: ${data.code})`);
     }
 
-    log.dim(`[飞书] 已回复消息: ${rootId}`);
+    const msgId = data.data?.message_id || '';
+    log.dim(`[飞书] 已回复消息: ${rootId} (msg_id=${msgId})`);
+    return msgId;
   }
 
   /**

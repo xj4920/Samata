@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
-import { buildCard } from './card.js';
+import { buildCard, buildThinkingCard } from './card.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
@@ -64,9 +64,23 @@ async function handleAIChat(
   userInput: string,
   feishuUserId: string,
   feishuUsername: string,
-  images?: ImageInput[]
-): Promise<string> {
+  images?: ImageInput[],
+  replyOpts?: { messageId?: string; isGroup?: boolean },
+): Promise<{ text: string; placeholderMsgId?: string }> {
   const session = getSession(feishuUserId, feishuUsername);
+
+  // 立即发送占位卡片，让用户知道正在处理
+  let placeholderMsgId: string | undefined;
+  try {
+    const thinkingCard = buildThinkingCard('🤔 思考中...');
+    if (replyOpts?.isGroup && replyOpts?.messageId) {
+      placeholderMsgId = await api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(thinkingCard));
+    } else {
+      placeholderMsgId = await api.sendCard(chatId, thinkingCard);
+    }
+  } catch (err: any) {
+    log.warn(`[飞书] 发送占位卡片失败: ${err.message}`);
+  }
 
   // 临时切换当前用户上下文（tool handler 依赖），处理完后恢复
   const prevUser = getCurrentUser();
@@ -76,15 +90,34 @@ async function handleAIChat(
     // 解析当前 session 使用的 Agent
     const agentConfig = getAgent(session.agentName);
 
+    // 渐进更新占位卡片（节流 1.5s）
+    let lastUpdateTime = 0;
+    const THROTTLE_MS = 1500;
+    const onProgress = placeholderMsgId
+      ? (event: import('../llm/agent.js').ProgressEvent) => {
+          const now = Date.now();
+          if (now - lastUpdateTime < THROTTLE_MS) return;
+          lastUpdateTime = now;
+          let hint = '';
+          if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
+          else if (event.type === 'tool_end') hint = `✅ ${event.name} 完成，继续思考...`;
+          else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
+          if (hint) {
+            api.updateCard(placeholderMsgId!, buildThinkingCard(hint)).catch(() => {});
+          }
+        }
+      : undefined;
+
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[飞书:${feishuUsername}] `,
       showThinking: true,
       agentConfig,
       images,
+      onProgress,
     });
 
-    return textReply || '（无回复内容）';
+    return { text: textReply || '（无回复内容）', placeholderMsgId };
   } finally {
     setCurrentUser(prevUser);
   }
@@ -93,31 +126,47 @@ async function handleAIChat(
 /**
  * 将回复以飞书消息卡片发送，失败时回退到纯文本
  * 群聊消息使用 reply（回复原消息）方式发送
+ * 如果提供 updateMessageId，则更新已有卡片而非发新消息
  */
-async function sendFeishuReply(chatId: string, text: string, options?: { messageId?: string; isGroup?: boolean }): Promise<void> {
+async function sendFeishuReply(
+  chatId: string,
+  text: string,
+  options?: { messageId?: string; isGroup?: boolean; updateMessageId?: string }
+): Promise<string> {
+  // 更新已有卡片模式
+  if (options?.updateMessageId) {
+    try {
+      const card = buildCard(text);
+      await api.updateCard(options.updateMessageId, card);
+      return options.updateMessageId;
+    } catch (err: any) {
+      log.warn(`[飞书] 更新卡片失败，回退到发新消息: ${err.message}`);
+      // fallthrough 到下面的发新消息逻辑
+    }
+  }
+
   const useReply = options?.isGroup && options?.messageId;
 
   if (!text || text === '（无回复内容）') {
     if (useReply) {
-      await api.replyMessage(options.messageId!, 'text', { text: text || '（无回复内容）' });
+      return api.replyMessage(options.messageId!, 'text', { text: text || '（无回复内容）' });
     } else {
-      await api.sendText(chatId, text || '（无回复内容）');
+      return api.sendText(chatId, text || '（无回复内容）');
     }
-    return;
   }
   try {
     const card = buildCard(text);
     if (useReply) {
-      await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+      return api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
     } else {
-      await api.sendCard(chatId, card);
+      return api.sendCard(chatId, card);
     }
   } catch (err: any) {
     log.warn(`[飞书] Card 构建失败，回退到纯文本: ${err.message}`);
     if (useReply) {
-      await api.replyMessage(options.messageId!, 'text', { text });
+      return api.replyMessage(options.messageId!, 'text', { text });
     } else {
-      await api.sendText(chatId, text);
+      return api.sendText(chatId, text);
     }
   }
 }
@@ -494,8 +543,8 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     }
 
     // 自然语言 → AI Agent
-    const reply = await handleAIChat(chatId, text, senderId, senderName, images);
-    await sendFeishuReply(chatId, reply, replyOpts);
+    const { text: reply, placeholderMsgId } = await handleAIChat(chatId, text, senderId, senderName, images, replyOpts);
+    await sendFeishuReply(chatId, reply, { ...replyOpts, updateMessageId: placeholderMsgId });
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
