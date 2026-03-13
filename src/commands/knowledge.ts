@@ -2,9 +2,8 @@ import { getDb } from '../db/connection.js';
 import { getCurrentUser } from '../auth/rbac.js';
 import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
-import { input, confirm } from '@inquirer/prompts';
+import { input } from '@inquirer/prompts';
 import { v4 as uuid } from 'uuid';
-import { findSimilarQuestions } from '../utils/qa-dedup.js';
 
 export interface KnowledgeItem {
   id: string;
@@ -63,24 +62,6 @@ export async function add(): Promise<void> {
   const relatedUsers = await input({ message: '相关人员（可选，逗号分隔）：' });
 
   const db = getDb();
-
-  // 语义去重检查
-  const dedupResult = await findSimilarQuestions(db, question);
-  if (dedupResult.hasDuplicate) {
-    const top = dedupResult.candidates.find(c => c.semanticMatch) || dedupResult.candidates[0];
-    log.print(`\n⚠ 知识库中已存在相似问题：`);
-    log.print(`  已有: ${top.question}`);
-    log.print(`  相似度: ${(top.similarity * 100).toFixed(0)}%`);
-    if (top.answer) {
-      const preview = top.answer.length > 80 ? top.answer.substring(0, 80) + '...' : top.answer;
-      log.print(`  已有答案: ${preview}`);
-    }
-    const proceed = await confirm({ message: '仍然添加？', default: false });
-    if (!proceed) {
-      log.print('已取消');
-      return;
-    }
-  }
 
   const user = getCurrentUser();
   const id = uuid();

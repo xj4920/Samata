@@ -1,7 +1,6 @@
 import { fetchWeworkMessages, WeworkMessage } from './wework.js';
 import { log } from '../utils/logger.js';
 import { getProvider, getModelName } from '../llm/provider.js';
-import { generateTopicPrompt } from '../utils/topic-prompts.js';
 import { parseLLMJsonArray } from '../utils/json-repair.js';
 
 export interface QAPair {
@@ -142,8 +141,28 @@ async function extractQAWithLLM(
     .map(m => `[${m.time}] ${m.sender}: ${m.content}`)
     .join('\n');
 
-  // 使用主题专属 prompt
-  const prompt = generateTopicPrompt(conversationText, topic, limit);
+  const topicHint = topic ? `\n提取主题：${topic}\n请重点关注与该主题相关的问答。` : '';
+  const prompt = `从以下企微群聊记录中提取有价值的 Q&A 对。${topicHint}
+
+要求：
+- 提取真实的业务问答（技术问题、流程咨询、故障排查等）
+- 问题和答案应泛化为通用知识，去除客户特定信息（具体 IP、账号、公司名等）
+- 跳过寒暄、确认、会议安排等无知识价值的内容
+- 最多提取 ${limit} 个最有价值的 Q&A 对
+
+聊天记录：
+${conversationText}
+
+以 JSON 数组返回，每个元素包含：
+- question: 问题（泛化为通用问题）
+- answer: 答案（综合多条消息，简明扼要，300 字以内）
+- tags: 标签数组（1-3 个）
+- time: 问题时间（YYYY-MM-DD HH:MM:SS）
+- questioner: 提问人
+- answerer: 回答人
+- context: 业务场景说明
+
+只返回 JSON 数组，不要其他内容。无符合标准的 Q&A 则返回 []。`;
 
   try {
     const provider = getProvider();
