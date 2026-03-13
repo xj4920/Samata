@@ -84,11 +84,11 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'search_knowledge',
-    description: '搜索知识库中的FAQ',
+    description: '搜索知识库中的FAQ。支持多关键词搜索（空格分隔），会自动拆分并匹配。建议传入2-3个核心关键词而非完整句子。例如：用户问"专线怎么申请"→传入"专线 申请"；问"北向极速开通流程"→传入"北向 极速 开通"。如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
     input_schema: {
       type: 'object' as const,
       properties: {
-        keyword: { type: 'string', description: '搜索关键词' },
+        keyword: { type: 'string', description: '搜索关键词（多个关键词用空格分隔，匹配任一即返回，全部匹配排在前面）' },
       },
       required: ['keyword'],
     },
@@ -461,8 +461,13 @@ function handleStatusSummary(): string {
 
 function handleSearchKnowledge(input: { keyword: string }): string {
   const rows = fetchKnowledge(input.keyword);
-  if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ' });
-  return JSON.stringify(rows.map(r => ({ question: r.question, answer: r.answer, tags: r.tags })));
+  if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ，建议换用更短或不同的关键词重试' });
+  return JSON.stringify(rows.map(r => ({
+    question: r.question,
+    answer: r.answer,
+    tags: r.tags,
+    relevance: (r as any).relevance,
+  })));
 }
 
 function handleAddClient(input: { name: string; contact?: string; wework_group?: string; requirements?: string; sales?: string; notes?: string }): string {

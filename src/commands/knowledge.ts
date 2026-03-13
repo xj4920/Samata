@@ -18,26 +18,43 @@ export interface KnowledgeItem {
 
 export function fetchKnowledge(keyword?: string): KnowledgeItem[] {
   const db = getDb();
-  if (keyword) {
-    return db.prepare(
-      'SELECT * FROM knowledge WHERE question LIKE ? OR answer LIKE ? OR tags LIKE ? ORDER BY created_at DESC'
-    ).all(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`) as KnowledgeItem[];
+  if (!keyword) {
+    return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
   }
-  return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
+
+  const keywords = keyword.split(/\s+/).filter(Boolean);
+  if (keywords.length === 0) {
+    return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
+  }
+
+  // 每个关键词匹配 question/answer/tags 任一字段��命中
+  // 相关性评分：question 命中 +3，tags +2，answer +1
+  const whereClauses = keywords.map(() =>
+    '(question LIKE ? OR answer LIKE ? OR tags LIKE ?)'
+  ).join(' OR ');
+
+  const scoreExpr = keywords.map(() =>
+    '(CASE WHEN question LIKE ? THEN 3 ELSE 0 END) + ' +
+    '(CASE WHEN tags LIKE ? THEN 2 ELSE 0 END) + ' +
+    '(CASE WHEN answer LIKE ? THEN 1 ELSE 0 END)'
+  ).join(' + ');
+
+  const sql = `SELECT *, (${scoreExpr}) as relevance FROM knowledge WHERE ${whereClauses} ORDER BY relevance DESC, created_at DESC`;
+
+  const params: string[] = [];
+  for (const kw of keywords) {
+    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); // score params
+  }
+  for (const kw of keywords) {
+    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); // where params
+  }
+
+  return db.prepare(sql).all(...params) as KnowledgeItem[];
 }
 
 export function search(args: string): void {
-  const db = getDb();
   const keyword = args.trim();
-
-  let rows: KnowledgeItem[];
-  if (keyword) {
-    rows = db.prepare(
-      'SELECT * FROM knowledge WHERE question LIKE ? OR answer LIKE ? OR tags LIKE ? ORDER BY created_at DESC'
-    ).all(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`) as KnowledgeItem[];
-  } else {
-    rows = db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
-  }
+  const rows = fetchKnowledge(keyword || undefined);
 
   if (rows.length === 0) {
     log.print('未找到相关FAQ');

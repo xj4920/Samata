@@ -10,6 +10,7 @@
 
 ## 数据注意事项
 - InfluxDB（`messages` 库 `wework` 表）的 `time` 字段存储的是北京时间（CST），但标记为 UTC（`Z` 后缀）。实际 UTC = 存储时间 - 8 小时。做时间过滤时需加 8 小时偏移对齐。
+- `knowledge_pending` 表的 `auto_quality_score` 字段 99% 为 NULL（仅 5 条有值），不可用作排序或筛选依据
 
 ## 企业微信数据目录
 - **位置**: `/Users/simon/Documents/my/XBase/dump/wework`
