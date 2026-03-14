@@ -1,4 +1,5 @@
 {
+  "enabled": false,
   "telegram": {
     "botToken": "8270566710:AAHMhZZuQr8Wi2B6Q7QJs8a4Evv9smqKgwM",
     "chatId": "6630337431",
@@ -9,7 +10,8 @@
     "appSecret": "f5KWtewsetfcaIOpk21rMgl8tsaXfzmG",
     "verificationToken": "",
     "encryptKey": "",
-    "proxy": ""
+    "proxy": "",
+    "showThinking": true
   },
   "influx": {
     "database": "messages",

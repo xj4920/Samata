@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { createServer } from 'node:http';
 import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
@@ -39,6 +40,7 @@ interface FeishuBotConfig {
   appSecret: string;
   verificationToken: string;
   encryptKey: string;
+  showThinking?: boolean;
 }
 
 function loadFeishuConfig(): FeishuBotConfig {
@@ -66,20 +68,28 @@ async function handleAIChat(
   feishuUsername: string,
   images?: ImageInput[],
   replyOpts?: { messageId?: string; isGroup?: boolean },
-): Promise<{ text: string; placeholderMsgId?: string }> {
+): Promise<{ text: string }> {
   const session = getSession(feishuUserId, feishuUsername);
+  const feishuCfg = loadFeishuConfig();
+  const showThinkingEnabled = feishuCfg.showThinking !== false;
 
-  // 立即发送占位卡片，让用户知道正在处理
-  let placeholderMsgId: string | undefined;
-  try {
-    const thinkingCard = buildThinkingCard('🤔 思考中...');
-    if (replyOpts?.isGroup && replyOpts?.messageId) {
-      placeholderMsgId = await api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(thinkingCard));
-    } else {
-      placeholderMsgId = await api.sendCard(chatId, thinkingCard);
+  // 发送过程卡片的辅助函数
+  const sendProgressCard = async (hint: string) => {
+    try {
+      const card = buildThinkingCard(hint);
+      if (replyOpts?.isGroup && replyOpts?.messageId) {
+        await api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
+      } else {
+        await api.sendCard(chatId, card);
+      }
+    } catch (err: any) {
+      log.warn(`[飞书] 发送过程卡片失败: ${err.message}`);
     }
-  } catch (err: any) {
-    log.warn(`[飞书] 发送占位卡片失败: ${err.message}`);
+  };
+
+  // 发送初始占位卡片
+  if (showThinkingEnabled) {
+    await sendProgressCard('🤔 思考中...');
   }
 
   // 临时切换当前用户上下文（tool handler 依赖），处理完后恢复
@@ -90,20 +100,19 @@ async function handleAIChat(
     // 解析当前 session 使用的 Agent
     const agentConfig = getAgent(session.agentName);
 
-    // 渐进更新占位卡片（节流 1.5s）
+    // 渐进发送过程卡片（节流 1.5s）
     let lastUpdateTime = 0;
     const THROTTLE_MS = 1500;
-    const onProgress = placeholderMsgId
+    const onProgress = showThinkingEnabled
       ? (event: import('../llm/agent.js').ProgressEvent) => {
           const now = Date.now();
           if (now - lastUpdateTime < THROTTLE_MS) return;
           lastUpdateTime = now;
           let hint = '';
           if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
-          else if (event.type === 'tool_end') hint = `✅ ${event.name} 完成，继续思考...`;
           else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
           if (hint) {
-            api.updateCard(placeholderMsgId!, buildThinkingCard(hint)).catch(() => {});
+            sendProgressCard(hint);
           }
         }
       : undefined;
@@ -117,7 +126,7 @@ async function handleAIChat(
       onProgress,
     });
 
-    return { text: textReply || '（无回复内容）', placeholderMsgId };
+    return { text: textReply || '（无回复内容）' };
   } finally {
     setCurrentUser(prevUser);
   }
@@ -543,8 +552,8 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     }
 
     // 自然语言 → AI Agent
-    const { text: reply, placeholderMsgId } = await handleAIChat(chatId, text, senderId, senderName, images, replyOpts);
-    await sendFeishuReply(chatId, reply, { ...replyOpts, updateMessageId: placeholderMsgId });
+    const { text: reply } = await handleAIChat(chatId, text, senderId, senderName, images, replyOpts);
+    await sendFeishuReply(chatId, reply, replyOpts);
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
@@ -667,10 +676,16 @@ function startWSClient(config: { appId: string; appSecret: string }): void {
     },
   });
 
+  // 显式禁用代理，防止 axios 读取系统/环境代理配置导致 502
+  // 需要复制 SDK 默认的 response interceptor（返回 resp.data 而非整个 resp）
+  const noProxyAxios = axios.create({ proxy: false });
+  noProxyAxios.interceptors.response.use((resp) => resp.data);
+
   wsClient = new Lark.WSClient({
     appId: config.appId,
     appSecret: config.appSecret,
     loggerLevel: Lark.LoggerLevel.info,
+    httpInstance: noProxyAxios,
   });
 
   wsClient.start({ eventDispatcher });
@@ -693,12 +708,6 @@ export async function startFeishuBot(options?: {
     log.print('[飞书] Bot 已在运行中');
     return;
   }
-
-  // 清除代理环境变量（可选，防止飞书 API 误走本地代理）
-  // delete process.env.HTTP_PROXY;
-  // delete process.env.HTTPS_PROXY;
-  // delete process.env.http_proxy;
-  // delete process.env.https_proxy;
 
   const feishuConfig = loadFeishuConfig();
 
