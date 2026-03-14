@@ -166,12 +166,12 @@ async function sendFeishuReply(
   try {
     const card = buildCard(text);
     if (useReply) {
-      return api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+      return await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
     } else {
-      return api.sendCard(chatId, card);
+      return await api.sendCard(chatId, card);
     }
   } catch (err: any) {
-    log.warn(`[飞书] Card 构建失败，回退到纯文本: ${err.message}`);
+    log.warn(`[飞书] Card 发送失败，回退到纯文本: ${err.message}`);
     if (useReply) {
       return api.replyMessage(options.messageId!, 'text', { text });
     } else {
