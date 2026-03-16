@@ -1,5 +1,5 @@
 import { getDb } from '../db/connection.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { recordEvent } from '../models/event.js';
 import { chat } from '../llm/agent.js';
 import { getAgentById } from '../llm/agents/config.js';
@@ -34,9 +34,20 @@ export function getSkillByName(name: string, agentId?: string): Skill | null {
   return (db.prepare('SELECT * FROM skills WHERE name = ? AND agent_id IS NULL').get(name) as Skill) ?? null;
 }
 
-export function saveSkill(name: string, prompt: string, agentId?: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } {
+export function saveSkill(name: string, prompt: string, agentId?: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } | { success: false; error: string } {
   const db = getDb();
   const user = getCurrentUser();
+  
+  if (agentId) {
+      if (!isSystemAdmin() && !isAgentAdmin(agentId)) {
+          return { success: false, error: '权限不足：需要对应 Agent 的管理员权限或系统管理员权限' };
+      }
+  } else {
+      if (!isSystemAdmin()) {
+          return { success: false, error: '权限不足：保存全局 Skill 需要系统管理员权限' };
+      }
+  }
+
   const existing = getSkillByName(name, agentId);
 
   if (existing) {
@@ -54,6 +65,17 @@ export function saveSkill(name: string, prompt: string, agentId?: string): { suc
 export function deleteSkill(name: string): { success: true; name: string } | { success: false; error: string } {
   const skill = getSkillByName(name);
   if (!skill) return { success: false, error: `未找到 skill: ${name}` };
+  
+  if (skill.agent_id) {
+      if (!isSystemAdmin() && !isAgentAdmin(skill.agent_id)) {
+          return { success: false, error: '权限不足：需要对应 Agent 的管理员权限或系统管理员权限' };
+      }
+  } else {
+      if (!isSystemAdmin()) {
+          return { success: false, error: '权限不足：删除全局 Skill 需要系统管理员权限' };
+      }
+  }
+
   const db = getDb();
   db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id);
   recordEvent('skill', skill.id, 'delete', { name });
@@ -137,6 +159,10 @@ function saveSkillCmd(args: string): void {
     return;
   }
   const result = saveSkill(match[1], match[2]);
+  if (!result.success) {
+      log.print(result.error);
+      return;
+  }
   log.print(`Skill 已${result.action === 'updated' ? '更新' : '保存'}: ${result.name}`);
 }
 

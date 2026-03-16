@@ -23,9 +23,28 @@ export function isAdmin(): boolean {
   return getCurrentUser().role === 'admin';
 }
 
+export function isSystemAdmin(): boolean {
+  return isAdmin();
+}
+
+export function isAgentAdmin(agentId: string): boolean {
+  const user = getCurrentUser();
+  if (user.role === 'admin') return true;
+
+  const db = getDb();
+  const row = db.prepare('SELECT role FROM agent_members WHERE agent_id = ? AND user_id = ?').get(agentId, user.id) as { role: string } | undefined;
+  return row?.role === 'admin';
+}
+
 export function requireAdmin(): void {
   if (!isAdmin()) {
-    throw new Error('权限不足：需要管理员权限');
+    throw new Error('权限不足：需要系统管理员权限');
+  }
+}
+
+export function requireAgentAdmin(agentId: string): void {
+  if (!isAgentAdmin(agentId)) {
+    throw new Error('权限不足：需要该 Agent 的管理员权限');
   }
 }
 

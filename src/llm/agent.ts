@@ -9,7 +9,7 @@ import { fetchSystemStatus } from '../commands/monitor.js';
 import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
 import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
-import { fetchKnowledge } from '../commands/knowledge.js';
+import { fetchKnowledge, updateKnowledgeById } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
@@ -91,6 +91,27 @@ const tools: Anthropic.Tool[] = [
         keyword: { type: 'string', description: '搜索关键词（多个关键词用空格分隔，匹配任一即返回，全部匹配排在前面）' },
       },
       required: ['keyword'],
+    },
+  },
+  {
+    name: 'update_knowledge',
+    description: '更新知识库中已有的FAQ条目（仅管理员）。需先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行更新。支持修改问题、答案、标签等字段。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id_prefix: { type: 'string', description: 'FAQ的ID或ID前缀（通过 search_knowledge 获取）' },
+        fields: {
+          type: 'object' as const,
+          description: '要更新的字段，如 { "question": "新问题", "answer": "新答案", "tags": "标签1,标签2" }',
+          properties: {
+            question: { type: 'string', description: '问题' },
+            answer: { type: 'string', description: '答案' },
+            tags: { type: 'string', description: '标签（逗号分隔）' },
+            related_users: { type: 'string', description: '相关人员（逗号分隔）' },
+          },
+        },
+      },
+      required: ['id_prefix', 'fields'],
     },
   },
   {
@@ -463,11 +484,17 @@ function handleSearchKnowledge(input: { keyword: string }): string {
   const rows = fetchKnowledge(input.keyword);
   if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ，建议换用更短或不同的关键词重试' });
   return JSON.stringify(rows.map(r => ({
+    id: r.id.slice(0, 8),
     question: r.question,
     answer: r.answer,
     tags: r.tags,
     relevance: (r as any).relevance,
   })));
+}
+
+function handleUpdateKnowledge(input: { id_prefix: string; fields: { question?: string; answer?: string; tags?: string; related_users?: string } }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
 }
 
 function handleAddClient(input: { name: string; contact?: string; wework_group?: string; requirements?: string; sales?: string; notes?: string }): string {
@@ -760,12 +787,29 @@ function handleDeleteMemory(input: { id: string }): string {
 
 function handleListAgents(): string {
   const agents = getAllAgents();
-  return JSON.stringify(agents.map(a => ({ name: a.name, displayName: a.displayName, description: a.description, toolsMode: a.toolsMode })));
+  const globalTools = getGlobalTools();
+  return JSON.stringify(agents.map(a => {
+    const availableTools = getAgentTools(a, globalTools).map(t => t.name);
+    return {
+      name: a.name,
+      displayName: a.displayName,
+      description: a.description,
+      toolsMode: a.toolsMode,
+      availableToolsCount: availableTools.length,
+      availableTools,
+    };
+  }));
 }
 
 function handleGetAgent(input: { name: string }): string {
   const agent = getAgent(input.name);
-  return JSON.stringify(agent);
+  const globalTools = getGlobalTools();
+  const availableTools = getAgentTools(agent, globalTools).map(t => t.name);
+  return JSON.stringify({
+    ...agent,
+    availableToolsCount: availableTools.length,
+    availableTools,
+  });
 }
 
 function handleSaveAgent(input: {
@@ -779,7 +823,6 @@ function handleSaveAgent(input: {
   tools_list?: string[];
   max_history?: number;
 }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可创建/更新 Agent' });
   const result = saveAgent({
     name: input.name,
     displayName: input.display_name,
@@ -795,7 +838,6 @@ function handleSaveAgent(input: {
 }
 
 function handleDeleteAgent(input: { name: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可删除 Agent' });
   return JSON.stringify(deleteAgent(input.name));
 }
 
@@ -878,7 +920,7 @@ export function setCurrentAgent(agent: AgentConfig | undefined): void {
 }
 
 export function getCurrentAgent(): AgentConfig | undefined {
-  return currentAgent;
+  return currentAgent ?? getDefaultAgent();
 }
 
 /** All globally registered tools */
@@ -1200,7 +1242,7 @@ export async function chat(userInput: string): Promise<void> {
     await runAgenticChat(conversationHistory, text, getCurrentUser(), {
       streamEnabled: true,
       showThinking: showThinking(),
-      agentConfig: currentAgent,
+      agentConfig: getCurrentAgent(),
       images: images.length > 0 ? images : undefined,
     });
   } catch (err: any) {

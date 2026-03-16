@@ -1,5 +1,5 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, type AgentConfig } from '../llm/agents/config.js';
-import { setCurrentAgent, getCurrentAgent, resetConversation } from '../llm/agent.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, type AgentConfig } from '../llm/agents/config.js';
+import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 
@@ -17,6 +17,7 @@ export async function handleAgent(args: string): Promise<void> {
     case 'list': return listAgents();
     case 'switch': return switchAgent(rest);
     case 'info': return showInfo();
+    case 'member': return manageMembers(rest);
     case 'del':
     case 'delete': return delAgent(rest);
     default:
@@ -30,7 +31,26 @@ function showHelp(): void {
   log.print('  agent list                  列出所有 Agent');
   log.print('  agent switch <name>         切换当前会话的 Agent');
   log.print('  agent info                  查看当前 Agent 信息');
+  log.print('  agent member <add|del> <agent_name> <username> [role]  管理 Agent 成员 (默认 admin)');
   log.print('  agent del <name>            删除 Agent');
+}
+
+function manageMembers(args: string): void {
+    const parts = args.split(/\s+/);
+    if (parts.length < 3) {
+        log.print('用法: agent member <add|del> <agent_name> <username> [role]');
+        return;
+    }
+    
+    const [action, agentName, username, roleInput] = parts;
+    const role = (roleInput === 'user') ? 'user' : 'admin';
+    
+    const result = manageAgentMember(action as 'add' | 'del', agentName, username, role);
+    if (!result.success) {
+        log.print(result.error);
+        return;
+    }
+    log.print(`已成功${action === 'add' ? '添加' : '移除'}成员: ${username} (${agentName})`);
 }
 
 function listAgents(): void {
@@ -41,14 +61,18 @@ function listAgents(): void {
   }
 
   const current = getCurrentAgent();
-  const head = ['', '名称', '显示名', '描述', 'Tools 模式'];
-  const rows = agents.map(a => [
-    (current?.name ?? 'otcclaw') === a.name ? '→' : ' ',
-    a.name,
-    a.displayName,
-    a.description ?? '-',
-    a.toolsMode === 'all' ? '全部' : `${a.toolsMode}(${a.toolsList.length})`,
-  ]);
+  const globalTools = getGlobalTools();
+  const head = ['', '名称', '显示名', '描述', 'Tools (可用数量)'];
+  const rows = agents.map(a => {
+    const availableTools = getAgentTools(a, globalTools);
+    return [
+      (current?.name ?? 'otcclaw') === a.name ? '→' : ' ',
+      a.name,
+      a.displayName,
+      a.description ?? '-',
+      a.toolsMode === 'all' ? `全部 (${availableTools.length})` : `${a.toolsMode} (${availableTools.length})`,
+    ];
+  });
 
   renderTable(head, rows);
   log.print(`共 ${agents.length} 个 Agent`);
@@ -78,17 +102,20 @@ function switchAgent(name: string): void {
 
 function showInfo(): void {
   const agent = getCurrentAgent();
+  const globalTools = getGlobalTools();
   if (!agent) {
     log.print('当前使用默认 Agent: 衍语助手 (otcclaw)');
-    log.print('  Tools: 全部');
+    log.print(`  Tools: 全部 (${globalTools.length})`);
+    log.print(`  可用工具列表: ${globalTools.map(t => t.name).join(', ')}`);
     return;
   }
 
+  const availableTools = getAgentTools(agent, globalTools);
   log.print(`当前 Agent: ${agent.displayName} (${agent.name})`);
   if (agent.description) log.print(`  描述: ${agent.description}`);
-  log.print(`  Tools 模式: ${agent.toolsMode}`);
-  if (agent.toolsList.length > 0) {
-    log.print(`  Tools 列表: ${agent.toolsList.join(', ')}`);
+  log.print(`  Tools 模式: ${agent.toolsMode} (${availableTools.length})`);
+  if (availableTools.length > 0) {
+    log.print(`  可用工具列表: ${availableTools.map(t => t.name).join(', ')}`);
   }
   if (agent.model) log.print(`  模型: ${agent.model}`);
   if (agent.provider) log.print(`  Provider: ${agent.provider}`);

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>衍生品展业知识沉淀与AI赋能方案</title>
+<style>
+  @page { size: A4; margin: 20mm 22mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    font-size: 11pt;
+    line-height: 1.7;
+    color: #1a1a2e;
+    background: #fff;
+  }
+  .page {
+    width: 210mm;
+    min-height: 277mm;
+    max-height: 277mm;
+    margin: 0 auto;
+    padding: 18mm 22mm;
+    overflow: hidden;
+    page-break-after: always;
+    position: relative;
+  }
+  @media screen {
+    .page { border-bottom: 2px dashed #ccc; margin-bottom: 10mm; }
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 2.5px solid #16213e;
+  }
+  .header h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #16213e;
+    letter-spacing: 2px;
+  }
+  .header .subtitle {
+    font-size: 10pt;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  /* Section */
+  h2 {
+    font-size: 13pt;
+    color: #0f3460;
+    margin: 14px 0 6px;
+    padding-left: 10px;
+    border-left: 4px solid #e94560;
+  }
+  h3 {
+    font-size: 11pt;
+    color: #16213e;
+    margin: 8px 0 4px;
+  }
+  p { margin: 4px 0; text-align: justify; }
+  .highlight {
+    color: #e94560;
+    font-weight: 600;
+  }
+
+  /* Flow diagram */
+  .flow-box {
+    background: #f8f9fc;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 10pt;
+    line-height: 1.6;
+  }
+  .flow-box .flow-line {
+    text-align: center;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: #0f3460;
+    font-size: 9.5pt;
+  }
+
+  /* Tags */
+  .tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 6px 0;
+  }
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 8.5pt;
+    font-weight: 500;
+  }
+  .tag-lg { background: #e94560; color: #fff; }
+  .tag-md { background: #0f3460; color: #fff; }
+  .tag-sm { background: #e8eaf0; color: #333; }
+
+  /* Grid */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 6px 0;
+  }
+  .card {
+    background: #f8f9fc;
+    border: 1px solid #e0e3ea;
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+  .card h4 {
+    font-size: 10pt;
+    color: #0f3460;
+    margin-bottom: 3px;
+  }
+  .card p, .card li {
+    font-size: 9.5pt;
+    line-height: 1.5;
+  }
+  .card ul {
+    padding-left: 16px;
+    margin: 2px 0;
+  }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 9.5pt;
+  }
+  th {
+    background: #16213e;
+    color: #fff;
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: 500;
+  }
+  td {
+    padding: 3px 8px;
+    border-bottom: 1px solid #eee;
+  }
+  tr:nth-child(even) td { background: #f8f9fc; }
+
+  /* Stats bar */
+  .stat-row {
+    display: flex;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  .stat-item {
+    flex: 1;
+    text-align: center;
+    background: linear-gradient(135deg, #16213e, #0f3460);
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 6px;
+  }
+  .stat-num {
+    font-size: 20pt;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .stat-label {
+    font-size: 8.5pt;
+    opacity: 0.85;
+  }
+
+  /* CTA */
+  .cta-box {
+    background: linear-gradient(135deg, #16213e, #1a1a4e);
+    color: #fff;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-top: 12px;
+  }
+  .cta-box h3 {
+    color: #e94560;
+    font-size: 12pt;
+    margin-bottom: 6px;
+  }
+  .cta-box p {
+    font-size: 10pt;
+    line-height: 1.6;
+    color: #dde;
+  }
+  .cta-box .em { color: #fff; font-weight: 600; }
+
+  /* Footer */
+  .footer {
+    position: absolute;
+    bottom: 18mm;
+    left: 22mm;
+    right: 22mm;
+    text-align: center;
+    font-size: 8pt;
+    color: #999;
+    border-top: 1px solid #eee;
+    padding-top: 6px;
+  }
+
+  /* Arch diagram */
+  .arch-diagram {
+    font-family: "SF Mono", "Fira Code", "Courier New", monospace;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    background: #f8f9fc;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin: 6px 0;
+    white-space: pre;
+    color: #16213e;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== PAGE 1 ==================== -->
+<div class="page">
+  <div class="header">
+    <h1>衍生品展业知识沉淀与 AI 赋能方案</h1>
+    <div class="subtitle">OtcClaw（衍语）— 轻量 · 安全 · 高度定制的 AI 知识平台</div>
+  </div>
+
+  <h2>一、背景与痛点</h2>
+  <p>团队深入衍生品展业已有一段时间，在日常业务沟通中积累了大量实战经验。但这些知识<span class="highlight">散落在群聊、邮件、文档等多个渠道</span>，碎片化严重。随着分支客户激增，FIX 协议对接、北上极速接入、算法单配置等问题被反复解答，团队在重复劳动上消耗了大量精力。衍生品业务专业门槛高、术语密集、跨系统对接细节繁多，缺乏结构化知识体系，新人和客户都难以快速上手。</p>
+  <p style="margin-top:4px">核心思路：<span class="highlight">把散落的业务经验沉淀为结构化知识，用 AI 放大服务效率。</span></p>
+
+  <h2>二、OtcClaw（衍语）系统</h2>
+  <p>基于开源 OpenClaw 框架深度定制，针对衍生品展业场景打造。本地部署、数据不出内网，SQLite 存储零运维，高度可定制。</p>
+
+  <div class="arch-diagram">         ┌──── CLI 命令行 ────┐
+         │                     │
+用户 ◄───┤──── 飞书机器人 ────┤     所有渠道共享同一套 Agent 逻辑
+         │                     │     行为完全一致，维护成本低
+         └──── Telegram ──────┘
+                   │
+            ┌──────┴──────┐
+        "/" 命令       自然语言
+            │              │
+            ▼              ▼
+      ┌──────────┐  ┌─────────────┐
+      │ 命令路由  │  │  AI Agent   │──→ 理解意图 → 规划 → 调用工具 → 回答
+      │ 直接执行  │  │  31个工具   │
+      └────┬─────┘  └──────┬──────┘
+           │               │
+           └───────┬───────┘
+                   ▼
+      ┌──────────────────────────┐
+      │    命令层（业务逻辑）      │  客户管理 · 交易查询 · 知识检索
+      ├──────────────────────────┤  Skill · Agent · 记忆 · 文件操作
+      │  SQLite + InfluxDB 数据层 │
+      └──────────────────────────┘</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4>🔧 核心能力</h4>
+      <ul>
+        <li>客户全生命周期管理（5 阶段流转）</li>
+        <li>AI Agent 31 个工具自主协作</li>
+        <li>多模型切换（Claude / Gemini / MiniMax）</li>
+        <li>知识库智能检索（多关键词 + 相关性评分）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>🔒 安全与合规</h4>
+      <ul>
+        <li>本地部署，数据全程不离开服务器</li>
+        <li>RBAC 角色权限控制</li>
+        <li>所有知识条目经人工审核方可入库</li>
+        <li>完整审计日志，操作可追溯</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>三、知识提炼工具（QA-Forge）</h2>
+  <p>辅助工具，从团队日常业务沟通记录中梳理、归纳结构化知识，经人工审核后入库。</p>
+  <div class="flow-box">
+    <div class="flow-line">业务沟通经验 ──→ AI 辅助梳理 ──→ 语义去重 ──→ <b style="color:#e94560">【人工审核】</b> ──→ 正式知识库 ──→ AI Agent 可检索</div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-item"><div class="stat-num">803</div><div class="stat-label">知识库 FAQ 条目</div></div>
+    <div class="stat-item"><div class="stat-num">31</div><div class="stat-label">AI Agent 工具</div></div>
+    <div class="stat-item"><div class="stat-num">19</div><div class="stat-label">CLI 命令</div></div>
+    <div class="stat-item"><div class="stat-num">6</div><div class="stat-label">可复用 Skill</div></div>
+    <div class="stat-item"><div class="stat-num">3</div><div class="stat-label">接入渠道</div></div>
+  </div>
+
+  <div class="footer">OtcClaw（衍语）— 衍生品展业知识沉淀与 AI 赋能方案 · 第 1 页</div>
+</div>
+
+<!-- ==================== PAGE 2 ==================== -->
+<div class="page">
+  <div class="header">
+    <h1>系统能力与知识库全景</h1>
+    <div class="subtitle">已沉淀 803 条结构化 FAQ，覆盖衍生品展业核心领域</div>
+  </div>
+
+  <h2>知识库主题分布</h2>
+  <div class="tag-cloud">
+    <span class="tag tag-lg">交易规则 212</span>
+    <span class="tag tag-lg">FIX 协议 164</span>
+    <span class="tag tag-lg">参数配置 143</span>
+    <span class="tag tag-lg">拒单分析 136</span>
+    <span class="tag tag-lg">风控规则 134</span>
+    <span class="tag tag-md">北向极速 123</span>
+    <span class="tag tag-md">北向借券 107</span>
+    <span class="tag tag-md">算法交易 105</span>
+    <span class="tag tag-md">专线 104</span>
+    <span class="tag tag-md">费率 90</span>
+    <span class="tag tag-sm">环境部署 85</span>
+    <span class="tag tag-sm">API 接口 79</span>
+    <span class="tag tag-sm">延迟优化 78</span>
+    <span class="tag tag-sm">COLO 76</span>
+    <span class="tag tag-sm">FIX 报文 63</span>
+    <span class="tag tag-sm">其他 20+ 标签</span>
+  </div>
+
+  <h2>AI Agent 工具矩阵</h2>
+  <table>
+    <tr><th>类别</th><th>工具</th><th>能力说明</th></tr>
+    <tr><td rowspan="3">客户管理</td><td>query / view / history</td><td>按状态、关键词查询客户，查看详情与操作历史</td></tr>
+    <tr><td>add / update</td><td>新增、更新客户信息</td></tr>
+    <tr><td>advance / rollback</td><td>推进或回退客户阶段</td></tr>
+    <tr><td>知识库</td><td>search / update</td><td>多关键词相关性搜索，更新 FAQ 条目</td></tr>
+    <tr><td>交易数据</td><td>query / plot / list_customers</td><td>成交记录查询、曲线图生成、管理人列表</td></tr>
+    <tr><td>Skill</td><td>list / get / save / delete</td><td>可复用提示词模板的增删改查</td></tr>
+    <tr><td>Agent</td><td>list / get / save / delete / switch</td><td>多 Agent 管理与切换</td></tr>
+    <tr><td>记忆</td><td>save / search / delete</td><td>跨会话持久化记忆存取</td></tr>
+    <tr><td>文件 & 系统</td><td>read / write / edit / reload</td><td>文件操作与应用热重载</td></tr>
+    <tr><td>知识梳理</td><td>extract_wework_qa</td><td>从业务沟通记录中归纳 QA</td></tr>
+  </table>
+
+  <h2>已配置 Skill</h2>
+  <table>
+    <tr><th>Skill</th><th>用途</th></tr>
+    <tr><td>查询极速客户</td><td>筛选"极速"标签客户，按状态分析展示</td></tr>
+    <tr><td>查询专线客户</td><td>筛选专线接入客户，按状态排序</td></tr>
+    <tr><td>按管理人查看交易日报</td><td>指定日期交易数据，按管理人维度汇总排名</td></tr>
+    <tr><td>从群聊总结客户信息</td><td>从沟通记录提取客户信息并更新系统</td></tr>
+    <tr><td>聊天记录分析</td><td>按时间范围总结分析沟通内容</td></tr>
+  </table>
+
+  <h2>下一步计划</h2>
+  <p>打通企微机器人入口，员工在业务群内直接 @bot 提问，复用现有 Agent 逻辑。团队内部试运行，持续补充知识库，根据反馈迭代优化。</p>
+
+  <div class="cta-box">
+    <h3>愿景：组建精锐团队，以 AI 驱动展业升级</h3>
+    <p>OtcClaw 是一次<span class="em">前沿的 AI 时代架构实践</span>——用 Agentic AI 将团队的专业经验转化为可复用、可检索、可持续积累的知识资产。我们已验证了从知识沉淀到智能问答的完整链路，<span class="em">803 条结构化 FAQ、31 个 AI 工具、3 个接入渠道</span>证明了这条路径的可行性。</p>
+    <p style="margin-top:6px">下一阶段，我们希望<span class="em">募集精锐力量</span>，在现有基础上进一步深化：扩大知识库覆盖面、打通更多业务系统、让 AI 在客户服务和内部协作中发挥更大价值。<span class="em">这不仅是一个工具项目，更是团队拥抱 AI 时代、构建差异化竞争力的战略尝试。</span></p>
+  </div>
+
+  <div class="footer">OtcClaw（衍语）— 衍生品展业知识沉淀与 AI 赋能方案 · 第 2 页</div>
+</div>
+
+</body>
+</html>

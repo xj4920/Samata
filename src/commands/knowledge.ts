@@ -115,6 +115,31 @@ export function remove(args: string): void {
   log.print(`FAQ已删除: ${rows[0].question}`);
 }
 
+/** LLM 工具调用：按 ID 前缀更新知识库 QA（无需交互式输入） */
+export function updateKnowledgeById(idPrefix: string, fields: { question?: string; answer?: string; tags?: string; related_users?: string }): { success: boolean; id?: string; error?: string } {
+  if (!idPrefix) return { success: false, error: '需要提供 FAQ ID 或 ID 前缀' };
+
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM knowledge WHERE id LIKE ?').all(`${idPrefix}%`) as KnowledgeItem[];
+
+  if (rows.length === 0) return { success: false, error: `未找到FAQ: ${idPrefix}` };
+  if (rows.length > 1) return { success: false, error: '匹配到多条，请提供更长的ID前缀' };
+
+  const item = rows[0];
+  const question = fields.question ?? item.question;
+  const answer = fields.answer ?? item.answer;
+  const tags = fields.tags !== undefined ? (fields.tags || null) : item.tags;
+  const relatedUsers = fields.related_users !== undefined ? (fields.related_users || null) : item.related_users;
+
+  const user = getCurrentUser();
+  db.prepare(
+    'UPDATE knowledge SET question = ?, answer = ?, tags = ?, related_users = ?, updated_at = datetime(\'now\') WHERE id = ?'
+  ).run(question, answer, tags, relatedUsers, item.id);
+
+  recordEvent('knowledge', item.id, 'update', { question, modified_by: user.id });
+  return { success: true, id: item.id };
+}
+
 export async function update(idPrefix: string): Promise<void> {
   if (!idPrefix) {
     log.print('用法: faq-update <id>');

@@ -1,5 +1,5 @@
 import { getDb } from '../../db/connection.js';
-import { getCurrentUser } from '../../auth/rbac.js';
+import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../../auth/rbac.js';
 import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
@@ -94,12 +94,16 @@ export interface SaveAgentInput {
   maxHistory?: number;
 }
 
-export function saveAgent(input: SaveAgentInput): { success: true; action: 'created' | 'updated'; name: string; id?: string } {
+export function saveAgent(input: SaveAgentInput): { success: true; action: 'created' | 'updated'; name: string; id?: string } | { success: false; error: string } {
   const db = getDb();
   const user = getCurrentUser();
   const existing = db.prepare('SELECT * FROM agents WHERE name = ?').get(input.name) as AgentRow | undefined;
 
   if (existing) {
+    if (!isAgentAdmin(existing.id)) {
+        return { success: false, error: `权限不足：需要 Agent (${input.name}) 的管理员权限` };
+    }
+
     db.prepare(`UPDATE agents SET
       display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
       tools_mode = ?, tools_list = ?, max_history = ?, updated_at = datetime('now')
@@ -113,6 +117,10 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
     return { success: true, action: 'updated', name: input.name };
   }
 
+  if (!isSystemAdmin()) {
+      return { success: false, error: '权限不足：创建新 Agent 需要系统管理员权限' };
+  }
+
   const id = uuid();
   db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, max_history, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -121,6 +129,12 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
     input.toolsMode ?? 'allowlist', input.toolsList ? JSON.stringify(input.toolsList) : null,
     input.maxHistory ?? 80, user.id,
   );
+  
+  // 默认将创建者设为该 Agent 的 admin
+  db.prepare('INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)').run(
+      uuid(), id, user.id, 'admin'
+  );
+
   recordEvent('agent', id, 'create', { name: input.name });
   return { success: true, action: 'created', name: input.name, id: id.slice(0, 8) };
 }
@@ -130,9 +144,41 @@ export function deleteAgent(name: string): { success: true; name: string } | { s
   const db = getDb();
   const row = db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as AgentRow | undefined;
   if (!row) return { success: false, error: `未找到 agent: ${name}` };
+  
+  if (!isSystemAdmin() && !isAgentAdmin(row.id)) {
+      return { success: false, error: `权限不足：需要 Agent (${name}) 的管理员权限或系统管理员权限` };
+  }
+
   db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
   recordEvent('agent', row.id, 'delete', { name });
   return { success: true, name };
+}
+
+export function manageAgentMember(action: 'add' | 'del', agentName: string, username: string, role: 'admin' | 'user' = 'admin'): { success: true } | { success: false; error: string } {
+    const db = getDb();
+    
+    const agent = db.prepare('SELECT id, name FROM agents WHERE name = ?').get(agentName) as { id: string, name: string } | undefined;
+    if (!agent) return { success: false, error: `未找到 Agent: ${agentName}` };
+    
+    if (!isSystemAdmin() && !isAgentAdmin(agent.id)) {
+        return { success: false, error: `权限不足：需要 Agent (${agentName}) 的管理员权限或系统管理员权限` };
+    }
+    
+    const targetUser = db.prepare('SELECT id, username FROM users WHERE username = ?').get(username) as { id: string, username: string } | undefined;
+    if (!targetUser) return { success: false, error: `未找到用户: ${username}` };
+    
+    try {
+        if (action === 'add') {
+            db.prepare('INSERT OR REPLACE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)').run(
+                uuid(), agent.id, targetUser.id, role
+            );
+        } else {
+            db.prepare('DELETE FROM agent_members WHERE agent_id = ? AND user_id = ?').run(agent.id, targetUser.id);
+        }
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: `操作失败: ${e.message}` };
+    }
 }
 
 import Anthropic from '@anthropic-ai/sdk';

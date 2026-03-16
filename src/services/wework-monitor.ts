@@ -8,6 +8,7 @@ import { FeishuAPI } from '../feishu/api.js';
 type NotificationChannel = 'telegram' | 'feishu';
 
 interface MonitorConfig {
+  enabled?: boolean;
   telegram: { botToken: string; chatId: string; proxy?: string };
   feishu: { appId: string; appSecret: string; proxy?: string };
   influx: { database: string; measurement: string };
@@ -129,7 +130,7 @@ async function poll(): Promise<void> {
       const content = row.content ?? row.message ?? '';
       const time = row.time ?? '';
 
-      const msg = `<b>[企微监控]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
+      const msg = `<b>[企微监测]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
       await sendNotification(msg);
       const displayTime = time ? time.replace('T', ' ').replace('Z', '') : time;
       log.file(`[monitor] 推送消息: ${sender} @ ${displayTime}`);
@@ -146,13 +147,19 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function startMonitor(): void {
+export function startMonitor(options?: { auto?: boolean }): void {
   if (timer) {
     log.print('[monitor] 已在运行中');
     return;
   }
 
   const cfg = loadConfig();
+
+  // 自动启动时检查 enabled 配置
+  if (options?.auto && cfg.enabled === false) {
+    log.file('[monitor] 配置 enabled=false，跳过自动启动');
+    return;
+  }
 
   // 验证通知渠道配置
   const channels = cfg.notification?.channels || ['telegram'];

@@ -142,10 +142,12 @@ async function sendFeishuReply(
   text: string,
   options?: { messageId?: string; isGroup?: boolean; updateMessageId?: string }
 ): Promise<string> {
+  const MAX_LEN = 4000;
+
   // 更新已有卡片模式
   if (options?.updateMessageId) {
     try {
-      const card = buildCard(text);
+      const card = buildCard(text.length > MAX_LEN ? text.slice(-MAX_LEN) : text);
       await api.updateCard(options.updateMessageId, card);
       return options.updateMessageId;
     } catch (err: any) {
@@ -163,21 +165,109 @@ async function sendFeishuReply(
       return api.sendText(chatId, text || '（无回复内容）');
     }
   }
-  try {
-    const card = buildCard(text);
-    if (useReply) {
-      return await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+
+  // 分批发送卡片逻辑
+  const MAX_TABLES = 4;
+  const chunks: string[] = [];
+  const blocks = text.split('\n\n');
+  
+  let currentChunk = '';
+  let currentTables = 0;
+
+  for (const block of blocks) {
+    const tableCount = (block.match(/^ *\|? *[-:]+ *\| *[-:| ]*$/gm) || []).length;
+
+    // 检查加入这个 block 是否会超出长度或表格数量限制
+    if (
+      (currentChunk.length > 0 && currentChunk.length + block.length + 2 > MAX_LEN) ||
+      (currentTables + tableCount > MAX_TABLES)
+    ) {
+      // 达到限制，先把 currentChunk 送�� chunks
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+        currentTables = 0;
+      }
+      
+      // 如果 block 自身仍然超出限制，按行硬切分
+      if (block.length > MAX_LEN || tableCount > MAX_TABLES) {
+        const lines = block.split('\n');
+        let blockChunk = '';
+        let blockChunkTables = 0;
+        
+        for (const line of lines) {
+           const isTableDivider = /^ *\|? *[-:]+ *\| *[-:| ]*$/.test(line);
+           const lineTableCount = isTableDivider ? 1 : 0;
+           
+           if (
+             (blockChunk.length > 0 && blockChunk.length + line.length + 1 > MAX_LEN) ||
+             (blockChunkTables + lineTableCount > MAX_TABLES)
+           ) {
+              chunks.push(blockChunk.trim());
+              blockChunk = line;
+              blockChunkTables = lineTableCount;
+           } else {
+              if (blockChunk) blockChunk += '\n';
+              blockChunk += line;
+              blockChunkTables += lineTableCount;
+           }
+        }
+        
+        // 跑完这一个大 block 的 lines 后，如果还有剩余
+        if (blockChunk) {
+           currentChunk = blockChunk;
+           currentTables = blockChunkTables;
+        }
+      } else {
+        // block 本身符合限制，但之前没和旧 chunk 凑一起，现在放到新的 currentChunk 中
+        currentChunk = block;
+        currentTables = tableCount;
+      }
     } else {
-      return await api.sendCard(chatId, card);
-    }
-  } catch (err: any) {
-    log.warn(`[飞书] Card 发送失败，回退到纯文本: ${err.message}`);
-    if (useReply) {
-      return api.replyMessage(options.messageId!, 'text', { text });
-    } else {
-      return api.sendText(chatId, text);
+      // 可以安全把 block 并入 currentChunk
+      if (currentChunk) {
+        currentChunk += '\n\n' + block;
+      } else {
+        currentChunk = block;
+      }
+      currentTables += tableCount;
     }
   }
+
+  // 收尾最后一个 chunk
+  if (currentChunk) {
+    chunks.push(currentChunk.trim());
+  }
+
+  let lastMessageId = '';
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkText = chunks[i];
+    try {
+      const card = buildCard(chunkText);
+      if (useReply) {
+        lastMessageId = await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+      } else {
+        lastMessageId = await api.sendCard(chatId, card);
+      }
+    } catch (err: any) {
+      log.warn(`[飞书] Card 分片 ${i + 1}/${chunks.length} 发送失败，回退到纯文本: ${err.message}`);
+      try {
+        if (useReply) {
+          lastMessageId = await api.replyMessage(options.messageId!, 'text', { text: chunkText });
+        } else {
+          lastMessageId = await api.sendText(chatId, chunkText);
+        }
+      } catch (e: any) {
+         log.error(`[飞书] 纯文本降级发送依然失败: ${e.message}`);
+      }
+    }
+
+    if (i < chunks.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
+  return lastMessageId || '';
 }
 
 /**

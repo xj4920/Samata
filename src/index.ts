@@ -10,6 +10,8 @@ import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startFeishuBot, stopFeishuBot, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
+import { getCurrentAgent } from './llm/agent.js';
+import { getAllSkills } from './commands/skill.js';
 
 export function gracefulShutdown(): void {
   stopMonitor();
@@ -40,6 +42,20 @@ async function login(): Promise<void> {
 }
 
 async function repl(): Promise<void> {
+  const currentAgent = getCurrentAgent();
+  const agentSkills = getAllSkills(currentAgent?.id);
+  
+  log.print('\n' + '-'.repeat(40));
+  log.print(`  当前 Agent: ${currentAgent?.displayName ?? '默认'} (${currentAgent?.name ?? 'otcclaw'})`);
+  if (currentAgent?.description) {
+    log.print(`  职能: ${currentAgent.description}`);
+  }
+  
+  const skillNames = agentSkills.map(s => s.name);
+  if (skillNames.length > 0) {
+    log.print(`  可用 Skill: ${skillNames.join(', ')}`);
+  }
+  log.print('-'.repeat(40));
   log.print('\n衍语 — 输入命令开始操作，输入 /help 查看帮助，输入 /exit 退出\n');
 
   readline.emitKeypressEvents(process.stdin);

@@ -1,4 +1,5 @@
 import { getDb } from './connection.js';
+import { v4 as uuid } from 'uuid';
 
 export function initSchema(): void {
   const db = getDb();
@@ -88,6 +89,15 @@ export function initSchema(): void {
       UNIQUE(channel, target_id)
     );
 
+    CREATE TABLE IF NOT EXISTS agent_members (
+      id         TEXT PRIMARY KEY,
+      agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role       TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(agent_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS memory (
       id         TEXT PRIMARY KEY,
       agent_id   TEXT,
@@ -151,9 +161,38 @@ export function initSchema(): void {
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app',
     ]);
+    const alterEgoTools = JSON.stringify([
+      'search_knowledge', 'update_knowledge', 'extract_wework_qa',
+      'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+      'save_memory', 'search_memory', 'delete_memory',
+      'read_file', 'write_file', 'reload_app',
+    ]);
     ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
     ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
     ins.run('agent-tutor', 'tutor', '教育辅导', '孩子学习辅导、作业答疑、学习规划', 'allowlist', commonTools, 'admin-001');
-    ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', commonTools, 'admin-001');
+    ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', alterEgoTools, 'admin-001');
+  }
+
+  // Seed default agent_members (Migration)
+  const agentMembersCount = db.prepare('SELECT COUNT(*) as c FROM agent_members').get() as { c: number };
+  if (agentMembersCount.c === 0) {
+    const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string, created_by: string }[];
+    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+    for (const agent of agents) {
+        // give the creator 'admin' role in the agent
+        const id = uuid();
+        insMember.run(id, agent.id, agent.created_by, 'admin');
+    }
+  }
+
+  // Migration: Add QA tools to alter-ego
+  const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
+  if (aeRow) {
+    const current: string[] = aeRow.tools_list ? JSON.parse(aeRow.tools_list) : [];
+    if (!current.includes('extract_wework_qa')) {
+      const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
+      db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
+    }
   }
 }
