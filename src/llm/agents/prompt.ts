@@ -11,7 +11,7 @@ function getDefaultSystemPrompt(user: User): string {
 3. 回答关于客户的问题，提供数据分析
 4. 提供展业建议和话术参考
 5. 搜索知识库回答常见问题
-5. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码、并触发热重载使变更生效。
+6. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码、并触发热重载使变更生效。
    - 使用 save_skill 创建可复用的提示词模板
    - 使用 write_file 修改或新增源代码文件（仅限项目目录内）
    - 修改代码后使用 reload_app 重启应用使变更生效
@@ -35,18 +35,30 @@ function getDefaultSystemPrompt(user: User): string {
 - 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制`;
 }
 
+/** Generic system prompt for agents without a custom prompt (non-otcclaw) */
+function buildGenericPrompt(agent: AgentConfig, user: User): string {
+  return `你是${agent.displayName}。${agent.description ?? ''}
+
+当前用户：${user.username}，角色：${user.role}。
+
+回答要求：
+- 用简洁专业的中文回答
+- 查询数据时主动使用工具获取最新信息，不要凭记忆回答`;
+}
+
 /** Build the full system prompt for an agent, injecting user context */
 export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
   const u = user ?? getCurrentUser();
 
-  // Use agent's custom prompt or fall back to default otcclaw prompt
   let base: string;
   if (agent.systemPrompt) {
     base = agent.systemPrompt;
     // Append user context to custom prompts
     base += `\n\n当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作。' : '当前为管理员，可执行所有操作。'}`;
-  } else {
+  } else if (agent.name === 'otcclaw') {
     base = getDefaultSystemPrompt(u);
+  } else {
+    base = buildGenericPrompt(agent, u);
   }
 
   // Inject persistent memory

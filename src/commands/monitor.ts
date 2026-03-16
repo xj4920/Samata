@@ -7,6 +7,9 @@ import { getProviderName, getModelName } from '../llm/provider.js';
 import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
+import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
+import { getAgentTools } from '../llm/agents/config.js';
+import { getCommandEntries } from './router.js';
 import { log } from '../utils/logger.js';
 
 // --- git hash (cached at module load) ---
@@ -33,6 +36,9 @@ export interface SystemStatus {
   knowledgeCount: number;
   skillCount: number;
   user: { username: string; role: string };
+  agent: { name: string; displayName: string };
+  availableCommands: string[];   // slash commands visible to current agent
+  availableTools: string[];      // LLM tools available to current agent
   uptime: string;             // e.g. "2h 35m"
   services: {
     name: string;
@@ -56,6 +62,7 @@ export function fetchSystemStatus(): SystemStatus {
   const skillCount = (db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }).c;
 
   const user = getCurrentUser();
+  const agent = getCurrentAgent();
 
   // LLM model string
   let model: string | null = null;
@@ -65,6 +72,15 @@ export function fetchSystemStatus(): SystemStatus {
 
   const feishuMode = process.env.FEISHU_MODE || 'ws';
 
+  // Available commands (filtered by current agent)
+  const availableCommands = getCommandEntries().map(e => e.name);
+
+  // Available LLM tools (filtered by agent's toolsMode)
+  const agentConfig = agent ?? undefined;
+  const availableTools = agentConfig
+    ? getAgentTools(agentConfig, getGlobalTools()).map(t => t.name)
+    : getGlobalTools().map(t => t.name);
+
   return {
     name: '衍语 YanYu',
     version,
@@ -73,9 +89,12 @@ export function fetchSystemStatus(): SystemStatus {
     knowledgeCount,
     skillCount,
     user: { username: user.username, role: user.role },
+    agent: { name: agent?.name ?? 'unknown', displayName: agent?.displayName ?? 'unknown' },
+    availableCommands,
+    availableTools,
     uptime: formatUptime(),
     services: [
-      { name: '企微监控', running: isMonitorRunning() },
+      { name: '企微监测', running: isMonitorRunning() },
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
     ],
@@ -90,6 +109,7 @@ export function formatSystemStatus(s: SystemStatus): string {
   lines.push(`🧠 Model: ${s.model ?? '未启用'}`);
   lines.push(`📚 Knowledge: ${s.knowledgeCount} 条 · 🎯 Skills: ${s.skillCount} 个`);
   lines.push(`👤 User: ${s.user.username} (${s.user.role})`);
+  lines.push(`🤖 Agent: ${s.agent.displayName} (${s.agent.name})`);
   lines.push(`⏱  Uptime: ${s.uptime}`);
   lines.push('');
   lines.push('📡 Services:');
@@ -99,6 +119,14 @@ export function formatSystemStatus(s: SystemStatus): string {
     const detail = svc.detail ? ` (${svc.detail})` : '';
     lines.push(`  ${icon} ${svc.name.padEnd(8)} ${state}${detail}`);
   }
+
+  lines.push('');
+  lines.push(`🔧 Commands (${s.availableCommands.length}):`);
+  lines.push(`  ${s.availableCommands.join('  ')}`);
+
+  lines.push('');
+  lines.push(`🛠  Tools (${s.availableTools.length}):`);
+  lines.push(`  ${s.availableTools.join(', ')}`);
 
   return lines.join('\n');
 }
