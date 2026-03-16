@@ -26,25 +26,26 @@ interface Command {
   description: string;
   adminOnly: boolean;
   handler: (args: string) => Promise<void> | void;
+  subcommands?: string[];
 }
 
 const commands: Record<string, Command> = {
-  client:  { description: '客户管理: /client list|view|history|add|update|delete|advance|rollback', adminOnly: false, handler: clientCmd.handleClient },
-  status:  { description: '系统状态: /status', adminOnly: false, handler: monitorCmd.status },
-  trade:   { description: '交易查询: /trade [client=xx] [party=xx] [user=xx] [date=xx] [limit=N]', adminOnly: false, handler: tradeCmd.trade },
-  plot:    { description: '交易曲线图: /plot client=xx|party=xx [limit=N]', adminOnly: false, handler: plotCmd.handlePlot },
-  'wework-qa': { description: '企微Q&A提取: /wework-qa topics=关键词1,关键词2 [people=人1,人2] [start=日期] [end=日期] [session=群名] [limit=N]', adminOnly: false, handler: weworkQACmd.weworkQA },
-  faq:       { description: '查询知识库: /faq [关键词]', adminOnly: false, handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ: /faq-add', adminOnly: true, handler: knowledgeCmd.add },
-  'faq-update': { description: '修改FAQ: /faq-update <id>', adminOnly: true, handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ: /faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },
-  plugin:  { description: '插件: /plugin list | /plugin <name> [args]', adminOnly: false, handler: handlePlugin },
-  skill:   { description: 'Skill: /skill list | save | run | del', adminOnly: false, handler: handleSkill },
-  agent:   { description: 'Agent: /agent list | switch | info | del', adminOnly: false, handler: handleAgent },
-  memory:  { description: 'Memory: /memory list | add | search | del', adminOnly: false, handler: handleMemory },
-  watch:   { description: '企微监控: /watch start | stop | status', adminOnly: true, handler: handleWatch },
-  bot:     { description: 'Bot: /bot <tg|feishu> <start|stop|status>', adminOnly: true, handler: handleBot },
-  model:   { description: '切换模型: /model [list | <provider>]', adminOnly: true, handler: handleModel },
+  client:  { description: '客户管理', adminOnly: false, handler: clientCmd.handleClient, subcommands: ['list', 'view', 'history', 'add', 'update', 'delete', 'advance', 'rollback'] },
+  status:  { description: '系统状态', adminOnly: false, handler: monitorCmd.status },
+  trade:   { description: '交易查询', adminOnly: false, handler: tradeCmd.trade },
+  plot:    { description: '交易曲线图', adminOnly: false, handler: plotCmd.handlePlot },
+  'wework-qa': { description: '企微Q&A提取', adminOnly: false, handler: weworkQACmd.weworkQA },
+  faq:       { description: '查询知识库', adminOnly: false, handler: knowledgeCmd.search },
+  'faq-add':  { description: '添加FAQ', adminOnly: true, handler: knowledgeCmd.add },
+  'faq-update': { description: '修改FAQ', adminOnly: true, handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', adminOnly: true, handler: knowledgeCmd.remove },
+  plugin:  { description: '插件', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
+  skill:   { description: 'Skill', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
+  agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'switch', 'info', 'del'] },
+  memory:  { description: 'Memory', adminOnly: false, handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
+  watch:   { description: '企微监测', adminOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
+  bot:     { description: 'Bot', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
+  model:   { description: '切换模型', adminOnly: true, handler: handleModel, subcommands: ['list'] },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
 
@@ -147,10 +148,11 @@ export function getCommandNames(): string[] {
   return Object.keys(commands).map(name => `/${name}`);
 }
 
-export function getCommandEntries(): Array<{ name: string; description: string }> {
-  const entries = Object.entries(commands).map(([name, cmd]) => ({
+export function getCommandEntries(): Array<{ name: string; description: string; subcommands?: string[] }> {
+  const entries: Array<{ name: string; description: string; subcommands?: string[] }> = Object.entries(commands).map(([name, cmd]) => ({
     name: `/${name}`,
     description: cmd.description,
+    subcommands: cmd.subcommands,
   }));
   entries.push({ name: '/reload', description: '重载代码（热重启）' });
   entries.push({ name: '/exit', description: '退出程序' });

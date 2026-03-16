@@ -71,9 +71,28 @@ async function repl(): Promise<void> {
       historySize: 100,
       history: savedHistory,
       completer: (line: string) => {
-        const cmds = [...getCommandNames(), '/exit', '/reset'];
-        const hits = cmds.filter(c => c.startsWith(line));
-        return [hits.length ? hits : cmds, line];
+        const entries = getCommandEntries();
+        const parts = line.split(/\s+/);
+        
+        if (!line.includes(' ')) {
+          const cmds = entries.map(e => e.name);
+          const hits = cmds.filter(c => c.startsWith(line));
+          if (hits.length === 1) {
+            return [[hits[0] + ' '], line];
+          }
+          return [hits.length ? hits : cmds, line];
+        } else {
+          const cmdPart = parts[0];
+          const entry = entries.find(e => e.name === cmdPart);
+          if (entry && entry.subcommands) {
+             const subPart = line.slice(cmdPart.length).trimStart();
+             const hits = entry.subcommands
+               .filter(sub => sub.startsWith(subPart))
+               .map(sub => `${cmdPart} ${sub} `);
+             return [hits.length ? hits : [], line];
+          }
+        }
+        return [[], line];
       },
     });
   };
@@ -120,17 +139,41 @@ async function repl(): Promise<void> {
   };
 
   const updateHints = (line: string) => {
-    if (line.startsWith('/') && !line.includes(' ')) {
-      const entries = getCommandEntries();
-      const hits = entries.filter(e => e.name.startsWith(line));
-      if (hits.length > 0 && (line === '/' || hits.length <= 20)) {
-        currentHits = hits;
-        selectedIdx = -1;
-        hintPrefix = line;
-        renderHints();
-        return;
+    const parts = line.split(/\s+/);
+    const cmdPart = parts[0];
+    const entries = getCommandEntries();
+
+    if (parts.length === 1) {
+      // Command completion
+      if (cmdPart.startsWith('/')) {
+        const hits = entries.filter(e => e.name.startsWith(cmdPart));
+        if (hits.length > 0 && (cmdPart === '/' || hits.length <= 20)) {
+          currentHits = hits.map(h => ({ name: h.name, description: h.description }));
+          selectedIdx = -1;
+          hintPrefix = cmdPart;
+          renderHints();
+          return;
+        }
+      }
+    } else if (parts.length >= 2) {
+      // Subcommand completion
+      const entry = entries.find(e => e.name === cmdPart);
+      if (entry && entry.subcommands) {
+        const subPart = parts.slice(1).join(' ');
+        const hits = entry.subcommands
+          .filter(sub => sub.startsWith(subPart))
+          .map(sub => ({ name: `${cmdPart} ${sub}`, description: `子命令: ${sub}` }));
+        
+        if (hits.length > 0) {
+          currentHits = hits;
+          selectedIdx = -1;
+          hintPrefix = line;
+          renderHints();
+          return;
+        }
       }
     }
+    
     currentHits = [];
     selectedIdx = -1;
     hintPrefix = '';
@@ -157,7 +200,7 @@ async function repl(): Promise<void> {
         const hintsVisible = currentHits.length > 0;
 
         // Shift+Enter: commit current line to buffer, start new line
-        if (key && key.name === 'return' && key.shift) {
+        if (key?.name === 'return' && key?.shift) {
           clearHints();
           const currentLine = (rl as any).line as string ?? '';
           multilineBuffer.push(currentLine);
@@ -185,7 +228,9 @@ async function repl(): Promise<void> {
               selectedIdx = prevIdx > 0 ? prevIdx - 1 : savedHits.length - 1;
             }
             renderHints();
-            setLine(currentHits[selectedIdx].name);
+            if (selectedIdx >= 0) {
+              setLine(currentHits[selectedIdx].name);
+            }
             return;
           }
           if (key.name === 'return') {
@@ -198,12 +243,13 @@ async function repl(): Promise<void> {
             setLine(hintPrefix);
             return;
           }
-          if (key.name === 'tab') {
+          if (key?.name === 'tab') {
             if (selectedIdx >= 0) {
               clearHints();
               setLine(currentHits[selectedIdx].name + ' ');
+              return;
             }
-            return;
+            // Fall through to default behavior if no hint is selected
           }
         }
 
@@ -299,7 +345,7 @@ async function main(): Promise<void> {
   await login();
 
   // 启动企微监控
-  startMonitor();
+  startMonitor({ auto: true });
 
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
