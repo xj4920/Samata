@@ -20,6 +20,7 @@ export interface WeworkConfig {
   corpId?: string;
   agentId?: string;
   agentSecret?: string;
+  encryptEnabled?: boolean;  // 是否启用加密，默认 false
 }
 
 export interface WeworkMessage {
@@ -49,12 +50,46 @@ export class WeworkAPI {
   /**
    * 解析并验证企微回调请求
    * @param query URL 查询参数 { msg_signature, timestamp, nonce, echostr? }
-   * @param body 请求体（XML 字符串，加密模式）
+   * @param body 请求体（加密模式为 XML，明文模式为 JSON 或 XML）
    */
   parseCallback(query: Record<string, string>, body: string): WeworkMessage {
     const { msg_signature, timestamp, nonce } = query;
 
-    // 解析 XML 获取加密消息
+    // 明文模式：直接解析 XML 或 JSON
+    if (!this.config.encryptEnabled) {
+      try {
+        // 尝试 JSON 格式
+        const json = JSON.parse(body);
+        return {
+          toUserName: json.ToUserName || '',
+          fromUserName: json.FromUserName || '',
+          createTime: Number(json.CreateTime) || 0,
+          msgType: (json.MsgType || '').toLowerCase(),
+          content: json.Content || json.Recognition || '',
+          msgId: String(json.MsgId || ''),
+          agentId: String(json.AgentID || ''),
+          event: json.Event || '',
+          eventKey: json.EventKey || '',
+        };
+      } catch {
+        // 尝试 XML 格式
+        const parsed = xmlParser.parse(body);
+        const xml = parsed.xml || parsed;
+        return {
+          toUserName: xml.ToUserName || '',
+          fromUserName: xml.FromUserName || '',
+          createTime: Number(xml.CreateTime) || 0,
+          msgType: (xml.MsgType || '').toLowerCase(),
+          content: xml.Content || xml.Recognition || '',
+          msgId: String(xml.MsgId || ''),
+          agentId: String(xml.AgentID || ''),
+          event: xml.Event || '',
+          eventKey: xml.EventKey || '',
+        };
+      }
+    }
+
+    // 加密模式：解析 XML 获取加密消息
     const parsed = xmlParser.parse(body);
     const xml = parsed.xml || parsed;
     const encrypted = xml.Encrypt as string;
@@ -93,12 +128,18 @@ export class WeworkAPI {
 
   /**
    * 处理 URL 验证挑战（GET 请求）
-   * 解密 echostr 并返回明文
+   * 加密模式：解密 echostr 并返回明文
+   * 明文模式：直接返回 echostr
    */
   replyEchostr(echostr: string, query: Record<string, string>): string {
+    // 明文模式：直接返回
+    if (!this.config.encryptEnabled) {
+      return echostr;
+    }
+
+    // 加密模式：验证签名并解密
     const { msg_signature, timestamp, nonce } = query;
 
-    // 验证签名
     if (msg_signature) {
       const valid = verifySignature(this.config.token, timestamp, nonce, echostr, msg_signature);
       if (!valid) {
@@ -111,12 +152,12 @@ export class WeworkAPI {
   }
 
   /**
-   * 构建被动回复 XML（加密）
-   * 企微要求在 5 秒内回复
+   * 构建被动回复 XML
+   * 加密模式：返回加密 XML
+   * 明文模式：返回明文 XML
    */
   buildReply(toUser: string, fromUser: string, content: string): string {
     const timestamp = String(Math.floor(Date.now() / 1000));
-    const nonce = crypto.randomBytes(8).toString('hex');
     const corpId = this.config.corpId || fromUser;
 
     const innerXml = `<xml>
@@ -127,6 +168,13 @@ export class WeworkAPI {
 <Content><![CDATA[${content}]]></Content>
 </xml>`;
 
+    // 明文模式：直接返回
+    if (!this.config.encryptEnabled) {
+      return innerXml;
+    }
+
+    // 加密模式：加密并签名
+    const nonce = crypto.randomBytes(8).toString('hex');
     const encrypted = encryptMessage(innerXml, corpId, this.config.aesKey);
     const signature = generateSignature(this.config.token, timestamp, nonce, encrypted);
 
