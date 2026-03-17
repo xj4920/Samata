@@ -6,8 +6,8 @@
     "proxy": "http://127.0.0.1:26001"
   },
   "feishu": {
-    "appId": "cli_a918d49307759cba",
-    "appSecret": "f5KWtewsetfcaIOpk21rMgl8tsaXfzmG",
+    "appId": "cli_a9329f3af5b8dcc9",
+    "appSecret": "l69uf6jF04uEY6Urcn8Tjff0ytTxVSgy",
     "verificationToken": "",
     "encryptKey": "",
     "proxy": "",
@@ -20,7 +20,7 @@
   "notification": {
     "channels": ["feishu"],
     "feishuChatId": "",
-    "feishuUserId": "ou_8da0902a70c261a79035f783053f2e2d"
+    "feishuUserId": "ou_d0076758ea8560d436638a7c78a8d26f"
   },
   "senders": [
     "肖诗泉",

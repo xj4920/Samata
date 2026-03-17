@@ -277,21 +277,17 @@ export class FeishuAPI {
   /**
    * 回复消息（带 @ 提醒）
    */
-  async replyMessage(rootId: string, messageType: string, content: any): Promise<string> {
+  async replyMessage(messageId: string, messageType: string, content: any): Promise<string> {
     const token = await this.getTenantAccessToken();
 
-    const url = 'https://open.feishu.cn/open-apis/im/v1/messages';
-    const params = new URLSearchParams({
-      receive_id_type: 'chat_id',
-    });
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/reply`;
 
     const body = {
       msg_type: messageType,
       content: typeof content === 'string' ? content : JSON.stringify(content),
-      reply_id: rootId,
     };
 
-    const response = await fetch(`${url}?${params}`, this.fetchOpts({
+    const response = await fetch(url, this.fetchOpts({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -307,7 +303,7 @@ export class FeishuAPI {
     }
 
     const msgId = data.data?.message_id || '';
-    log.dim(`[飞书] 已回复消息: ${rootId} (msg_id=${msgId})`);
+    log.dim(`[飞书] 已回复消息: ${messageId} (msg_id=${msgId})`);
     return msgId;
   }
 
