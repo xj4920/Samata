@@ -57,7 +57,9 @@ async function main() {
       return;
     }
 
-    // 企微回调（GET 验证 + POST 消息）
+    // 企微回调路径匹配（支持任意路径，方便部署在不同环境）
+    // 企微会调用配置的 URL，如 /pubapi/v1/WxWorkAiBots/Callbacks/ByIdent/xxx
+    // 只要不是 /health，都当作企微回调处理
     let body = '';
     if (method === 'POST') {
       for await (const chunk of req) {
@@ -78,7 +80,8 @@ async function main() {
 
   server.listen(PORT, () => {
     log.success(`企微 Bot 服务已启动: http://localhost:${PORT}`);
-    log.info(`回调 URL 示例: http://your-domain:${PORT}/`);
+    log.info(`回调 URL: https://opsys-api.gf.com.cn/pubapi/v1/WxWorkAiBots/Callbacks/ByIdent/69b375aa0c10bd914452c3b9`);
+    log.dim(`（需要通过 nginx 反代或网关路由到本服务）`);
   });
 
   const shutdown = () => {
