@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bash scripts/launcher.sh",
     "dev": "tsx watch src/index.ts",
-    "telegram": "npx tsx src/telegram-entry.ts"
+    "telegram": "npx tsx src/telegram-entry.ts",
+    "wework": "npx tsx src/wework-entry.ts"
   },
   "keywords": [],
   "author": "",
