@@ -7,14 +7,12 @@ import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
-import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startFeishuBot, stopFeishuBot, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
 import { getAllSkills } from './commands/skill.js';
 
 export function gracefulShutdown(): void {
-  stopMonitor();
   stopFeishuBot();
   closeDb();
 }
@@ -359,9 +357,6 @@ async function main(): Promise<void> {
   }
 
   await login();
-
-  // 启动企微监控
-  startMonitor({ auto: true });
 
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;

@@ -162,7 +162,7 @@ export function initSchema(): void {
       'read_file', 'write_file', 'reload_app',
     ]);
     const alterEgoTools = JSON.stringify([
-      'search_knowledge', 'update_knowledge', 'extract_wework_qa',
+      'search_knowledge', 'update_knowledge',
       'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'save_memory', 'search_memory', 'delete_memory',
@@ -183,16 +183,6 @@ export function initSchema(): void {
         // give the creator 'admin' role in the agent
         const id = uuid();
         insMember.run(id, agent.id, agent.created_by, 'admin');
-    }
-  }
-
-  // Migration: Add QA tools to alter-ego
-  const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
-  if (aeRow) {
-    const current: string[] = aeRow.tools_list ? JSON.parse(aeRow.tools_list) : [];
-    if (!current.includes('extract_wework_qa')) {
-      const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
-      db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
     }
   }
 }

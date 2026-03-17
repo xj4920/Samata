@@ -17,22 +17,7 @@
 - 新增：执行计划文档必须存放在 `docs/plan/` 目录下
 
 ## 数据注意事项
-- InfluxDB（`messages` 库 `wework` 表）的 `time` 字段存储的是北京时间（CST），但标记为 UTC（`Z` 后缀）。实际 UTC = 存储时间 - 8 小时。做时间过滤时需加 8 小时偏移对齐。
 - `knowledge_pending` 表的 `auto_quality_score` 字段 99% 为 NULL（仅 5 条有值），不可用作排序或筛选依据
-
-## 企业微信数据目录
-- **位置**: `/Users/simon/Documents/my/XBase/dump/wework`
-- **结构**:
-  - 约400+个企微群组目录（以客户名或业务名命名）
-  - `.txt` 文件：每日聊天记录（JSON格式，每条消息包含 id, create_time, ctype, content, from_user_id, from_user_nickname, to_user_id, to_user_nickname, is_group 等字段）
-- **关键客户群组示例**:
-  - LinkRiver相关：`LinkRiver- GF-多空交易群`、`LinkRiver系统对接`
-  - 磐松相关：`广发-磐松北上对接`、`广发-磐松北上技术群`、`磐松后勤组`
-  - 孝庸相关：`孝庸-广发香港北上对接`
-  - Jinde相关：`Jinde-广发股衍香港IT对接`、`jinde- GFHK估值沟通`
-  - Jump相关：`Jump&GF系统连接群`、`Jump系统对接服务`
-  - SCHONFELD相关：`Schonfeld交易数据加工`
-  - 贝塔相关：`贝塔（对冲策略）&广发FIX（极速）对接2群`
 
 ## 架构规范
 

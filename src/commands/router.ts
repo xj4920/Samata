@@ -5,14 +5,12 @@ import * as knowledgeCmd from './knowledge.js';
 import * as monitorCmd from './monitor.js';
 import * as tradeCmd from './trade.js';
 import * as plotCmd from './plot.js';
-import * as weworkQACmd from './wework-qa.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation, getCurrentAgent } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
 import { handleAgent } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
-import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startFeishuBot, stopFeishuBot, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
 
@@ -35,7 +33,6 @@ const commands: Record<string, Command> = {
   status:  { description: '系统状态', adminOnly: false, handler: monitorCmd.status },
   trade:   { description: '交易查询', adminOnly: false, handler: tradeCmd.trade },
   plot:    { description: '交易曲线图', adminOnly: false, handler: plotCmd.handlePlot },
-  'wework-qa': { description: '企微Q&A提取', adminOnly: false, agentId: 'alter-ego', handler: weworkQACmd.weworkQA },
   faq:       { description: '查询知识库', adminOnly: false, handler: knowledgeCmd.search },
   'faq-add':  { description: '添加FAQ', adminOnly: true, handler: knowledgeCmd.add },
   'faq-update': { description: '修改FAQ', adminOnly: true, handler: knowledgeCmd.update },
@@ -44,24 +41,10 @@ const commands: Record<string, Command> = {
   skill:   { description: 'Skill', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'switch', 'info', 'del'] },
   memory:  { description: 'Memory', adminOnly: false, handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
-  watch:   { description: '企微监测', adminOnly: true, agentId: 'alter-ego', handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
   model:   { description: '切换模型', adminOnly: true, handler: handleModel, subcommands: ['list'] },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
-
-function handleWatch(args: string): void {
-  const sub = args.trim().toLowerCase();
-  if (sub === 'start') {
-    startMonitor();
-  } else if (sub === 'stop') {
-    stopMonitor();
-  } else if (sub === 'status') {
-    log.print(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
-  } else {
-    log.print('用法: /watch start | stop | status');
-  }
-}
 
 async function handleBot(args: string): Promise<void> {
   const parts = args.trim().toLowerCase().split(/\s+/);

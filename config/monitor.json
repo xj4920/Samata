@@ -21,51 +21,9 @@
     "proxy": "",
     "showThinking": true
   },
-  "influx": {
-    "database": "messages",
-    "measurement": "wework"
-  },
   "notification": {
     "channels": ["feishu"],
     "feishuChatId": "",
     "feishuUserId": "ou_d0076758ea8560d436638a7c78a8d26f"
-  },
-  "senders": [
-    "肖诗泉",
-    "栾宜男",
-    "栾宜男(休假)",
-    "郁泱",
-    "郁泱(休假)",
-    "蠕蠕（郁泱）",
-    "符航睿",
-    "航睿",
-    "尹成功",
-    "YIN CHENGGONG",
-    "一米阳光",
-    "赵晴宇",
-    "赵晴宇swag～",
-    "闫亚会",
-    "Estelle",
-    "jack",
-    "Jun",
-    "李平平",
-    "沈逸帆",
-    "徐嘉",
-    "吕宁",
-    "吴悠",
-    "焦润",
-    "朱曌巍"
-  ],
-  "pollingIntervalSec": 10,
-  "sales": [
-    "陈仰旭",
-    "赵晴宇",
-    "张蕊",
-    "吕若楠",
-    "任宇",
-    "徐东钰",
-    "陈婉茜",
-    "金惠卿",
-    "祝侃"
-  ]
+  }
 }

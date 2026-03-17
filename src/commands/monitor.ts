@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser } from '../auth/rbac.js';
 import { getProviderName, getModelName } from '../llm/provider.js';
-import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
@@ -94,7 +93,6 @@ export function fetchSystemStatus(): SystemStatus {
     availableTools,
     uptime: formatUptime(),
     services: [
-      { name: '企微监测', running: isMonitorRunning() },
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
     ],
