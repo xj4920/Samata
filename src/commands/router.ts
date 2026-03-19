@@ -42,7 +42,7 @@ const commands: Record<string, Command> = {
   'faq-del':  { description: '删除FAQ', adminOnly: true, agentId: 'otcclaw', handler: knowledgeCmd.remove },
   plugin:  { description: '插件', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
-  agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del'] },
+  agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del', 'member', 'assign', 'unassign', 'assignments', 'feishu-app'] },
   memory:  { description: 'Memory', adminOnly: false, handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
   watch:   { description: '企微监测', adminOnly: true, agentId: 'alter-ego', handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },

@@ -13,8 +13,6 @@
  * - 每个飞书应用独立运行（独立实例、会话、连接）
  * - 应用级 Agent 绑定（一个应用对应一个 Agent）
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { createServer } from 'node:http';
 import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
@@ -26,7 +24,8 @@ import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, detectImageMediaType } from '../llm/agent.js';
-import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent } from '../llm/agents/config.js';
+import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
+import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -40,14 +39,14 @@ import {
   formatSuccess, formatError,
 } from './formatter.js';
 
-interface FeishuAppConfig {
+type FeishuAppConfig = {
   appId: string;
   appName: string;
   appSecret: string;
   verificationToken: string;
   encryptKey: string;
   showThinking?: boolean;
-}
+};
 
 interface FeishuSession {
   feishuUserId: string;
@@ -73,27 +72,15 @@ interface FeishuBotInstance {
 const botInstances = new Map<string, FeishuBotInstance>();
 
 function loadFeishuConfigs(): FeishuAppConfig[] {
-  const file = resolve(process.cwd(), 'config/monitor.json');
-  const config = JSON.parse(readFileSync(file, 'utf-8'));
-
-  // New format: feishuApps array
-  if (config.feishuApps && Array.isArray(config.feishuApps)) {
-    return config.feishuApps;
-  }
-
-  // Legacy format: single feishu object
-  if (config.feishu) {
-    return [{
-      appId: config.feishu.appId,
-      appName: config.feishu.appName || 'default',
-      appSecret: config.feishu.appSecret,
-      verificationToken: config.feishu.verificationToken,
-      encryptKey: config.feishu.encryptKey,
-      showThinking: config.feishu.showThinking,
-    }];
-  }
-
-  return [];
+  const rows = getDb().prepare('SELECT * FROM feishu_apps WHERE auto_start = 1').all() as FeishuAppRow[];
+  return rows.map(r => ({
+    appId: r.app_id,
+    appName: r.app_name,
+    appSecret: r.app_secret,
+    verificationToken: r.verification_token,
+    encryptKey: r.encrypt_key,
+    showThinking: r.show_thinking === 1,
+  }));
 }
 
 export type FeishuBotMode = 'ws' | 'webhook';

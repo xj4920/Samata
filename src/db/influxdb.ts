@@ -30,7 +30,7 @@ export async function queryInflux(influxQL: string): Promise<TradeRecord[]> {
   const resp = await fetch(url, {
     method: 'GET',
     headers: {
-      'Authorization': `Token ${INFLUX_TOKEN}`,
+      ...(INFLUX_TOKEN ? { 'Authorization': `Token ${INFLUX_TOKEN}` } : {}),
       'Accept': 'application/json',
     },
     signal: AbortSignal.timeout(INFLUX_TIMEOUT),
@@ -106,7 +106,7 @@ export async function queryInfluxRaw(db: string, influxQL: string): Promise<Reco
   const resp = await fetch(url, {
     method: 'GET',
     headers: {
-      'Authorization': `Token ${INFLUX_TOKEN}`,
+      ...(INFLUX_TOKEN ? { 'Authorization': `Token ${INFLUX_TOKEN}` } : {}),
       'Accept': 'application/json',
     },
     signal: AbortSignal.timeout(INFLUX_TIMEOUT),

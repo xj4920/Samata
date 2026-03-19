@@ -1,8 +1,9 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, saveAssignment, deleteAssignment, listAssignments, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { input, select, confirm } from '@inquirer/prompts';
+import { getDb } from '../db/connection.js';
 
 export async function handleAgent(args: string): Promise<void> {
   const match = args.match(/^(\S+)\s*(.*)/s);
@@ -25,6 +26,7 @@ export async function handleAgent(args: string): Promise<void> {
     case 'assign': return assignAgent(rest);
     case 'unassign': return unassignAgent(rest);
     case 'assignments': return listAssignmentsCmd();
+    case 'feishu-app': return manageFeishuApp(rest);
     default:
       // Treat unknown sub as agent name to switch to
       return switchAgent(sub);
@@ -44,6 +46,9 @@ function showHelp(): void {
   log.print('  agent unassign feishu <app_id>             移除飞书应用绑定');
   log.print('  agent unassign telegram [user_id]          移除 Telegram 用户绑定');
   log.print('  agent assignments                          列出所有绑定');
+  log.print('  agent feishu-app list                      列出飞书应用及自动启动状态');
+  log.print('  agent feishu-app enable <app_id>           开���自动启动');
+  log.print('  agent feishu-app disable <app_id>          关闭自动启动');
 }
 
 async function createAgent(): Promise<void> {
@@ -257,7 +262,7 @@ function delAgent(name: string): void {
   }
 }
 
-function assignAgent(args: string): void {
+async function assignAgent(args: string): Promise<void> {
   const parts = args.trim().split(/\s+/);
   if (parts.length < 2) {
     log.print('用法:');
@@ -277,7 +282,28 @@ function assignAgent(args: string): void {
       return;
     }
     appId = identifier;
-    targetId = undefined;
+
+    // 若 feishu_apps 中不存在该 app_id，引导填写
+    const existing = getFeishuApp(appId);
+    if (!existing) {
+      log.print(`⚠️  app_id "${appId}" 不在 feishu_apps 中，请填写应用信息：`);
+      const appName = await input({ message: 'App 名称:', validate: (v) => v.trim() ? true : '不能为空' });
+      const appSecret = await input({ message: 'App Secret:', validate: (v) => v.trim() ? true : '不能为空' });
+      const verificationToken = await input({ message: 'Verification Token（可选）:', default: '' });
+      const encryptKey = await input({ message: 'Encrypt Key（可选）:', default: '' });
+      const showThinking = await confirm({ message: '显示思考过程?', default: true });
+      const autoStart = await confirm({ message: '启动时自动启动此 Bot?', default: true });
+      saveFeishuApp({
+        app_id: appId,
+        app_name: appName.trim(),
+        app_secret: appSecret.trim(),
+        verification_token: verificationToken.trim(),
+        encrypt_key: encryptKey.trim(),
+        show_thinking: showThinking ? 1 : 0,
+        auto_start: autoStart ? 1 : 0,
+      });
+      log.print(`✅ 已保存飞书应用: ${appName.trim()}`);
+    }
   } else if (channel === 'telegram') {
     appId = undefined;
     targetId = identifier;  // 可选
@@ -337,10 +363,12 @@ function listAssignmentsCmd(): void {
     return;
   }
 
-  const head = ['渠道', 'App ID', '目标', 'Agent', '创建时间'];
+  const head = ['渠道', 'App ID', 'App 名称', '自动启动', '目标', 'Agent', '创建时间'];
   const rows = assignments.map(a => [
     a.channel,
     a.appId || '-',
+    a.appName || '-',
+    a.autoStart === null ? '-' : (a.autoStart ? '✅' : '❌'),
     a.targetId || '-',
     `${a.agentDisplayName} (${a.agentName})`,
     a.createdAt,
@@ -348,4 +376,30 @@ function listAssignmentsCmd(): void {
 
   renderTable(head, rows);
   log.print(`共 ${assignments.length} 条绑定`);
+}
+
+function manageFeishuApp(args: string): void {
+  const parts = args.trim().split(/\s+/);
+  const sub = parts[0];
+  const appId = parts[1];
+
+  if (sub === 'list' || !sub) {
+    const rows = getDb().prepare('SELECT app_id, app_name, auto_start FROM feishu_apps ORDER BY app_name').all() as { app_id: string; app_name: string; auto_start: number }[];
+    if (rows.length === 0) { log.print('暂无飞书应用'); return; }
+    renderTable(['App ID', '名称', '自动启动'], rows.map(r => [r.app_id, r.app_name, r.auto_start ? '✅' : '❌']));
+    return;
+  }
+
+  if ((sub === 'enable' || sub === 'disable') && appId) {
+    const val = sub === 'enable' ? 1 : 0;
+    const result = getDb().prepare('UPDATE feishu_apps SET auto_start = ? WHERE app_id = ?').run(val, appId);
+    if (result.changes === 0) { log.print(`❌ 未找到 app_id: ${appId}`); return; }
+    log.print(`✅ ${appId} 自动启动已${sub === 'enable' ? '开启' : '关闭'}`);
+    return;
+  }
+
+  log.print('用法:');
+  log.print('  agent feishu-app list');
+  log.print('  agent feishu-app enable <app_id>');
+  log.print('  agent feishu-app disable <app_id>');
 }

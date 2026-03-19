@@ -271,6 +271,8 @@ export interface AssignmentInfo {
   agentDisplayName: string;
   channel: string;
   appId: string | null;
+  appName: string | null;
+  autoStart: number | null;
   targetId: string | null;
   createdAt: string;
 }
@@ -278,17 +280,44 @@ export interface AssignmentInfo {
 export function listAssignments(): AssignmentInfo[] {
   const db = getDb();
   const rows = db.prepare(
-    'SELECT aa.*, a.name as agent_name, a.display_name FROM agent_assignments aa JOIN agents a ON a.id = aa.agent_id ORDER BY aa.channel, aa.app_id, aa.target_id'
-  ).all() as (AssignmentRow & { agent_name: string; display_name: string })[];
+    `SELECT aa.*, a.name as agent_name, a.display_name, fa.app_name, fa.auto_start
+     FROM agent_assignments aa
+     JOIN agents a ON a.id = aa.agent_id
+     LEFT JOIN feishu_apps fa ON fa.app_id = aa.app_id
+     ORDER BY aa.channel, aa.app_id, aa.target_id`
+  ).all() as (AssignmentRow & { agent_name: string; display_name: string; app_name: string | null; auto_start: number | null })[];
   return rows.map(r => ({
     id: r.id,
     agentName: r.agent_name,
     agentDisplayName: r.display_name,
     channel: r.channel,
     appId: r.app_id,
+    appName: r.app_name,
+    autoStart: r.auto_start,
     targetId: r.target_id,
     createdAt: r.created_at,
   }));
+}
+
+export interface FeishuAppRow {
+  app_id: string;
+  app_name: string;
+  app_secret: string;
+  verification_token: string;
+  encrypt_key: string;
+  show_thinking: number;
+  auto_start: number;
+}
+
+export function getFeishuAppByAgentName(agentName: string): FeishuAppRow | null {
+  const db = getDb();
+  return db.prepare(`
+    SELECT fa.* FROM feishu_apps fa
+    JOIN agent_assignments aa ON fa.app_id = aa.app_id
+    JOIN agents a ON aa.agent_id = a.id
+    WHERE a.name = ? AND aa.channel = 'feishu'
+    LIMIT 1
+  `).get(agentName) as FeishuAppRow | null;
 }
 
 export function saveAssignment(
@@ -312,6 +341,24 @@ export function saveAssignment(
     .run(id, agent.id, channel, appId ?? null, targetId ?? null);
   log.dim(`[Agent] Assignment saved: ${channel}/${appId || targetId || '(default)'} → ${agentName}`);
   return { success: true };
+}
+
+export function getFeishuApp(appId: string): FeishuAppRow | null {
+  return getDb().prepare('SELECT * FROM feishu_apps WHERE app_id = ?').get(appId) as FeishuAppRow | null;
+}
+
+export function saveFeishuApp(app: FeishuAppRow): void {
+  getDb().prepare(`
+    INSERT INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking, auto_start)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(app_id) DO UPDATE SET
+      app_name = excluded.app_name,
+      app_secret = excluded.app_secret,
+      verification_token = excluded.verification_token,
+      encrypt_key = excluded.encrypt_key,
+      show_thinking = excluded.show_thinking,
+      auto_start = excluded.auto_start
+  `).run(app.app_id, app.app_name, app.app_secret, app.verification_token, app.encrypt_key, app.show_thinking, app.auto_start);
 }
 
 export function deleteAssignment(

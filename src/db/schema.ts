@@ -120,6 +120,16 @@ export function initSchema(): void {
       created_at   TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(knowledge_id, agent_id)
     );
+
+    CREATE TABLE IF NOT EXISTS feishu_apps (
+      app_id             TEXT PRIMARY KEY,
+      app_name           TEXT NOT NULL,
+      app_secret         TEXT NOT NULL,
+      verification_token TEXT NOT NULL DEFAULT '',
+      encrypt_key        TEXT NOT NULL DEFAULT '',
+      show_thinking      INTEGER NOT NULL DEFAULT 1,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
@@ -171,7 +181,7 @@ export function initSchema(): void {
       'read_file', 'write_file', 'reload_app',
     ]);
     const alterEgoTools = JSON.stringify([
-      'search_knowledge', 'update_knowledge', 'extract_wework_qa',
+      'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
       'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'save_memory', 'search_memory', 'delete_memory',
@@ -193,6 +203,16 @@ export function initSchema(): void {
         const id = uuid();
         insMember.run(id, agent.id, agent.created_by, 'admin');
     }
+  }
+
+  // Seed default feishu_apps if empty
+  const feishuAppsCount = db.prepare('SELECT COUNT(*) as c FROM feishu_apps').get() as { c: number };
+  if (feishuAppsCount.c === 0) {
+    const insApp = db.prepare(
+      'INSERT OR IGNORE INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    insApp.run('cli_a93212c0b7b9dcc5', 'otcclaw-bot', 'Ngdd5bLmxpgawK9ol3qRsbT4Navnq4Xa', '', '', 1);
+    insApp.run('cli_a9329f3af5b8dcc9', 'tutor-bot', 'l69uf6jF04uEY6Urcn8Tjff0ytTxVSgy', '', '', 1);
   }
 
   // Migration: Populate knowledge_agents — associate all existing knowledge with otcclaw agent
@@ -249,18 +269,26 @@ export function initSchema(): void {
     // Migration failure should not block startup
   }
 
-  // Migration: Sync tutor and doctor tools_list to commonTools preset
+  // Migration: Add wework_monitor to alter-ego tools_list
   try {
-    const tutorRow = db.prepare("SELECT tools_list FROM agents WHERE name='tutor'").get() as { tools_list: string | null } | undefined;
-    if (tutorRow) {
-      const currentTools = tutorRow.tools_list ? JSON.parse(tutorRow.tools_list) : [];
-      if (currentTools.length < 10) {  // 旧数据，需要更新
-        const commonToolsList = TOOL_PRESETS['common'].tools;
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='tutor'")
-          .run(JSON.stringify(commonToolsList));
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='doctor'")
-          .run(JSON.stringify(commonToolsList));
+    const alterEgoRow = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
+    if (alterEgoRow) {
+      const currentTools: string[] = alterEgoRow.tools_list ? JSON.parse(alterEgoRow.tools_list) : [];
+      if (!currentTools.includes('wework_monitor')) {
+        currentTools.push('wework_monitor');
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
+          .run(JSON.stringify(currentTools));
       }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add auto_start column to feishu_apps
+  try {
+    const cols = db.pragma('table_info(feishu_apps)') as Array<{ name: string }>;
+    if (!cols.find(c => c.name === 'auto_start')) {
+      db.exec("ALTER TABLE feishu_apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 1");
     }
   } catch (e) {
     // Migration failure should not block startup
