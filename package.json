@@ -4,7 +4,7 @@
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
-    "start": "bash scripts/launcher.sh",
+    "start": "bash scripts/start.sh",
     "dev": "tsx watch src/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts"
   },

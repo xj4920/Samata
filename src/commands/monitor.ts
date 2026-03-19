@@ -44,6 +44,7 @@ export interface SystemStatus {
     name: string;
     running: boolean;
     detail?: string;          // e.g. "(ws)"
+    agentId?: string;         // if set, only shown when current agent matches
   }[];
 }
 
@@ -87,7 +88,7 @@ export function fetchSystemStatus(): SystemStatus {
     : getGlobalTools().map(t => t.name);
 
   return {
-    name: '衍语 YanYu',
+    name: 'Samata',
     version,
     gitHash,
     model,
@@ -99,10 +100,10 @@ export function fetchSystemStatus(): SystemStatus {
     availableTools,
     uptime: formatUptime(),
     services: [
-      { name: '企微监测', running: isMonitorRunning() },
+      { name: '企微监测', running: isMonitorRunning(), agentId: 'alter-ego' },
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
-    ],
+    ].filter(svc => !svc.agentId || svc.agentId === agent?.name),
   };
 }
 

@@ -23,7 +23,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { runAgenticChat, type ImageInput, detectImageMediaType } from '../llm/agent.js';
+import { runAgenticChat, type ImageInput, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
@@ -814,7 +814,19 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-      const reply = await handleCommand(instance, cmd, args, senderId);
+      const session = getSessionForInstance(instance, senderId, '');
+      const agentConfig = getAgent(session.agentName);
+      const prevUser = getCurrentUser();
+      const prevAgent = getCurrentAgent();
+      setCurrentUser(session.user);
+      setCurrentAgent(agentConfig);
+      let reply: string | null;
+      try {
+        reply = await handleCommand(instance, cmd, args, senderId);
+      } finally {
+        setCurrentUser(prevUser);
+        setCurrentAgent(prevAgent);
+      }
       if (reply !== null) {
         await sendFeishuReply(instance, chatId, reply, replyOpts);
         return;
