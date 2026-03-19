@@ -4,13 +4,13 @@ import { ProxyAgent } from 'undici';
 import { queryInfluxRaw } from '../db/influxdb.js';
 import { log } from '../utils/logger.js';
 import { FeishuAPI } from '../feishu/api.js';
+import { getFeishuAppByAgentName, type FeishuAppRow } from '../llm/agents/config.js';
 
 type NotificationChannel = 'telegram' | 'feishu';
 
 interface MonitorConfig {
   enabled?: boolean;
   telegram: { botToken: string; chatId: string; proxy?: string };
-  feishu: { appId: string; appSecret: string; proxy?: string };
   influx: { database: string; measurement: string };
   notification: {
     channels: NotificationChannel[];
@@ -56,21 +56,32 @@ async function sendTelegram(text: string): Promise<void> {
 
 let feishuApi: FeishuAPI | null = null;
 
+function getFeishuNotifyApp(): FeishuAppRow | null {
+  const app = getFeishuAppByAgentName('alter-ego');
+  if (!app) {
+    log.print('[monitor] 未找到 alter-ego 的飞书 bot 绑定，请执行: /agent assign alter-ego feishu <appId>');
+  }
+  return app;
+}
+
 /**
  * 发送飞书消息（支持群聊或个人用户）
  * @param text 消息内容
- * @param receiveId 接收者ID（群聊用chat_id，个人用户用user_id或open_id）
+ * @param receiveId 接收者ID（群聊用chat_id���个人用户用user_id或open_id）
  * @param receiveIdType 接收者ID类型: chat_id | user_id | open_id
  */
 async function sendFeishu(text: string, receiveId: string, receiveIdType: 'chat_id' | 'user_id' | 'open_id'): Promise<void> {
-  const cfg = loadConfig();
-  const { appId, appSecret, proxy } = cfg.feishu;
+  const appCfg = getFeishuNotifyApp();
+  if (!appCfg) {
+    log.print('[monitor] 未找到 alter-ego 的飞书 bot 绑定，无法发送飞书通知');
+    return;
+  }
+  const { app_id: appId, app_secret: appSecret } = appCfg;
 
   if (!appId || !appSecret || !receiveId) return;
 
   if (!feishuApi) {
-    // FeishuAPI 需要 verificationToken 和 encryptKey，但发送消息不需要
-    feishuApi = new FeishuAPI({ appId, appSecret, verificationToken: '', encryptKey: '', proxy });
+    feishuApi = new FeishuAPI({ appId, appSecret, verificationToken: '', encryptKey: '' });
   }
 
   try {
@@ -171,8 +182,8 @@ export function startMonitor(options?: { auto?: boolean }): void {
     log.print('[monitor] 通知渠道包含 telegram，但未配置 telegram.botToken 或 chatId');
     return;
   }
-  if (hasFeishu && !cfg.feishu.appId || !cfg.feishu.appSecret) {
-    log.print('[monitor] 通知渠道包含 feishu，但未配置 feishu.appId 或 appSecret');
+  if (hasFeishu && !getFeishuNotifyApp()) {
+    log.print('[monitor] 通知渠道包含 feishu，但未找到 alter-ego 的飞书 bot 绑定，请执行: /agent assign alter-ego feishu <appId>');
     return;
   }
   if (hasFeishu && !feishuChatId && !feishuUserId) {

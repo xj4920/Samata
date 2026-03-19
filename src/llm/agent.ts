@@ -14,6 +14,7 @@ import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
 import { extractWeworkQA } from '../commands/wework-qa.js';
+import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
@@ -355,6 +356,17 @@ const tools: Anthropic.Tool[] = [
         limit: { type: 'number', description: '返回 Q&A 对数量上限，默认 10' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'wework_monitor',
+    description: '控制企微消息监测服务。支持启动、停止、查询状态。仅 alter-ego 可用。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', description: "'start' | 'stop' | 'status'" },
+      },
+      required: ['action'],
     },
   },
   // --- Agent management tools ---
@@ -879,6 +891,24 @@ async function handleExtractWeworkQA(input: {
   }
 }
 
+function handleWeworkMonitor(input: { action: string }): string {
+  const currentAgent = getCurrentAgent();
+  if (currentAgent?.name !== 'alter-ego') {
+    return JSON.stringify({ error: '权限不足：wework_monitor 仅 alter-ego 可用' });
+  }
+  const action = input.action?.trim().toLowerCase();
+  if (action === 'start') {
+    startMonitor();
+    return JSON.stringify({ success: true, message: '企微监测已启动' });
+  } else if (action === 'stop') {
+    stopMonitor();
+    return JSON.stringify({ success: true, message: '企微监测已停止' });
+  } else if (action === 'status') {
+    return JSON.stringify({ running: isMonitorRunning() });
+  }
+  return JSON.stringify({ error: "action 必须为 'start' | 'stop' | 'status'" });
+}
+
 // --- Memory management handlers ---
 
 function handleSaveMemory(input: { content: string; scope?: string; category?: string }): string {
@@ -1067,6 +1097,7 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'edit_file': return handleEditFile(input);
     case 'reload_app': return handleReloadApp();
     case 'extract_wework_qa': return handleExtractWeworkQA(input);
+    case 'wework_monitor': return handleWeworkMonitor(input);
     case 'list_agents': return handleListAgents();
     case 'get_agent': return handleGetAgent(input);
     case 'save_agent': return handleSaveAgent(input);

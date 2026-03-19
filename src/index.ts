@@ -261,8 +261,9 @@ async function repl(): Promise<void> {
           }
           if (key?.name === 'tab') {
             if (selectedIdx >= 0) {
+              const selected = currentHits[selectedIdx];
               clearHints();
-              setLine(currentHits[selectedIdx].name + ' ');
+              setLine(selected.name + ' ');
               return;
             }
             // Fall through to default behavior if no hint is selected
