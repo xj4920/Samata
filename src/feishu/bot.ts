@@ -8,6 +8,10 @@
  * 连接模式：
  * - ws（默认）：WebSocket 长连接，通过 @larksuiteoapi/node-sdk WSClient 接收事件
  * - webhook：HTTP 回调，需要公网可达地址
+ *
+ * 多应用支持：
+ * - 每个飞书应用独立运行（独立实例、会话、连接）
+ * - 应用级 Agent 绑定（一个应用对应一个 Agent）
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -18,50 +22,147 @@ import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
-import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminFeishuUser } from './session.js';
+import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, detectImageMediaType } from '../llm/agent.js';
-import { getAgent, getAllAgents } from '../llm/agents/config.js';
+import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
 import { fetchTrades } from '../commands/trade.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
 import { getAllSkills } from '../commands/skill.js';
+import { fetchMemory, saveMemory, deleteMemory, searchMemory } from '../llm/agents/memory.js';
 import {
   formatClientList, formatClientDetail,
   formatClientHistory, formatTrades, formatKnowledge, formatSkillList,
   formatSuccess, formatError,
 } from './formatter.js';
 
-interface FeishuBotConfig {
+interface FeishuAppConfig {
   appId: string;
+  appName: string;
   appSecret: string;
   verificationToken: string;
   encryptKey: string;
   showThinking?: boolean;
 }
 
-function loadFeishuConfig(): FeishuBotConfig {
+interface FeishuSession {
+  feishuUserId: string;
+  feishuUsername: string;
+  user: { id: string; username: string; role: 'admin' | 'user' };
+  history: Anthropic.MessageParam[];
+  lastActive: number;
+  agentName: string;
+}
+
+interface FeishuBotInstance {
+  appId: string;
+  appName: string;
+  config: FeishuAppConfig;
+  api: FeishuAPI;
+  wsClient: InstanceType<typeof Lark.WSClient> | null;
+  httpServer: ReturnType<typeof createServer> | null;
+  botOpenId: string;
+  cleanupTimer: ReturnType<typeof setInterval> | null;
+  sessions: Map<string, FeishuSession>;
+}
+
+const botInstances = new Map<string, FeishuBotInstance>();
+
+function loadFeishuConfigs(): FeishuAppConfig[] {
   const file = resolve(process.cwd(), 'config/monitor.json');
   const config = JSON.parse(readFileSync(file, 'utf-8'));
-  return config.feishu as FeishuBotConfig;
+
+  // New format: feishuApps array
+  if (config.feishuApps && Array.isArray(config.feishuApps)) {
+    return config.feishuApps;
+  }
+
+  // Legacy format: single feishu object
+  if (config.feishu) {
+    return [{
+      appId: config.feishu.appId,
+      appName: config.feishu.appName || 'default',
+      appSecret: config.feishu.appSecret,
+      verificationToken: config.feishu.verificationToken,
+      encryptKey: config.feishu.encryptKey,
+      showThinking: config.feishu.showThinking,
+    }];
+  }
+
+  return [];
 }
 
 export type FeishuBotMode = 'ws' | 'webhook';
 
-let api: FeishuAPI;
-let wsClient: InstanceType<typeof Lark.WSClient> | null = null;
-let httpServer: ReturnType<typeof createServer> | null = null;
-let running = false;
-let cleanupTimer: ReturnType<typeof setInterval> | null = null;
-let botOpenId = '';  // 机器人自身的 open_id，用于群聊 @mention 检测
+/**
+ * 获取或创建会话（实例级）
+ */
+function getSessionForInstance(
+  instance: FeishuBotInstance,
+  feishuUserId: string,
+  feishuUsername: string
+): FeishuSession {
+  let session = instance.sessions.get(feishuUserId);
+  if (!session) {
+    const role = isAdminFeishuUser(feishuUserId) ? 'admin' : 'user';
+    const agent = resolveAgent('feishu', instance.appId);
+    session = {
+      feishuUserId,
+      feishuUsername,
+      user: {
+        id: role === 'admin' ? 'admin-001' : 'user-001',
+        username: feishuUsername || `feishu_${feishuUserId}`,
+        role,
+      },
+      history: [],
+      lastActive: Date.now(),
+      agentName: agent.name,
+    };
+    instance.sessions.set(feishuUserId, session);
+  }
+  session.lastActive = Date.now();
+  session.feishuUsername = feishuUsername || session.feishuUsername;
+  return session;
+}
+
+/**
+ * 重置会话（实例级）
+ */
+function resetSessionForInstance(instance: FeishuBotInstance, feishuUserId: string): boolean {
+  const session = instance.sessions.get(feishuUserId);
+  if (session) {
+    session.history = [];
+    const agent = resolveAgent('feishu', instance.appId);
+    session.agentName = agent.name;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 清理过期会话（实例级）
+ */
+function cleanupSessionsForInstance(instance: FeishuBotInstance, maxAgeMs = 2 * 60 * 60 * 1000): number {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [id, session] of instance.sessions) {
+    if (now - session.lastActive > maxAgeMs) {
+      instance.sessions.delete(id);
+      cleaned++;
+    }
+  }
+  return cleaned;
+}
 
 /**
  * 处理 AI 对话（含 tool use 循环）
  */
 async function handleAIChat(
+  instance: FeishuBotInstance,
   chatId: string,
   userInput: string,
   feishuUserId: string,
@@ -69,21 +170,20 @@ async function handleAIChat(
   images?: ImageInput[],
   replyOpts?: { messageId?: string; isGroup?: boolean },
 ): Promise<{ text: string }> {
-  const session = getSession(feishuUserId, feishuUsername);
-  const feishuCfg = loadFeishuConfig();
-  const showThinkingEnabled = feishuCfg.showThinking !== false;
+  const session = getSessionForInstance(instance, feishuUserId, feishuUsername);
+  const showThinkingEnabled = instance.config.showThinking !== false;
 
   // 发送过程卡片的辅助函数
   const sendProgressCard = async (hint: string) => {
     try {
       const card = buildThinkingCard(hint);
       if (replyOpts?.isGroup && replyOpts?.messageId) {
-        await api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
+        await instance.api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
       } else {
-        await api.sendCard(chatId, card);
+        await instance.api.sendCard(chatId, card);
       }
     } catch (err: any) {
-      log.warn(`[飞书] 发送过程卡片失败: ${err.message}`);
+      log.warn(`[飞书:${instance.appName}] 发送过程卡片失败: ${err.message}`);
     }
   };
 
@@ -138,6 +238,7 @@ async function handleAIChat(
  * 如果提供 updateMessageId，则更新已有卡片而非发新消息
  */
 async function sendFeishuReply(
+  instance: FeishuBotInstance,
   chatId: string,
   text: string,
   options?: { messageId?: string; isGroup?: boolean; updateMessageId?: string }
@@ -148,10 +249,10 @@ async function sendFeishuReply(
   if (options?.updateMessageId) {
     try {
       const card = buildCard(text.length > MAX_LEN ? text.slice(-MAX_LEN) : text);
-      await api.updateCard(options.updateMessageId, card);
+      await instance.api.updateCard(options.updateMessageId, card);
       return options.updateMessageId;
     } catch (err: any) {
-      log.warn(`[飞书] 更新卡片失败，回退到发新消息: ${err.message}`);
+      log.warn(`[飞书:${instance.appName}] 更新卡片失败，回退到发新消息: ${err.message}`);
       // fallthrough 到下面的发新消息逻辑
     }
   }
@@ -160,9 +261,9 @@ async function sendFeishuReply(
 
   if (!text || text === '（无回复内容）') {
     if (useReply) {
-      return api.replyMessage(options.messageId!, 'text', { text: text || '（无回复内容）' });
+      return instance.api.replyMessage(options.messageId!, 'text', { text: text || '（无回复内容）' });
     } else {
-      return api.sendText(chatId, text || '（无回复内容）');
+      return instance.api.sendText(chatId, text || '（无回复内容）');
     }
   }
 
@@ -245,20 +346,20 @@ async function sendFeishuReply(
     try {
       const card = buildCard(chunkText);
       if (useReply) {
-        lastMessageId = await api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
+        lastMessageId = await instance.api.replyMessage(options.messageId!, 'interactive', JSON.stringify(card));
       } else {
-        lastMessageId = await api.sendCard(chatId, card);
+        lastMessageId = await instance.api.sendCard(chatId, card);
       }
     } catch (err: any) {
-      log.warn(`[飞书] Card 分片 ${i + 1}/${chunks.length} 发送失败，回退到纯文本: ${err.message}`);
+      log.warn(`[飞书:${instance.appName}] Card 分片 ${i + 1}/${chunks.length} 发送失败，回退到纯文本: ${err.message}`);
       try {
         if (useReply) {
-          lastMessageId = await api.replyMessage(options.messageId!, 'text', { text: chunkText });
+          lastMessageId = await instance.api.replyMessage(options.messageId!, 'text', { text: chunkText });
         } else {
-          lastMessageId = await api.sendText(chatId, chunkText);
+          lastMessageId = await instance.api.sendText(chatId, chunkText);
         }
       } catch (e: any) {
-         log.error(`[飞书] 纯文本降级发送依然失败: ${e.message}`);
+         log.error(`[飞书:${instance.appName}] 纯文本降级发送依然失败: ${e.message}`);
       }
     }
 
@@ -274,7 +375,12 @@ async function sendFeishuReply(
  * 直接处理 /command，不经过 LLM
  * 返回格式化后的文本，或 null 表示未匹配到命令
  */
-async function handleCommand(cmd: string, args: string, feishuUserId: string): Promise<string | null> {
+async function handleCommand(
+  instance: FeishuBotInstance,
+  cmd: string,
+  args: string,
+  feishuUserId: string
+): Promise<string | null> {
   switch (cmd) {
     case 'status': {
       const data = fetchSystemStatus();
@@ -284,14 +390,14 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
       const parts = args.trim().split(/\s+/);
       const sub = (parts[0] || '').toLowerCase();
       const rest = parts.slice(1).join(' ');
-      return handleClientSubcommand(sub, rest, feishuUserId);
+      return handleClientSubcommand(instance, sub, rest, feishuUserId);
     }
     // keep old top-level aliases working
-    case 'list':    return handleClientSubcommand('list', args, feishuUserId);
-    case 'view':    return handleClientSubcommand('view', args, feishuUserId);
-    case 'history': return handleClientSubcommand('history', args, feishuUserId);
-    case 'add':     return handleClientSubcommand('add', args, feishuUserId);
-    case 'advance': return handleClientSubcommand('advance', args, feishuUserId);
+    case 'list':    return handleClientSubcommand(instance, 'list', args, feishuUserId);
+    case 'view':    return handleClientSubcommand(instance, 'view', args, feishuUserId);
+    case 'history': return handleClientSubcommand(instance, 'history', args, feishuUserId);
+    case 'add':     return handleClientSubcommand(instance, 'add', args, feishuUserId);
+    case 'advance': return handleClientSubcommand(instance, 'advance', args, feishuUserId);
     case 'trade': {
       const params: Record<string, string> = {};
       for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
@@ -317,20 +423,30 @@ async function handleCommand(cmd: string, args: string, feishuUserId: string): P
     case 'skill': {
       const sub = args.split(/\s+/)[0]?.toLowerCase();
       if (!sub || sub === 'list') {
-        const skills = getAllSkills();
+        const session = getSessionForInstance(instance, feishuUserId, '');
+        const agentId = getAgent(session.agentName).id;
+        const skills = getAllSkills(agentId);
         return formatSkillList(skills);
       }
       return null; // skill save/run/del 需要更复杂的处理，走 AI
     }
     case 'agent': {
-      return handleAgentCommand(args, feishuUserId);
+      return handleAgentCommand(instance, args, feishuUserId);
+    }
+    case 'memory': {
+      return handleMemoryCommand(args, instance, feishuUserId);
     }
     default:
       return null; // 未匹配的命令
   }
 }
 
-async function handleClientSubcommand(sub: string, rest: string, feishuUserId: string): Promise<string | null> {
+async function handleClientSubcommand(
+  instance: FeishuBotInstance,
+  sub: string,
+  rest: string,
+  feishuUserId: string
+): Promise<string | null> {
   switch (sub) {
     case 'list': case '': {
       const filter: { state?: string; keyword?: string } = {};
@@ -357,7 +473,7 @@ async function handleClientSubcommand(sub: string, rest: string, feishuUserId: s
       if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
       if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
       const prevUser = getCurrentUser();
-      const session = getSession(feishuUserId, '');
+      const session = getSessionForInstance(instance, feishuUserId, '');
       setCurrentUser(session.user);
       try {
         const result = addClient(rest);
@@ -371,7 +487,7 @@ async function handleClientSubcommand(sub: string, rest: string, feishuUserId: s
       if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
       if (!rest) return formatError('用法: /client advance <客户名称或ID>');
       const prevUser = getCurrentUser();
-      const session = getSession(feishuUserId, '');
+      const session = getSessionForInstance(instance, feishuUserId, '');
       setCurrentUser(session.user);
       try {
         const result = advanceClient(rest);
@@ -386,13 +502,55 @@ async function handleClientSubcommand(sub: string, rest: string, feishuUserId: s
   }
 }
 
-function handleAgentCommand(args: string, feishuUserId: string): string {
+function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUserId: string): string {
+  const parts = args.trim().split(/\s+/);
+  const sub = (parts[0] || 'list').toLowerCase();
+  const rest = parts.slice(1).join(' ');
+
+  const session = getSessionForInstance(instance, feishuUserId, '');
+  const agentId = getAgent(session.agentName).id;
+
+  if (sub === 'list' || sub === '') {
+    const items = fetchMemory(agentId);
+    if (items.length === 0) return '暂无已保存的记忆';
+    return items.map(m =>
+      `[${m.id.slice(0, 8)}] (${m.scope}${m.agentId ? '/' + m.agentId.slice(0, 8) : ''}) ${m.content}`
+    ).join('\n');
+  }
+
+  if (sub === 'search') {
+    if (!rest) return '用法: /memory search <关键词>';
+    const items = searchMemory(rest, agentId);
+    if (items.length === 0) return `未找到匹配的记忆: ${rest}`;
+    return items.map(m => `[${m.id.slice(0, 8)}] ${m.content}`).join('\n');
+  }
+
+  if (sub === 'add') {
+    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
+    if (!rest) return '用法: /memory add <内容>';
+    const result = saveMemory({ content: rest, scope: 'agent', agentId, source: 'manual' });
+    if (!result.success) return `❌ ${(result as any).error}`;
+    return `✅ 记忆已保存: ${rest}`;
+  }
+
+  if (sub === 'del' || sub === 'delete') {
+    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
+    if (!rest) return '用法: /memory del <id>';
+    const result = deleteMemory(rest);
+    if (!result.success) return `❌ ${(result as any).error}`;
+    return `✅ 记忆已删除: ${rest}`;
+  }
+
+  return 'Memory 用法：\n/memory list\n/memory add <内容>\n/memory search <关键词>\n/memory del <id>';
+}
+
+function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUserId: string): string {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
 
   // /agent — show current agent
   if (!sub) {
-    const session = getSession(feishuUserId, '');
+    const session = getSessionForInstance(instance, feishuUserId, '');
     const agent = getAgent(session.agentName);
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
@@ -400,7 +558,7 @@ function handleAgentCommand(args: string, feishuUserId: string): string {
   // /agent list — list all agents
   if (sub === 'list') {
     const agents = getAllAgents();
-    const session = getSession(feishuUserId, '');
+    const session = getSessionForInstance(instance, feishuUserId, '');
     const lines = agents.map(a => {
       const marker = a.name === session.agentName ? '▶ ' : '  ';
       return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
@@ -408,13 +566,49 @@ function handleAgentCommand(args: string, feishuUserId: string): string {
     return `可用 Agent:\n${lines.join('\n')}`;
   }
 
-  // /agent <name> — switch agent
+  // /agent assign <name> — assign agent to current app
+  if (sub === 'assign') {
+    const agentName = parts[1];
+    if (!agentName) return '用法: /agent assign <agent_name>';
+
+    const result = saveAssignment(agentName, 'feishu', instance.appId);
+    if (!result.success) return `❌ ${result.error}`;
+
+    // 重置所有会话（应用级切换）
+    instance.sessions.clear();
+    return `✅ 已将 ${agentName} 绑定到当前应用，所有用户下次对话生效`;
+  }
+
+  // /agent unassign — remove app assignment
+  if (sub === 'unassign') {
+    const result = deleteAssignment('feishu', instance.appId);
+    if (!result.success) return `❌ ${result.error}`;
+
+    instance.sessions.clear();
+    return `✅ 已移除绑定，将使用默认 Agent`;
+  }
+
+  // /agent assignments — list all (admin only)
+  if (sub === 'assignments') {
+    if (!isAdminFeishuUser(feishuUserId)) return '❌ 权限不足：该命令需要管理员权限';
+
+    const assignments = listAssignments();
+    if (assignments.length === 0) return '暂无 Agent 绑定';
+
+    const lines = assignments.map(a => {
+      const target = a.appId || a.targetId || '(渠道默认)';
+      return `${a.channel}/${target} → ${a.agentDisplayName} (${a.agentName})`;
+    });
+    return `Agent 绑定关系:\n${lines.join('\n')}`;
+  }
+
+  // /agent <name> — switch agent (session-level)
   const agent = getAgent(sub);
   if (agent.name !== sub && sub !== 'otcclaw') {
     return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
   }
 
-  const session = getSession(feishuUserId, '');
+  const session = getSessionForInstance(instance, feishuUserId, '');
   session.agentName = agent.name;
   session.history = [];
   return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
@@ -423,23 +617,23 @@ function handleAgentCommand(args: string, feishuUserId: string): string {
 /**
  * 处理飞书消息事件（FeishuMessage 已统一为 v2 结构）
  */
-async function handleEvent(event: FeishuMessage): Promise<void> {
+async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): Promise<void> {
   const chatId = event.message.chat_id;
   const chatType = event.message.chat_type;  // "p2p" | "group"
   const messageType = event.message.message_type;
   const messageId = event.message.message_id;
   const isGroup = chatType === 'group';
 
-  log.info(`[飞书] 收到消息: chat_id=${chatId}, chat_type=${chatType}, type=${messageType}`);
+  log.info(`[飞书:${instance.appName}] 收到消息: chat_id=${chatId}, chat_type=${chatType}, type=${messageType}`);
 
   // 群聊：只响应 @bot 的消息
   if (isGroup) {
     const mentions = event.message.mentions || [];
-    const mentionedBot = botOpenId
-      ? mentions.some(m => m.id.open_id === botOpenId)
+    const mentionedBot = instance.botOpenId
+      ? mentions.some(m => m.id.open_id === instance.botOpenId)
       : mentions.length > 0;  // 未获取到 botOpenId 时，有 @mention 就响应
     if (!mentionedBot) {
-      log.dim(`[飞书] 群聊消息未 @bot，忽略: ${chatId}`);
+      log.dim(`[飞书:${instance.appName}] 群聊消息未 @bot，忽略: ${chatId}`);
       return;
     }
   }
@@ -483,11 +677,11 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         images = [];
         for (const key of imageKeys) {
           try {
-            const buf = await api.downloadMessageResource(messageId, key);
+            const buf = await instance.api.downloadMessageResource(messageId, key);
             images.push({ data: buf.toString('base64'), mediaType: detectImageMediaType(buf) });
-            log.dim(`[飞书] 下载 post 图片成功: ${key} (${buf.length} bytes)`);
+            log.dim(`[飞书:${instance.appName}] 下载 post 图片成功: ${key} (${buf.length} bytes)`);
           } catch (err: any) {
-            log.error(`[飞书] 下载 post 图片失败: ${key} - ${err.message}`);
+            log.error(`[飞书:${instance.appName}] 下载 post 图片失败: ${key} - ${err.message}`);
           }
         }
         if (images.length === 0) images = undefined;
@@ -498,15 +692,15 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
       const imageKey = content.image_key;
       if (imageKey) {
         try {
-          const buf = await api.downloadMessageResource(messageId, imageKey);
+          const buf = await instance.api.downloadMessageResource(messageId, imageKey);
           images = [{
             data: buf.toString('base64'),
             mediaType: detectImageMediaType(buf),
           }];
           text = '请描述这张图片';
-          log.dim(`[飞书] 下载图片成功: ${imageKey} (${buf.length} bytes)`);
+          log.dim(`[飞书:${instance.appName}] 下载图片成功: ${imageKey} (${buf.length} bytes)`);
         } catch (err: any) {
-          log.error(`[飞书] 下载图片失败: ${err.message}`);
+          log.error(`[飞书:${instance.appName}] 下载图片失败: ${err.message}`);
           text = '';
         }
       }
@@ -532,33 +726,33 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
   const senderId = event.sender.sender_id.open_id || event.sender.sender_id.user_id || '';
   const senderName = `user_${senderId.slice(-6)}`;
 
-  log.dim(`[飞书] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}, group=${isGroup}`);
+  log.dim(`[飞书:${instance.appName}] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}, group=${isGroup}`);
 
   // 群聊回复选项：群里以 reply 方式回复原消息
   const replyOpts = isGroup ? { messageId, isGroup: true } : undefined;
 
-  // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
+  // /debug ��令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
   if (text.startsWith('/debug')) {
     try {
-      await sendFeishuReply(chatId, `你的飞书用户 ID: ${senderId}`, replyOpts);
+      await sendFeishuReply(instance, chatId, `你的飞书用户 ID: ${senderId}`, replyOpts);
     } catch (err: any) {
-      log.error(`[飞书] /debug 发送失败: ${err.message}`);
+      log.error(`[飞书:${instance.appName}] /debug 发送失败: ${err.message}`);
     }
     return;
   }
 
   if (!text) {
-    log.dim(`[飞书] 忽略空消息或不支持的类型: ${messageType}`);
+    log.dim(`[飞书:${instance.appName}] 忽略空消息或不支持的类型: ${messageType}`);
     return;
   }
 
-  log.dim(`[飞书] ${senderName}: ${text.slice(0, 80)}`);
+  log.dim(`[飞书:${instance.appName}] ${senderName}: ${text.slice(0, 80)}`);
 
   try {
     // 处理内置命令
     if (text === '/start') {
       const role = isAdminFeishuUser(senderId) ? '管理员' : '普通用户';
-      await sendFeishuReply(chatId,
+      await sendFeishuReply(instance, chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
         `你可以：\n` +
@@ -571,7 +765,7 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     }
 
     if (text === '/help') {
-      await sendFeishuReply(chatId,
+      await sendFeishuReply(instance, chatId,
         `📋 *衍语 Bot 命令*\n\n` +
         `*基础命令：*\n` +
         `/start - 开始使用\n` +
@@ -598,15 +792,15 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
     }
 
     if (text === '/reset') {
-      resetSession(senderId);
-      await sendFeishuReply(chatId, '✅ 对话上下文已重置', replyOpts);
+      resetSessionForInstance(instance, senderId);
+      await sendFeishuReply(instance, chatId, '✅ 对话上下文已重置', replyOpts);
       return;
     }
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
       if (!isAdminFeishuUser(senderId)) {
-        await sendFeishuReply(chatId, '❌ 仅管理员可切换模型', replyOpts);
+        await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
       const arg = text.replace(/^\/model\s*/, '').trim();
@@ -614,13 +808,13 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
         const available = getAvailableProviders();
         const current = getProviderName();
         const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-        await sendFeishuReply(chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`, replyOpts);
+        await sendFeishuReply(instance, chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`, replyOpts);
       } else {
         const ok = switchProvider(arg as ProviderName);
         if (ok) {
-          await sendFeishuReply(chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`, replyOpts);
+          await sendFeishuReply(instance, chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`, replyOpts);
         } else {
-          await sendFeishuReply(chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`, replyOpts);
+          await sendFeishuReply(instance, chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`, replyOpts);
         }
       }
       return;
@@ -633,42 +827,35 @@ async function handleEvent(event: FeishuMessage): Promise<void> {
       const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-      const reply = await handleCommand(cmd, args, senderId);
+      const reply = await handleCommand(instance, cmd, args, senderId);
       if (reply !== null) {
-        await sendFeishuReply(chatId, reply, replyOpts);
+        await sendFeishuReply(instance, chatId, reply, replyOpts);
         return;
       }
       // 未匹配的命令，fallthrough 到 AI Agent
     }
 
     // 自然语言 → AI Agent
-    const { text: reply } = await handleAIChat(chatId, text, senderId, senderName, images, replyOpts);
-    await sendFeishuReply(chatId, reply, replyOpts);
+    const { text: reply } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts);
+    await sendFeishuReply(instance, chatId, reply, replyOpts);
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
-    log.error(`[飞书] 处理消息出错: ${err.message}${cause}`);
+    log.error(`[飞书:${instance.appName}] 处理消息出错: ${err.message}${cause}`);
     try {
-      await sendFeishuReply(chatId, `❌ 处理出错: ${err.message}`, replyOpts);
+      await sendFeishuReply(instance, chatId, `❌ 处理出错: ${err.message}`, replyOpts);
     } catch { /* ignore send error */ }
   }
 }
 
 /**
- * 验证飞书回调签名
+ * 验证飞书回调签名（暂时保留，webhook 模式可能需要）
  */
-function verifySignature(timestamp: string, nonce: string, signature: string, body: string): boolean {
-  const config = loadFeishuConfig();
-  if (!config.appSecret) {
-    log.warn('[飞书] 未配置 appSecret，跳过签名验证');
-    return true;
-  }
-
+function verifySignature(appSecret: string, timestamp: string, nonce: string, signature: string, body: string): boolean {
   const signString = `${timestamp}${nonce}${body}`;
-  const hmac = crypto.createHmac('sha256', config.appSecret);
+  const hmac = crypto.createHmac('sha256', appSecret);
   hmac.update(signString);
   const computedSignature = hmac.digest('base64');
-
   return computedSignature === signature;
 }
 
@@ -696,9 +883,13 @@ export async function handleWebhookRequest(
     const eventType = body.header.event_type as string;
     if (eventType === 'im.message.receive_v1') {
       const event = body.event as FeishuMessage;
-      handleEvent(event).catch(err => {
-        log.error(`[飞书] 处理事件出错: ${err.message}`);
-      });
+      // TODO: 需要从请求中识别是哪个应用（暂时使用第一个实例）
+      const instance = botInstances.values().next().value as FeishuBotInstance | undefined;
+      if (instance) {
+        handleEvent(instance, event).catch(err => {
+          log.error(`[飞书:${instance.appName}] 处理事件出错: ${err.message}`);
+        });
+      }
     } else {
       log.dim(`[飞书] 忽略事件类型: ${eventType}`);
     }
@@ -716,9 +907,13 @@ export async function handleWebhookRequest(
           ? JSON.stringify({ text: v1.text_without_at_bot || v1.text || '' })
           : (v1.text || '');
       // v1 群聊消息如果有 text_without_at_bot，说明 bot 被 @了，构造 mentions
+      // TODO: 需要从请求中识别是哪个应用（暂时使用第一个实例）
+      const instance = botInstances.values().next().value as FeishuBotInstance | undefined;
+      if (!instance) return { status: 200, body: { code: 0 } };
+
       const mentions: FeishuMessage['message']['mentions'] =
-        isGroupV1 && v1.text_without_at_bot && botOpenId
-          ? [{ key: '', id: { open_id: botOpenId }, name: 'bot' }]
+        isGroupV1 && v1.text_without_at_bot && instance.botOpenId
+          ? [{ key: '', id: { open_id: instance.botOpenId }, name: 'bot' }]
           : undefined;
       const event: FeishuMessage = {
         sender: {
@@ -740,8 +935,8 @@ export async function handleWebhookRequest(
           mentions,
         },
       };
-      handleEvent(event).catch(err => {
-        log.error(`[飞书] 处理事件出错: ${err.message}`);
+      handleEvent(instance, event).catch(err => {
+        log.error(`[飞书:${instance.appName}] 处理事件出错: ${err.message}`);
       });
     }
     return { status: 200, body: { code: 0 } };
@@ -751,14 +946,14 @@ export async function handleWebhookRequest(
 }
 
 /**
- * 启动 WebSocket 长连接（通过 SDK WSClient 接收事件）
+ * 启动 WebSocket 长连接（实例级）
  */
-function startWSClient(config: { appId: string; appSecret: string }): void {
+function startWSClientForInstance(instance: FeishuBotInstance): void {
   const eventDispatcher = new Lark.EventDispatcher({ loggerLevel: Lark.LoggerLevel.error }).register({
     'im.message.receive_v1': async (data: any) => {
       const event = data as FeishuMessage;
-      handleEvent(event).catch(err => {
-        log.error(`[飞书 WS] 处理事件出错: ${err.message}`);
+      handleEvent(instance, event).catch(err => {
+        log.error(`[飞书:${instance.appName}] WS 处理事件出错: ${err.message}`);
       });
     },
     'im.message.message_read_v1': async () => {
@@ -771,179 +966,207 @@ function startWSClient(config: { appId: string; appSecret: string }): void {
   const noProxyAxios = axios.create({ proxy: false });
   noProxyAxios.interceptors.response.use((resp) => resp.data);
 
-  wsClient = new Lark.WSClient({
-    appId: config.appId,
-    appSecret: config.appSecret,
+  instance.wsClient = new Lark.WSClient({
+    appId: instance.config.appId,
+    appSecret: instance.config.appSecret,
     loggerLevel: Lark.LoggerLevel.info,
     httpInstance: noProxyAxios,
   });
 
-  wsClient.start({ eventDispatcher });
-  log.info('[飞书] WebSocket 长连接已启动');
+  instance.wsClient.start({ eventDispatcher });
+  log.info(`[飞书:${instance.appName}] WebSocket 长连接已启动`);
 }
 
 /**
- * 启动飞书 Bot
- * @param options.mode 连接模式: 'ws'(长连接,默认) | 'webhook'(HTTP回调)
- * @param options.httpPort webhook 模式的 HTTP 端口
- * @param options.httpPath webhook 模式的路径（默认 /webhook/feishu）
+ * 启动 Webhook HTTP 服务器（实例级）
  */
-export async function startFeishuBot(options?: {
-  mode?: FeishuBotMode;
-  httpPort?: number;
-  httpPath?: string;
-}): Promise<void> {
-  if (running) {
-    log.warn('[飞书] Bot 已在运行中');
-    log.print('[飞书] Bot 已在运行中');
+function startWebhookForInstance(instance: FeishuBotInstance, httpPort: number): void {
+  const webhookPath = '/webhook/feishu';
+  const server = createServer(async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Feishu-Signature, X-Feishu-Timestamp, X-Feishu-Nonce');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === webhookPath) {
+      let body = '';
+      for await (const chunk of req) {
+        body += chunk;
+      }
+
+      try {
+        const jsonBody = JSON.parse(body);
+        const headers = req.headers as Record<string, string | string[] | undefined>;
+        const result = await handleWebhookRequest(headers, jsonBody);
+
+        res.writeHead(result.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result.body));
+      } catch (err: any) {
+        log.error(`[飞书:${instance.appName}] HTTP 处理请求出错: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // 健康检查
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
+  });
+
+  server.listen(httpPort, () => {
+    log.success(`[飞书:${instance.appName}] HTTP 服务已启动: http://localhost:${httpPort}${webhookPath}`);
+  });
+  instance.httpServer = server;
+}
+
+/**
+ * 启动单个飞书应用
+ */
+export async function startFeishuBot(
+  appId: string,
+  options?: { mode?: FeishuBotMode; httpPort?: number }
+): Promise<void> {
+  const mode = options?.mode ?? 'ws';
+
+  if (botInstances.has(appId)) {
+    log.warn(`[飞书:${appId}] Bot 已在运行中`);
     return;
   }
 
-  const feishuConfig = loadFeishuConfig();
-
-  if (!feishuConfig.appId || !feishuConfig.appSecret) {
-    log.error('[飞书] 未配置 appId/appSecret，请在 config/monitor.json 中设置 feishu.appId 和 feishu.appSecret');
-    log.print('[飞书] 未配置 appId/appSecret，请在 config/monitor.json 中设置 feishu.appId 和 feishu.appSecret');
+  const configs = loadFeishuConfigs();
+  const appConfig = configs.find(c => c.appId === appId);
+  if (!appConfig) {
+    log.warn(`[飞书] 未找到应用配置: ${appId}`);
     return;
   }
 
-  // 解析管理员飞书用户 ID 列表
+  // 解析管理员飞书用户 ID 列表（全局共享）
   const adminIdsStr = process.env.FEISHU_ADMIN_IDS || '';
   const adminIdList = adminIdsStr.split(',').map(s => s.trim()).filter(s => s);
   setAdminIds(adminIdList);
 
   if (adminIdList.length === 0) {
-    log.warn('[飞书] 未配置 FEISHU_ADMIN_IDS，所有用户将以只读身份使用');
+    log.warn(`[飞书:${appConfig.appName}] 未配置 FEISHU_ADMIN_IDS，所有用户将以只读身份使用`);
   } else {
-    log.info(`[飞书] 管理员飞书 IDs: ${adminIdList.join(', ')}`);
+    log.info(`[飞书:${appConfig.appName}] 管理员飞书 IDs: ${adminIdList.join(', ')}`);
   }
 
-  // 初始化飞书 API
-  api = new FeishuAPI(feishuConfig);
+  // 创建实例
+  const instance: FeishuBotInstance = {
+    appId: appConfig.appId,
+    appName: appConfig.appName,
+    config: appConfig,
+    api: new FeishuAPI(appConfig),
+    wsClient: null,
+    httpServer: null,
+    botOpenId: '',
+    cleanupTimer: null,
+    sessions: new Map(),
+  };
 
-  // 验证配置
+  // 验证连接
   try {
-    await api.getTenantAccessToken();
-    log.success('[飞书] API 连接成功');
-    log.print('[飞书] API 连接成功');
+    await instance.api.getTenantAccessToken();
+    log.success(`[飞书:${appConfig.appName}] API 连接成功`);
   } catch (err: any) {
-    log.error(`[飞书] API 连接失败: ${err.message}`);
-    log.print(`[飞书] API 连接失败: ${err.message}`);
+    log.error(`[飞书:${appConfig.appName}] API 连接失败: ${err.message}`);
     return;
   }
 
-  // 获取机器人自身 open_id，用于群聊 @mention 检测
+  // 获取机器人自身 open_id
   try {
-    const botInfo = await api.getBotInfo();
-    botOpenId = botInfo.open_id;
-    log.info(`[飞书] 机器人 open_id: ${botOpenId} (${botInfo.app_name})`);
+    const botInfo = await instance.api.getBotInfo();
+    instance.botOpenId = botInfo.open_id;
+    log.info(`[飞书:${appConfig.appName}] 机器人 open_id: ${instance.botOpenId} (${botInfo.app_name})`);
   } catch (err: any) {
-    log.warn(`[飞书] 获取机器人信息失败，群聊 @mention 检测将使用宽松模式: ${err.message}`);
+    log.warn(`[飞书:${appConfig.appName}] 获取机器人信息失败，群聊 @mention 检测将使用宽松模式: ${err.message}`);
   }
 
-  // 定时清理过期会话（每 30 分钟）
-  cleanupTimer = setInterval(() => {
-    const cleaned = cleanupSessions();
-    if (cleaned > 0) log.dim(`[飞书] 清理了 ${cleaned} 个过期会话`);
+  // 启动会话清理
+  instance.cleanupTimer = setInterval(() => {
+    const cleaned = cleanupSessionsForInstance(instance);
+    if (cleaned > 0) log.dim(`[飞书:${appConfig.appName}] 清理了 ${cleaned} 个过期会话`);
   }, 30 * 60 * 1000);
 
-  running = true;
-
-  const mode: FeishuBotMode = options?.mode
-    || (process.env.FEISHU_MODE as FeishuBotMode)
-    || 'ws';
-
+  // 启动连接
   if (mode === 'ws') {
-    // ── 长连接模式：通过 SDK WSClient 接收事件 ──
-    startWSClient({ appId: feishuConfig.appId, appSecret: feishuConfig.appSecret });
+    startWSClientForInstance(instance);
   } else {
-    // ── Webhook 模式：HTTP 服务器接收回调 ──
-    const httpPort = options?.httpPort;
-    if (httpPort) {
-      const webhookPath = options?.httpPath || '/webhook/feishu';
-      const server = createServer(async (req, res) => {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Feishu-Signature, X-Feishu-Timestamp, X-Feishu-Nonce');
-
-        if (req.method === 'OPTIONS') {
-          res.writeHead(200);
-          res.end();
-          return;
-        }
-
-        if (req.method === 'POST' && req.url === webhookPath) {
-          let body = '';
-          for await (const chunk of req) {
-            body += chunk;
-          }
-
-          try {
-            const jsonBody = JSON.parse(body);
-            const headers = req.headers as Record<string, string | string[] | undefined>;
-            const result = await handleWebhookRequest(headers, jsonBody);
-
-            res.writeHead(result.status, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result.body));
-          } catch (err: any) {
-            log.error(`[飞书 HTTP] 处理请求出错: ${err.message}`);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: err.message }));
-          }
-          return;
-        }
-
-        // 健康检查
-        if (req.method === 'GET' && req.url === '/health') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'ok' }));
-          return;
-        }
-
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not Found' }));
-      });
-
-      server.listen(httpPort, () => {
-        log.success(`[飞书] HTTP 服务已启动: http://localhost:${httpPort}${webhookPath}`);
-      });
-      httpServer = server;
-    }
+    startWebhookForInstance(instance, options?.httpPort ?? 3001);
   }
 
-  log.success(`[飞书] Bot 已启动 (模式: ${mode})`);
-  log.print(`[飞书] Bot 已启动 (模式: ${mode})`);
+  botInstances.set(appId, instance);
+  log.success(`[飞书:${appConfig.appName}] Bot 已启动 (模式: ${mode})`);
 }
 
 /**
- * 停止飞书 Bot
+ * 启动所有飞书应用
  */
-export function stopFeishuBot(): void {
-  if (!running) {
-    log.warn('[飞书] Bot 未在运行');
-    log.print('[飞书] Bot 未在运行');
+export async function startAllFeishuBots(
+  options?: { mode?: FeishuBotMode; httpPort?: number }
+): Promise<void> {
+  const configs = loadFeishuConfigs();
+  if (configs.length === 0) {
+    log.warn('[飞书] 未配置 feishu 应用，跳过启动');
     return;
   }
-  running = false;
-  if (wsClient) {
-    wsClient.close();
-    wsClient = null;
+
+  for (const config of configs) {
+    await startFeishuBot(config.appId, options);
   }
-  if (httpServer) {
-    httpServer.close();
-    httpServer = null;
+}
+
+/**
+ * 停止单个飞书应用
+ */
+export function stopFeishuBot(appId: string): void {
+  const instance = botInstances.get(appId);
+  if (!instance) {
+    log.warn(`[飞书] 应用未运行: ${appId}`);
+    return;
   }
-  if (cleanupTimer) {
-    clearInterval(cleanupTimer);
-    cleanupTimer = null;
+
+  if (instance.wsClient) {
+    instance.wsClient.close();
+    instance.wsClient = null;
   }
-  log.success('[飞书] Bot 已停止');
-  log.print('[飞书] Bot 已停止');
+  if (instance.httpServer) {
+    instance.httpServer.close();
+    instance.httpServer = null;
+  }
+  if (instance.cleanupTimer) {
+    clearInterval(instance.cleanupTimer);
+    instance.cleanupTimer = null;
+  }
+
+  botInstances.delete(appId);
+  log.success(`[飞书:${instance.appName}] Bot 已停止`);
+}
+
+/**
+ * 停止所有飞书应用
+ */
+export function stopAllFeishuBots(): void {
+  for (const appId of botInstances.keys()) {
+    stopFeishuBot(appId);
+  }
 }
 
 /**
  * 查询 Bot 是否运行中
  */
 export function isFeishuBotRunning(): boolean {
-  return running;
+  return botInstances.size > 0;
 }

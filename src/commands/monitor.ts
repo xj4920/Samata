@@ -58,11 +58,16 @@ function formatUptime(): string {
 
 export function fetchSystemStatus(): SystemStatus {
   const db = getDb();
-  const knowledgeCount = (db.prepare('SELECT COUNT(*) as c FROM knowledge').get() as { c: number }).c;
-  const skillCount = (db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }).c;
-
   const user = getCurrentUser();
   const agent = getCurrentAgent();
+
+  const agentId = agent?.id;
+  const knowledgeCount = agentId
+    ? (db.prepare('SELECT COUNT(*) as c FROM knowledge_agents WHERE agent_id = ?').get(agentId) as { c: number }).c
+    : (db.prepare('SELECT COUNT(*) as c FROM knowledge').get() as { c: number }).c;
+  const skillCount = agentId
+    ? (db.prepare('SELECT COUNT(*) as c FROM skills WHERE agent_id IS NULL OR agent_id = ?').get(agentId) as { c: number }).c
+    : (db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }).c;
 
   // LLM model string
   let model: string | null = null;

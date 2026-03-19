@@ -2,11 +2,12 @@
  * 飞书 Bot 入口
  *
  * 使用方式：
- * 1. 配置 config/monitor.json 中的 feishu 项
+ * 1. 配置 config/monitor.json 中的 feishuApps 数组
  * 2. 启动服务：npx tsx src/feishu-entry.ts
  *
  * 环境变量：
  * - FEISHU_MODE: 连接模式 ws(长连接,默认) | webhook(HTTP回调)
+ * - FEISHU_APP_ID: 指定启动单个应用（可选，不指定则启动所有）
  * - FEISHU_PORT: HTTP 端口（webhook 模式必需，ws 模式用于健康检查）
  * - FEISHU_ADMIN_IDS: 管理员用户 ID 列表（可选，逗号分隔）
  */
@@ -16,10 +17,11 @@ import { initSchema } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
-import { startFeishuBot, stopFeishuBot, handleWebhookRequest, type FeishuBotMode } from './feishu/bot.js';
+import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 
 const MODE = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
+const APP_ID = process.env.FEISHU_APP_ID;
 const PORT = parseInt(process.env.FEISHU_PORT || '3001', 10);
 
 async function main() {
@@ -39,12 +41,20 @@ async function main() {
 
   if (MODE === 'ws') {
     // ── 长连接模式 ──
-    await startFeishuBot({ mode: 'ws' });
+    if (APP_ID) {
+      await startFeishuBot(APP_ID, { mode: 'ws' });
+    } else {
+      await startAllFeishuBots({ mode: 'ws' });
+    }
 
     // 优雅退出
     const shutdown = () => {
       log.info('\n正在关闭...');
-      stopFeishuBot();
+      if (APP_ID) {
+        stopFeishuBot(APP_ID);
+      } else {
+        stopAllFeishuBots();
+      }
       closeDb();
       process.exit(0);
     };
@@ -53,7 +63,11 @@ async function main() {
 
   } else {
     // ── Webhook 模式 ──
-    await startFeishuBot({ mode: 'webhook' });
+    if (APP_ID) {
+      await startFeishuBot(APP_ID, { mode: 'webhook', httpPort: PORT });
+    } else {
+      await startAllFeishuBots({ mode: 'webhook', httpPort: PORT });
+    }
 
     const server = createServer(async (req, res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -105,7 +119,11 @@ async function main() {
     // 优雅退出
     const shutdown = () => {
       log.info('\n正在关闭...');
-      stopFeishuBot();
+      if (APP_ID) {
+        stopFeishuBot(APP_ID);
+      } else {
+        stopAllFeishuBots();
+      }
       server.close(() => {
         closeDb();
         process.exit(0);

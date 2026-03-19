@@ -14,7 +14,7 @@ import { handleAgent } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
-import { startFeishuBot, stopFeishuBot, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
+import { startAllFeishuBots, stopAllFeishuBots, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
 
 let llmEnabled = false;
 
@@ -31,22 +31,22 @@ interface Command {
 }
 
 const commands: Record<string, Command> = {
-  client:  { description: '客户管理', adminOnly: false, handler: clientCmd.handleClient, subcommands: ['list', 'view', 'history', 'add', 'update', 'delete', 'advance', 'rollback'] },
+  client:  { description: '客户管理', adminOnly: false, agentId: 'otcclaw', handler: clientCmd.handleClient, subcommands: ['list', 'view', 'history', 'add', 'update', 'delete', 'advance', 'rollback'] },
   status:  { description: '系统状态', adminOnly: false, handler: monitorCmd.status },
-  trade:   { description: '交易查询', adminOnly: false, handler: tradeCmd.trade },
-  plot:    { description: '交易曲线图', adminOnly: false, handler: plotCmd.handlePlot },
+  trade:   { description: '交易查询', adminOnly: false, agentId: 'otcclaw', handler: tradeCmd.trade },
+  plot:    { description: '交易曲线图', adminOnly: false, agentId: 'otcclaw', handler: plotCmd.handlePlot },
   'wework-qa': { description: '企微Q&A提取', adminOnly: false, agentId: 'alter-ego', handler: weworkQACmd.weworkQA },
-  faq:       { description: '查询知识库', adminOnly: false, handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ', adminOnly: true, handler: knowledgeCmd.add },
-  'faq-update': { description: '修改FAQ', adminOnly: true, handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ', adminOnly: true, handler: knowledgeCmd.remove },
+  faq:       { description: '查询知识库', adminOnly: false, agentId: 'otcclaw', handler: knowledgeCmd.search },
+  'faq-add':  { description: '添加FAQ', adminOnly: true, agentId: 'otcclaw', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
+  'faq-update': { description: '修改FAQ', adminOnly: true, agentId: 'otcclaw', handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', adminOnly: true, agentId: 'otcclaw', handler: knowledgeCmd.remove },
   plugin:  { description: '插件', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
-  agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'switch', 'info', 'del'] },
+  agent:   { description: 'Agent', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del'] },
   memory:  { description: 'Memory', adminOnly: false, handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
   watch:   { description: '企微监测', adminOnly: true, agentId: 'alter-ego', handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
-  model:   { description: '切换模型', adminOnly: true, handler: handleModel, subcommands: ['list'] },
+  model:   { description: '切换模型', adminOnly: true, handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
   help:    { description: '显示帮助', adminOnly: false, handler: showHelp },
 };
 
@@ -87,12 +87,12 @@ async function handleBot(args: string): Promise<void> {
     if (action === 'start') {
       const mode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
       const feishuPort = parseInt(process.env.FEISHU_PORT || '3001', 10);
-      await startFeishuBot({
+      await startAllFeishuBots({
         mode,
         httpPort: mode === 'webhook' ? feishuPort : undefined,
       });
     } else if (action === 'stop') {
-      stopFeishuBot();
+      stopAllFeishuBots();
     } else if (action === 'status') {
       log.print(isFeishuBotRunning() ? '[飞书] Bot 运行中' : '[飞书] Bot 未运行');
     } else {

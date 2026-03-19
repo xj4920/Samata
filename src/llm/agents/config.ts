@@ -4,6 +4,32 @@ import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 
+export const TOOL_PRESETS: Record<string, { description: string; tools: string[] }> = {
+  common: {
+    description: '通用助手：知识库、技能、记忆、Agent管理、文件读写',
+    tools: [
+      'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+      'save_memory', 'search_memory', 'delete_memory',
+      'read_file', 'write_file', 'reload_app',
+    ],
+  },
+  alter_ego: {
+    description: '个人分身：包含 common 基础上额外支持知识库写入和企微 QA 提取',
+    tools: [
+      'search_knowledge', 'update_knowledge', 'extract_wework_qa',
+      'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+      'save_memory', 'search_memory', 'delete_memory',
+      'read_file', 'write_file', 'reload_app',
+    ],
+  },
+  readonly: {
+    description: '只读助手：知识库查询、状态查看，无写入权限',
+    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'search_memory'],
+  },
+};
+
 export interface AgentConfig {
   id: string;
   name: string;
@@ -79,7 +105,9 @@ export function getAllAgents(): AgentConfig[] {
 }
 
 export function getDefaultAgent(): AgentConfig {
-  return getAgent('otcclaw');
+  const name = process.env.DEFAULT_AGENT || 'otcclaw';
+  const agent = getAgent(name);
+  return agent;
 }
 
 export interface SaveAgentInput {
@@ -183,15 +211,18 @@ export function manageAgentMember(action: 'add' | 'del', agentName: string, user
 
 import Anthropic from '@anthropic-ai/sdk';
 
+/** Tools that are always available to all agents, regardless of tools_mode */
+export const UNIVERSAL_TOOLS = new Set(['http_request']);
+
 /** Filter global tools based on agent's tools_mode and tools_list */
 export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[]): Anthropic.Tool[] {
   if (agent.toolsMode === 'all') return globalTools;
   const set = new Set(agent.toolsList);
   if (agent.toolsMode === 'allowlist') {
-    return globalTools.filter(t => set.has(t.name));
+    return globalTools.filter(t => set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
   }
   // blocklist
-  return globalTools.filter(t => !set.has(t.name));
+  return globalTools.filter(t => !set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
 }
 
 // --- Agent Assignment (channel/target → agent) ---
@@ -200,32 +231,37 @@ interface AssignmentRow {
   id: string;
   agent_id: string;
   channel: string;
+  app_id: string | null;
   target_id: string | null;
   created_at: string;
 }
 
 /**
- * Resolve which agent to use for a given channel + target.
- * Priority: exact match (channel+target) > channel default > code fallback (otcclaw)
+ * Resolve which agent to use for a given channel + app/target.
+ * Priority:
+ * - Feishu: app_id match > code fallback
+ * - Telegram: target_id match > code fallback
  */
-export function resolveAgent(channel: string, targetId?: string): AgentConfig {
+export function resolveAgent(channel: string, appId?: string, targetId?: string): AgentConfig {
   const db = getDb();
 
-  // 1. Exact match: channel + target_id
-  if (targetId) {
+  // Feishu: query by (channel='feishu', app_id=xxx, target_id IS NULL)
+  if (channel === 'feishu' && appId) {
     const row = db.prepare(
-      'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.target_id = ?'
+      'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.app_id = ? AND aa.target_id IS NULL'
+    ).get(channel, appId) as AgentRow | undefined;
+    if (row) return rowToConfig(row);
+  }
+
+  // Telegram: query by (channel='telegram', app_id IS NULL, target_id=xxx)
+  if (channel === 'telegram' && targetId) {
+    const row = db.prepare(
+      'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.app_id IS NULL AND aa.target_id = ?'
     ).get(channel, targetId) as AgentRow | undefined;
     if (row) return rowToConfig(row);
   }
 
-  // 2. Channel default: channel + target_id IS NULL
-  const defaultRow = db.prepare(
-    'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.target_id IS NULL'
-  ).get(channel) as AgentRow | undefined;
-  if (defaultRow) return rowToConfig(defaultRow);
-
-  // 3. Code-level fallback
+  // Fallback to default
   return getDefaultAgent();
 }
 
@@ -234,6 +270,7 @@ export interface AssignmentInfo {
   agentName: string;
   agentDisplayName: string;
   channel: string;
+  appId: string | null;
   targetId: string | null;
   createdAt: string;
 }
@@ -241,34 +278,55 @@ export interface AssignmentInfo {
 export function listAssignments(): AssignmentInfo[] {
   const db = getDb();
   const rows = db.prepare(
-    'SELECT aa.*, a.name as agent_name, a.display_name FROM agent_assignments aa JOIN agents a ON a.id = aa.agent_id ORDER BY aa.channel, aa.target_id'
+    'SELECT aa.*, a.name as agent_name, a.display_name FROM agent_assignments aa JOIN agents a ON a.id = aa.agent_id ORDER BY aa.channel, aa.app_id, aa.target_id'
   ).all() as (AssignmentRow & { agent_name: string; display_name: string })[];
   return rows.map(r => ({
     id: r.id,
     agentName: r.agent_name,
     agentDisplayName: r.display_name,
     channel: r.channel,
+    appId: r.app_id,
     targetId: r.target_id,
     createdAt: r.created_at,
   }));
 }
 
-export function saveAssignment(agentName: string, channel: string, targetId?: string): { success: true } | { success: false; error: string } {
+export function saveAssignment(
+  agentName: string,
+  channel: string,
+  appId?: string,
+  targetId?: string
+): { success: true } | { success: false; error: string } {
+  if (!isSystemAdmin()) {
+    return { success: false, error: '权限不足：分配 Agent 需要系统管理员权限' };
+  }
   const db = getDb();
   const agent = db.prepare('SELECT id FROM agents WHERE name = ?').get(agentName) as { id: string } | undefined;
   if (!agent) return { success: false, error: `未找到 Agent: ${agentName}` };
 
-  // Upsert via DELETE + INSERT (SQLite UNIQUE constraint on channel+target_id)
-  db.prepare('DELETE FROM agent_assignments WHERE channel = ? AND target_id IS ?').run(channel, targetId ?? null);
+  // Upsert via DELETE + INSERT (SQLite UNIQUE constraint on channel+app_id+target_id)
+  db.prepare('DELETE FROM agent_assignments WHERE channel = ? AND app_id IS ? AND target_id IS ?')
+    .run(channel, appId ?? null, targetId ?? null);
   const id = uuid();
-  db.prepare('INSERT INTO agent_assignments (id, agent_id, channel, target_id) VALUES (?, ?, ?, ?)').run(id, agent.id, channel, targetId ?? null);
-  log.dim(`[Agent] Assignment saved: ${channel}/${targetId ?? '(default)'} → ${agentName}`);
+  db.prepare('INSERT INTO agent_assignments (id, agent_id, channel, app_id, target_id) VALUES (?, ?, ?, ?, ?)')
+    .run(id, agent.id, channel, appId ?? null, targetId ?? null);
+  log.dim(`[Agent] Assignment saved: ${channel}/${appId || targetId || '(default)'} → ${agentName}`);
   return { success: true };
 }
 
-export function deleteAssignment(channel: string, targetId?: string): { success: true } | { success: false; error: string } {
+export function deleteAssignment(
+  channel: string,
+  appId?: string,
+  targetId?: string
+): { success: true } | { success: false; error: string } {
+  if (!isSystemAdmin()) {
+    return { success: false, error: '权限不足：解除 Agent 分配需要系统管理员权限' };
+  }
   const db = getDb();
-  const result = db.prepare('DELETE FROM agent_assignments WHERE channel = ? AND target_id IS ?').run(channel, targetId ?? null);
-  if (result.changes === 0) return { success: false, error: `未找到分配: ${channel}/${targetId ?? '(default)'}` };
+  const result = db.prepare('DELETE FROM agent_assignments WHERE channel = ? AND app_id IS ? AND target_id IS ?')
+    .run(channel, appId ?? null, targetId ?? null);
+  if (result.changes === 0) {
+    return { success: false, error: `未找到分配: ${channel}/${appId || targetId || '(default)'}` };
+  }
   return { success: true };
 }

@@ -8,14 +8,14 @@ import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './comm
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
-import { startFeishuBot, stopFeishuBot, type FeishuBotMode } from './feishu/bot.js';
+import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
 import { getAllSkills } from './commands/skill.js';
 
 export function gracefulShutdown(): void {
   stopMonitor();
-  stopFeishuBot();
+  stopAllFeishuBots();
   closeDb();
 }
 
@@ -56,7 +56,7 @@ async function repl(): Promise<void> {
     log.print(`  可用 Skill: ${skillNames.join(', ')}`);
   }
   log.print('-'.repeat(40));
-  log.print('\n衍语 — 输入命令开始操作，输入 /help 查看帮助，输入 /exit 退出\n');
+  log.print('\nSamata — 输入命令开始操作，输入 /help 查看帮助，输入 /exit 退出\n');
 
   readline.emitKeypressEvents(process.stdin);
 
@@ -347,7 +347,7 @@ async function repl(): Promise<void> {
 
 async function main(): Promise<void> {
   log.print('\n' + '='.repeat(40));
-  log.print('  衍语 (YanYu) — OTC Claw');
+  log.print('  Samata — 平等，技术平权');
   log.print('='.repeat(40) + '\n');
 
   initSchema();
@@ -366,7 +366,7 @@ async function main(): Promise<void> {
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
   const feishuPort = parseInt(process.env.FEISHU_PORT || '3001', 10);
-  await startFeishuBot({
+  await startAllFeishuBots({
     mode: feishuMode,
     httpPort: feishuMode === 'webhook' ? feishuPort : undefined,
   });

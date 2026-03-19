@@ -15,7 +15,7 @@ import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminTelegram
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User } from '../auth/rbac.js';
 import { runAgenticChat } from '../llm/agent.js';
-import { getAgent, getAllAgents } from '../llm/agents/config.js';
+import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -192,6 +192,41 @@ function handleAgentCommand(args: string, telegramUserId: number): string {
       return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
     });
     return `可用 Agent:\n${lines.join('\n')}`;
+  }
+
+  // /agent assign <name> — assign agent to current user
+  if (sub === 'assign') {
+    const agentName = parts[1];
+    if (!agentName) return '用法: /agent assign <agent_name>';
+
+    const result = saveAssignment(agentName, 'telegram', undefined, String(telegramUserId));
+    if (!result.success) return `❌ ${result.error}`;
+
+    resetSession(telegramUserId);
+    return `✅ 已将 ${agentName} 绑定到你的账号，下次对话生效`;
+  }
+
+  // /agent unassign — remove assignment
+  if (sub === 'unassign') {
+    const result = deleteAssignment('telegram', undefined, String(telegramUserId));
+    if (!result.success) return `❌ ${result.error}`;
+
+    resetSession(telegramUserId);
+    return `✅ 已移除绑定，将使用默认 Agent`;
+  }
+
+  // /agent assignments — list all (admin only)
+  if (sub === 'assignments') {
+    if (!isAdminTelegramUser(telegramUserId)) return '❌ 权限不足：该命令需要管理员权限';
+
+    const assignments = listAssignments();
+    if (assignments.length === 0) return '暂无 Agent 绑定';
+
+    const lines = assignments.map(a => {
+      const target = a.appId || a.targetId || '(渠道默认)';
+      return `${a.channel}/${target} → ${a.agentDisplayName} (${a.agentName})`;
+    });
+    return `Agent 绑定关系:\n${lines.join('\n')}`;
   }
 
   // /agent <name> — switch agent

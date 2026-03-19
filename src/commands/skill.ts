@@ -1,4 +1,5 @@
 import { getDb } from '../db/connection.js';
+import { getCurrentAgent } from '../llm/agent.js';
 import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { recordEvent } from '../models/event.js';
 import { chat } from '../llm/agent.js';
@@ -124,7 +125,8 @@ function showSkillHelp(): void {
 }
 
 function listSkills(): void {
-  const skills = getAllSkills();
+  const agentId = getCurrentAgent()?.id;
+  const skills = getAllSkills(agentId);
   if (skills.length === 0) {
     log.print('暂无已保存的 skill');
     return;
@@ -187,7 +189,7 @@ async function runSkill(args: string): Promise<void> {
     return;
   }
   const name = parts[1];
-  const skill = getSkillByName(name);
+  const skill = getSkillByName(name, getCurrentAgent()?.id);
   if (!skill) {
     log.print(`未找到 skill: ${name}`);
     return;

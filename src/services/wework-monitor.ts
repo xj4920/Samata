@@ -167,7 +167,7 @@ export function startMonitor(options?: { auto?: boolean }): void {
   const hasFeishu = channels.includes('feishu');
   const { feishuChatId, feishuUserId } = cfg.notification || {};
 
-  if (hasTelegram && (!cfg.telegram.botToken || !cfg.telegram.chatId)) {
+  if (hasTelegram && (!cfg.telegram?.botToken || !cfg.telegram?.chatId)) {
     log.print('[monitor] 通知渠道包含 telegram，但未配置 telegram.botToken 或 chatId');
     return;
   }

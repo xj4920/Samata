@@ -88,3 +88,66 @@ async function handleAIChat(userInput: string): Promise<string> {
 - 只需修改 `src/llm/agent.ts` 中的 `runAgenticChat()` 函数
 - 所有入口（CLI、飞书、Telegram）会自动保持一致
 - 无需在多个地方同步修改
+
+### Agent Skills 工具过滤机制
+每个 agent 在 DB 中通过两个字段控制工具访问：
+- `tools_mode`: `'all'` | `'allowlist'` | `'blocklist'`
+- `tools_list`: JSON 数组，工具名列表
+
+过滤逻辑在 `src/llm/agents/config.ts:189` 的 `getAgentTools()`，在 `runAgenticChat()` 中调用：
+```typescript
+const activeTools = agent ? getAgentTools(agent, tools) : tools;
+```
+
+Tutor agent 使用 `allowlist` 模式，16 个工具（知识库、skill 管理、agent 管理、记忆、系统工具），seed 数据在 `src/db/schema.ts:166-182`。
+
+详细架构见 `docs/plan/agent-skills-management.md`。
+
+### Samata 多 Agent 架构约束
+
+**项目标识**
+- 本项目名称为 **Samata**，支持多个 agent 实例同时运行
+
+**默认四个 Agent 角色**（seed 数据在 `src/db/schema.ts`）
+
+| Agent ID    | 角色名称   | 说明                         |
+|-------------|----------|------------------------------|
+| otcclaw     | 工作助理   | OTC Claw，tools_mode='all'   |
+| tutor       | 家庭教育   | 教育辅导，allowlist 模式       |
+| alter-ego   | 数字分身   | 个人分身，alterEgo 工具集      |
+| doctor      | 家庭医生   | 健康咨询，common 工具集        |
+
+**接口设计规范：必须携带 agent_id**
+- 所有返回 agent 作用域数据的接口（knowledge、skill、memory、tool 列表等），必须接受 `agentId` 参数并按其过滤结果
+- 现有参考实现：
+  - `fetchKnowledge(keyword?, agentId?)` → `src/commands/knowledge.ts`
+  - `getAllSkills(agentId?)` → `src/commands/skill.ts`
+  - `fetchMemory(agentId?)` → `src/llm/agents/memory.ts`
+  - `getAgentTools(agent, globalTools)` → `src/llm/agents/config.ts`
+- 新增工具或命令时，若涉及 agent 隔离数据，必须遵循上述模式
+
+**权限层级**
+
+```
+系统管理员 (isSystemAdmin)
+  ├─ 全局权限：创建/删除任意 agent，管理全局 skill/knowledge
+  └─ CLI 直接修改代码权限（仅系统管理员拥有）
+
+Agent 实例管理人 (isAgentAdmin(agentId))
+  ├─ 管理该 agent 的成员（add/del）
+  ├─ 修改该 agent 的配置（system_prompt、model、tools_mode 等）
+  └─ 自举能力：管理该 agent 的 skill 和 tools（save_skill、delete_skill）
+
+普通用户
+  └─ 只能在 agent 允许的工具和 skill 范围内使用，无自举权限
+```
+
+**Agent 自举能力（Self-Bootstrapping）**
+- "自举能力"指 agent 实例自我管理 skill 和 tools 的能力（`save_skill`、`delete_skill`、`save_agent`、`delete_agent` 等工具）
+- 自举工具只能由该 agent 的实例管理人（`agent_members.role='admin'`）调用
+- 普通用户调用自举工具时，必须在工具 handler 中通过 `isAgentAdmin(agentId)` 校验并拒绝
+- 权限检查参考：`src/llm/agents/config.ts` 中的 `isAgentAdmin()` 函数
+
+**Agent 实例权限初始值**
+- 新建 agent 时，其 `tools_mode` 和 `tools_list` 参考对应角色的默认值（见 seed 数据）
+- 创建者自动成为该 agent 的 admin（`agent_members` 表，role='admin'）

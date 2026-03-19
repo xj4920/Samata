@@ -1,5 +1,6 @@
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
+import { TOOL_PRESETS } from '../llm/agents/config.js';
 
 export function initSchema(): void {
   const db = getDb();
@@ -111,6 +112,14 @@ export function initSchema(): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS knowledge_agents (
+      id           TEXT PRIMARY KEY,
+      knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+      agent_id     TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(knowledge_id, agent_id)
+    );
   `);
 
   // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
@@ -186,6 +195,20 @@ export function initSchema(): void {
     }
   }
 
+  // Migration: Populate knowledge_agents — associate all existing knowledge with otcclaw agent
+  try {
+    const kaCount = db.prepare('SELECT COUNT(*) as c FROM knowledge_agents').get() as { c: number };
+    if (kaCount.c === 0) {
+      const allKnowledge = db.prepare('SELECT id FROM knowledge').all() as { id: string }[];
+      const insKA = db.prepare('INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)');
+      for (const k of allKnowledge) {
+        insKA.run(uuid(), k.id, 'agent-otcclaw');
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
   // Migration: Add QA tools to alter-ego
   const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
   if (aeRow) {
@@ -194,5 +217,52 @@ export function initSchema(): void {
       const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
       db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
     }
+  }
+
+  // Migration: Add app_id column to agent_assignments
+  try {
+    const cols = db.pragma('table_info(agent_assignments)') as Array<{ name: string }>;
+    const hasAppId = cols.some(c => c.name === 'app_id');
+
+    if (!hasAppId) {
+      db.exec(`
+        CREATE TABLE agent_assignments_new (
+          id         TEXT PRIMARY KEY,
+          agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+          channel    TEXT NOT NULL,
+          app_id     TEXT,
+          target_id  TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(channel, app_id, target_id)
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO agent_assignments_new (id, agent_id, channel, app_id, target_id, created_at)
+        SELECT id, agent_id, channel, NULL, target_id, created_at FROM agent_assignments;
+      `);
+
+      db.exec('DROP TABLE agent_assignments;');
+      db.exec('ALTER TABLE agent_assignments_new RENAME TO agent_assignments;');
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Sync tutor and doctor tools_list to commonTools preset
+  try {
+    const tutorRow = db.prepare("SELECT tools_list FROM agents WHERE name='tutor'").get() as { tools_list: string | null } | undefined;
+    if (tutorRow) {
+      const currentTools = tutorRow.tools_list ? JSON.parse(tutorRow.tools_list) : [];
+      if (currentTools.length < 10) {  // 旧数据，需要更新
+        const commonToolsList = TOOL_PRESETS['common'].tools;
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='tutor'")
+          .run(JSON.stringify(commonToolsList));
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='doctor'")
+          .run(JSON.stringify(commonToolsList));
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
   }
 }

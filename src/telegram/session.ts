@@ -32,7 +32,7 @@ export function getSession(telegramUserId: number, telegramUsername: string): Te
   let session = sessions.get(telegramUserId);
   if (!session) {
     const role = adminIds.has(telegramUserId) ? 'admin' : 'user';
-    const agent = resolveAgent('telegram', String(telegramUserId));
+    const agent = resolveAgent('telegram', undefined, String(telegramUserId));
     session = {
       telegramUserId,
       telegramUsername,
@@ -56,7 +56,7 @@ export function resetSession(telegramUserId: number): boolean {
   const session = sessions.get(telegramUserId);
   if (session) {
     session.history = [];
-    const agent = resolveAgent('telegram', String(telegramUserId));
+    const agent = resolveAgent('telegram', undefined, String(telegramUserId));
     session.agentName = agent.name;
     return true;
   }

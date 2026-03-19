@@ -2,14 +2,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getProviderName, getProviderByName, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
 import type { AgentConfig } from './agents/config.js';
-import { getAgentTools, getDefaultAgent, getAllAgents, getAgent, saveAgent, deleteAgent } from './agents/config.js';
+import { getAgentTools, getDefaultAgent, getAllAgents, getAgent, saveAgent, deleteAgent, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS } from './agents/config.js';
 import { buildSystemPrompt } from './agents/prompt.js';
-import { saveMemory as saveMemoryFn, searchMemory as searchMemoryFn, deleteMemory as deleteMemoryFn } from './agents/memory.js';
+import { saveMemory as saveMemoryFn, searchMemory as searchMemoryFn, deleteMemory as deleteMemoryFn, updateMemory as updateMemoryFn } from './agents/memory.js';
 import { fetchSystemStatus } from '../commands/monitor.js';
 import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
 import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
-import { fetchKnowledge, updateKnowledgeById } from '../commands/knowledge.js';
+import { fetchKnowledge, updateKnowledgeById, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
@@ -112,6 +112,41 @@ const tools: Anthropic.Tool[] = [
         },
       },
       required: ['id_prefix', 'fields'],
+    },
+  },
+  {
+    name: 'assign_knowledge_agent',
+    description: '将知识条目关联到指定 Agent，使该 Agent 可通过 search_knowledge 搜索到该条目（仅管理员）',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        knowledge_id: { type: 'string', description: '知识条目 ID 或 ID 前缀（通过 search_knowledge 获取）' },
+        agent_name: { type: 'string', description: 'Agent 名称（如 otcclaw、doctor、tutor）' },
+      },
+      required: ['knowledge_id', 'agent_name'],
+    },
+  },
+  {
+    name: 'unassign_knowledge_agent',
+    description: '解除知识条目与指定 Agent 的关联（仅管理员）',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        knowledge_id: { type: 'string', description: '知识条目 ID 或 ID 前缀' },
+        agent_name: { type: 'string', description: 'Agent 名称' },
+      },
+      required: ['knowledge_id', 'agent_name'],
+    },
+  },
+  {
+    name: 'get_knowledge_agents',
+    description: '查询某条知识条目关联了哪些 Agent',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        knowledge_id: { type: 'string', description: '知识条目 ID 或 ID 前缀' },
+      },
+      required: ['knowledge_id'],
     },
   },
   {
@@ -352,6 +387,7 @@ const tools: Anthropic.Tool[] = [
         tools_mode: { type: 'string', description: "'all' | 'allowlist' | 'blocklist'" },
         tools_list: { type: 'array', items: { type: 'string' }, description: '工具名称列表（配合 tools_mode 使用）' },
         max_history: { type: 'number', description: '最大历史消息数，默认 80' },
+        preset: { type: 'string', description: "工具预设名称（'common' | 'alter_ego' | 'readonly'），设置后自动填充 tools_list，tools_mode 为 allowlist" },
       },
       required: ['name', 'display_name'],
     },
@@ -372,6 +408,40 @@ const tools: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: { name: { type: 'string', description: '要切换到的 Agent 名称' } },
       required: ['name'],
+    },
+  },
+  // --- Agent assignment tools ---
+  {
+    name: 'assign_agent',
+    description: '将 Agent 绑定到指定渠道或用户。可设置渠道默认或用户专属 Agent。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        agent_name: { type: 'string', description: 'Agent 名称' },
+        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
+        target_id: { type: 'string', description: '可选：用户 ID（不传则设为渠道默认）' },
+      },
+      required: ['agent_name', 'channel'],
+    },
+  },
+  {
+    name: 'unassign_agent',
+    description: '移除 Agent 绑定',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
+        target_id: { type: 'string', description: '可选：用户 ID（不传则移除渠道默认）' },
+      },
+      required: ['channel'],
+    },
+  },
+  {
+    name: 'list_agent_assignments',
+    description: '列出所有 Agent 绑定关系',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
     },
   },
   // --- Memory management tools ---
@@ -400,14 +470,51 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'delete_memory',
-    description: '删除一条已保存的记忆（仅管理员）',
+    name: 'update_memory',
+    description: '修改一条已保存的记忆内容或分类（仅管理员）',
     input_schema: {
       type: 'object' as const,
       properties: {
         id: { type: 'string', description: '记忆 ID 或 ID 前缀' },
+        content: { type: 'string', description: '新的记忆内容（最大500字符）' },
+        category: { type: 'string', description: "新的分类: 'fact' | 'preference' | 'rule' | 'context'" },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'delete_memory',
+    description: '删除一条已保存的记忆（仅 admin 可用）。需要提供记忆 ID 前缀。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: '要删除的记忆 ID（前缀匹配）' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'list_tool_presets',
+    description: '列出所有可用的工具预设（preset），用于创建 agent 时快速选择工具集',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'http_request',
+    description: '发起 HTTP 请求，支持 GET/POST/PUT/DELETE 等方法。可用于调用外部 API、获取网页内容等。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: '请求 URL' },
+        method: { type: 'string', description: 'HTTP 方法：GET、POST、PUT、DELETE 等，默认 GET' },
+        headers: {
+          type: 'object' as const,
+          description: '请求头（可选），如 { "Content-Type": "application/json", "Authorization": "Bearer xxx" }',
+          additionalProperties: { type: 'string' },
+        },
+        body: { type: 'string', description: '请求体（可选），POST/PUT 时使用，JSON 字符串或纯文本' },
+        timeout: { type: 'number', description: '超时时间（毫秒），默认 10000' },
+      },
+      required: ['url'],
     },
   },
 ];
@@ -481,7 +588,8 @@ function handleStatusSummary(): string {
 }
 
 function handleSearchKnowledge(input: { keyword: string }): string {
-  const rows = fetchKnowledge(input.keyword);
+  const agentId = getCurrentAgent()?.id;
+  const rows = fetchKnowledge(input.keyword, agentId);
   if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ，建议换用更短或不同的关键词重试' });
   return JSON.stringify(rows.map(r => ({
     id: r.id.slice(0, 8),
@@ -495,6 +603,20 @@ function handleSearchKnowledge(input: { keyword: string }): string {
 function handleUpdateKnowledge(input: { id_prefix: string; fields: { question?: string; answer?: string; tags?: string; related_users?: string } }): string {
   if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
   return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
+}
+
+function handleAssignKnowledgeAgent(input: { knowledge_id: string; agent_name: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  return JSON.stringify(assignKnowledgeToAgent(input.knowledge_id, input.agent_name));
+}
+
+function handleUnassignKnowledgeAgent(input: { knowledge_id: string; agent_name: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  return JSON.stringify(unassignKnowledgeFromAgent(input.knowledge_id, input.agent_name));
+}
+
+function handleGetKnowledgeAgents(input: { knowledge_id: string }): string {
+  return JSON.stringify(getKnowledgeAgents(input.knowledge_id));
 }
 
 function handleAddClient(input: { name: string; contact?: string; wework_group?: string; requirements?: string; sales?: string; notes?: string }): string {
@@ -783,6 +905,11 @@ function handleDeleteMemory(input: { id: string }): string {
   return JSON.stringify(deleteMemoryFn(input.id));
 }
 
+function handleUpdateMemory(input: { id: string; content?: string; category?: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可修改记忆' });
+  return JSON.stringify(updateMemoryFn(input.id, { content: input.content, category: input.category }));
+}
+
 // --- Agent management handlers ---
 
 function handleListAgents(): string {
@@ -812,6 +939,46 @@ function handleGetAgent(input: { name: string }): string {
   });
 }
 
+function handleListToolPresets(): string {
+  return JSON.stringify(
+    Object.entries(TOOL_PRESETS).map(([key, preset]) => ({
+      preset: key,
+      description: preset.description,
+      toolCount: preset.tools.length,
+      tools: preset.tools,
+    }))
+  );
+}
+
+async function handleHttpRequest(input: {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeout?: number;
+}): Promise<string> {
+  const { default: axios } = await import('axios');
+  const method = (input.method ?? 'GET').toUpperCase();
+  const timeout = input.timeout ?? 10000;
+  try {
+    const resp = await axios.request({
+      url: input.url,
+      method,
+      headers: input.headers,
+      data: input.body,
+      timeout,
+      responseType: 'text',
+      transformResponse: [(data) => data],
+      validateStatus: () => true,
+    });
+    const body = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+    const truncated = body.length > 8000 ? body.slice(0, 8000) + `\n...(已截断，原始长度 ${body.length} 字节)` : body;
+    return JSON.stringify({ status: resp.status, headers: resp.headers, body: truncated });
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message });
+  }
+}
+
 function handleSaveAgent(input: {
   name: string;
   display_name: string;
@@ -822,7 +989,14 @@ function handleSaveAgent(input: {
   tools_mode?: string;
   tools_list?: string[];
   max_history?: number;
+  preset?: string;
 }): string {
+  if (input.preset) {
+    const preset = TOOL_PRESETS[input.preset];
+    if (!preset) return JSON.stringify({ error: `未知 preset: ${input.preset}，可用: ${Object.keys(TOOL_PRESETS).join(', ')}` });
+    input.tools_mode = input.tools_mode || 'allowlist';
+    input.tools_list = preset.tools;
+  }
   const result = saveAgent({
     name: input.name,
     displayName: input.display_name,
@@ -849,6 +1023,22 @@ function handleSwitchAgent(input: { name: string }): string {
   return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})` });
 }
 
+function handleAssignAgent(input: { agent_name: string; channel: string; target_id?: string }): string {
+  const result = saveAssignment(input.agent_name, input.channel, undefined, input.target_id);
+  return JSON.stringify(result);
+}
+
+function handleUnassignAgent(input: { channel: string; target_id?: string }): string {
+  const result = deleteAssignment(input.channel, undefined, input.target_id);
+  return JSON.stringify(result);
+}
+
+function handleListAssignments(): string {
+  const assignments = listAssignments();
+  return JSON.stringify(assignments);
+}
+
+
 export async function executeTool(name: string, input: any): Promise<string> {
   switch (name) {
     case 'query_clients': return handleQueryClients(input);
@@ -856,6 +1046,10 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'get_client_history': return handleGetHistory(input);
     case 'get_status_summary': return handleStatusSummary();
     case 'search_knowledge': return handleSearchKnowledge(input);
+    case 'update_knowledge': return handleUpdateKnowledge(input);
+    case 'assign_knowledge_agent': return handleAssignKnowledgeAgent(input);
+    case 'unassign_knowledge_agent': return handleUnassignKnowledgeAgent(input);
+    case 'get_knowledge_agents': return handleGetKnowledgeAgents(input);
     case 'add_client': return handleAddClient(input);
     case 'update_client': return handleUpdateClient(input);
     case 'advance_client': return handleAdvanceClient(input);
@@ -878,9 +1072,15 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'save_agent': return handleSaveAgent(input);
     case 'delete_agent': return handleDeleteAgent(input);
     case 'switch_agent': return handleSwitchAgent(input);
+    case 'assign_agent': return handleAssignAgent(input);
+    case 'unassign_agent': return handleUnassignAgent(input);
+    case 'list_agent_assignments': return handleListAssignments();
     case 'save_memory': return handleSaveMemory(input);
     case 'search_memory': return handleSearchMemory(input);
     case 'delete_memory': return handleDeleteMemory(input);
+    case 'update_memory': return handleUpdateMemory(input);
+    case 'list_tool_presets': return handleListToolPresets();
+    case 'http_request': return handleHttpRequest(input);
     default: return JSON.stringify({ error: `未知工具: ${name}` });
   }
 }
@@ -935,7 +1135,7 @@ export function getTools(): Anthropic.Tool[] {
 
 export function getSystemPrompt(user?: User): string {
   const u = user ?? getCurrentUser();
-  return `你是 OTC Claw。你可以：
+  return `你是 Samata，意为"平等，技术平权"。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact ↔ Requirement Discussion ↔ Solution Design ↔ UAT ↔ PROD，支持 advance 推进和 rollback 回退）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
 3. 回答关于客户的问题，提供数据分析

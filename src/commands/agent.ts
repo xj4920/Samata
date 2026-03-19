@@ -1,7 +1,8 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, type AgentConfig } from '../llm/agents/config.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, saveAssignment, deleteAssignment, listAssignments, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
+import { input, select, confirm } from '@inquirer/prompts';
 
 export async function handleAgent(args: string): Promise<void> {
   const match = args.match(/^(\S+)\s*(.*)/s);
@@ -17,9 +18,13 @@ export async function handleAgent(args: string): Promise<void> {
     case 'list': return listAgents();
     case 'switch': return switchAgent(rest);
     case 'info': return showInfo();
+    case 'create': return createAgent();
     case 'member': return manageMembers(rest);
     case 'del':
     case 'delete': return delAgent(rest);
+    case 'assign': return assignAgent(rest);
+    case 'unassign': return unassignAgent(rest);
+    case 'assignments': return listAssignmentsCmd();
     default:
       // Treat unknown sub as agent name to switch to
       return switchAgent(sub);
@@ -29,10 +34,119 @@ export async function handleAgent(args: string): Promise<void> {
 function showHelp(): void {
   log.print('Agent 用法：');
   log.print('  agent list                  列出所有 Agent');
+  log.print('  agent create                创建新 Agent（交互向导）');
   log.print('  agent switch <name>         切换当前会话的 Agent');
   log.print('  agent info                  查看当前 Agent 信息');
   log.print('  agent member <add|del> <agent_name> <username> [role]  管理 Agent 成员 (默认 admin)');
   log.print('  agent del <name>            删除 Agent');
+  log.print('  agent assign <name> feishu <app_id>        绑定 Agent 到飞书应用');
+  log.print('  agent assign <name> telegram [user_id]     绑定 Agent 到 Telegram 用户');
+  log.print('  agent unassign feishu <app_id>             移除飞书应用绑定');
+  log.print('  agent unassign telegram [user_id]          移除 Telegram 用户绑定');
+  log.print('  agent assignments                          列出所有绑定');
+}
+
+async function createAgent(): Promise<void> {
+  log.print('=== 创建新 Agent ===');
+
+  // Step 1: Basic info
+  const name = await input({
+    message: 'Agent 名称（英文，唯一）:',
+    validate: (v) => {
+      if (!v.trim()) return '名称不能为空';
+      if (!/^[a-z0-9-]+$/.test(v.trim())) return '只允许小写字母、数字和连字符';
+      const existing = getAllAgents().find(a => a.name === v.trim());
+      if (existing) return `名称已存在: ${v.trim()}`;
+      return true;
+    },
+  });
+
+  const displayName = await input({
+    message: '显示名称:',
+    validate: (v) => v.trim() ? true : '显示名称不能为空',
+  });
+
+  const description = await input({ message: '描述（可选）:' });
+
+  // Step 2: Tools config
+  const toolsModeChoice = await select({
+    message: '工具配置方式:',
+    choices: [
+      { name: '全部工具（all）', value: 'all' },
+      { name: '使用预设（preset）', value: 'preset' },
+      { name: '自定义工具列表', value: 'custom' },
+      { name: '黑名单模式（blocklist）', value: 'blocklist' },
+    ],
+  });
+
+  let toolsMode: 'all' | 'allowlist' | 'blocklist' = 'all';
+  let toolsList: string[] | undefined;
+
+  if (toolsModeChoice === 'preset') {
+    const presetChoices = Object.entries(TOOL_PRESETS).map(([key, p]) => ({
+      name: `${key} — ${p.description} (${p.tools.length} 个工具)`,
+      value: key,
+    }));
+    const presetKey = await select({ message: '选择预设:', choices: presetChoices });
+    toolsMode = 'allowlist';
+    toolsList = TOOL_PRESETS[presetKey].tools;
+    log.print(`  已选预设 ${presetKey}，包含 ${toolsList.length} 个工具`);
+  } else if (toolsModeChoice === 'custom') {
+    const globalTools = getGlobalTools();
+    log.print(`  可用工具: ${globalTools.map(t => t.name).join(', ')}`);
+    const toolsInput = await input({
+      message: '输入工具名称（逗号分隔）:',
+      validate: (v) => v.trim() ? true : '至少输入一个工具名',
+    });
+    toolsMode = 'allowlist';
+    toolsList = toolsInput.split(',').map(t => t.trim()).filter(Boolean);
+  } else if (toolsModeChoice === 'blocklist') {
+    const globalTools = getGlobalTools();
+    log.print(`  可用工具: ${globalTools.map(t => t.name).join(', ')}`);
+    const toolsInput = await input({ message: '输入要排除的工具名称（逗号分隔，可留空）:' });
+    toolsMode = 'blocklist';
+    toolsList = toolsInput ? toolsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+  }
+
+  // Step 3: System prompt (optional)
+  const systemPrompt = await input({ message: '系统提示词（可选，留空使用默认）:' });
+
+  // Step 4: Model/Provider (optional)
+  const model = await input({ message: '模型（可选，留空使用全局默认）:' });
+  const provider = await input({ message: 'Provider（可选，留空使用全局默认）:' });
+
+  // Step 5: Confirm
+  log.print('\n=== 确认信息 ===');
+  log.print(`  名称: ${name}`);
+  log.print(`  显示名: ${displayName}`);
+  if (description) log.print(`  描述: ${description}`);
+  log.print(`  工具模式: ${toolsMode}${toolsList ? ` (${toolsList.length} 个)` : ''}`);
+  if (systemPrompt) log.print(`  系统提示词: ${systemPrompt.slice(0, 50)}...`);
+  if (model) log.print(`  模型: ${model}`);
+  if (provider) log.print(`  Provider: ${provider}`);
+
+  const ok = await confirm({ message: '确认创建？', default: true });
+  if (!ok) {
+    log.print('已取消');
+    return;
+  }
+
+  const result = saveAgent({
+    name,
+    displayName,
+    description: description || undefined,
+    systemPrompt: systemPrompt || undefined,
+    model: model || undefined,
+    provider: provider || undefined,
+    toolsMode,
+    toolsList,
+  });
+
+  if (!result.success) {
+    log.print(`创建失败: ${(result as any).error}`);
+    return;
+  }
+  log.print(`Agent 已创建: ${displayName} (${name})`);
 }
 
 function manageMembers(args: string): void {
@@ -141,4 +255,97 @@ function delAgent(name: string): void {
     setCurrentAgent(undefined);
     log.print('已切回默认 Agent');
   }
+}
+
+function assignAgent(args: string): void {
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 2) {
+    log.print('用法:');
+    log.print('  agent assign <agent_name> feishu <app_id>');
+    log.print('  agent assign <agent_name> telegram [user_id]');
+    return;
+  }
+
+  const [agentName, channel, identifier] = parts;
+
+  let appId: string | undefined;
+  let targetId: string | undefined;
+
+  if (channel === 'feishu') {
+    if (!identifier) {
+      log.print('❌ 飞书渠道需要指定 app_id');
+      return;
+    }
+    appId = identifier;
+    targetId = undefined;
+  } else if (channel === 'telegram') {
+    appId = undefined;
+    targetId = identifier;  // 可选
+  } else {
+    log.print(`❌ 不支持的渠道: ${channel}`);
+    return;
+  }
+
+  const result = saveAssignment(agentName, channel, appId, targetId);
+  if (!result.success) {
+    log.print(`❌ ${result.error}`);
+    return;
+  }
+
+  const target = appId || targetId || '(渠道默认)';
+  log.print(`✅ 已绑定: ${channel}/${target} → ${agentName}`);
+}
+
+function unassignAgent(args: string): void {
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 1) {
+    log.print('用法:');
+    log.print('  agent unassign feishu <app_id>');
+    log.print('  agent unassign telegram [user_id]');
+    return;
+  }
+
+  const [channel, identifier] = parts;
+
+  let appId: string | undefined;
+  let targetId: string | undefined;
+
+  if (channel === 'feishu') {
+    if (!identifier) {
+      log.print('❌ 飞书渠道需要指定 app_id');
+      return;
+    }
+    appId = identifier;
+  } else if (channel === 'telegram') {
+    targetId = identifier;
+  }
+
+  const result = deleteAssignment(channel, appId, targetId);
+  if (!result.success) {
+    log.print(`❌ ${result.error}`);
+    return;
+  }
+
+  const target = appId || targetId || '(渠道默认)';
+  log.print(`✅ 已移除绑定: ${channel}/${target}`);
+}
+
+function listAssignmentsCmd(): void {
+  const assignments = listAssignments();
+  if (assignments.length === 0) {
+    log.print('暂无 Agent 绑定');
+    return;
+  }
+
+  const head = ['渠道', 'App ID', '目标', 'Agent', '创建时间'];
+  const rows = assignments.map(a => [
+    a.channel,
+    a.appId || '-',
+    a.targetId || '-',
+    `${a.agentDisplayName} (${a.agentName})`,
+    a.createdAt,
+  ]);
+
+  renderTable(head, rows);
+  log.print(`共 ${assignments.length} 条绑定`);
 }

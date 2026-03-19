@@ -1,5 +1,6 @@
 import { listAllMemory, saveMemory, deleteMemory, searchMemory, type MemoryItem } from '../llm/agents/memory.js';
 import { getCurrentAgent } from '../llm/agent.js';
+import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 
@@ -33,17 +34,27 @@ function showHelp(): void {
 }
 
 function listMemory(): void {
-  const items = listAllMemory();
+  const items = listAllMemory(getCurrentAgent()?.id);
   if (items.length === 0) {
     log.print('暂无已保存的记忆');
     return;
+  }
+
+  // Build agent id -> display_name map
+  const agentIds = [...new Set(items.map(m => m.agentId).filter(Boolean))] as string[];
+  const agentNameMap: Record<string, string> = {};
+  if (agentIds.length > 0) {
+    const db = getDb();
+    const placeholders = agentIds.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT id, display_name FROM agents WHERE id IN (${placeholders})`).all(...agentIds) as { id: string; display_name: string }[];
+    for (const r of rows) agentNameMap[r.id] = r.display_name;
   }
 
   const head = ['ID', '范围', 'Agent', '分类', '内容', '来源', '时间'];
   const rows = items.map(m => [
     m.id.slice(0, 8),
     m.scope,
-    m.agentId ? m.agentId.replace('agent-', '') : '-',
+    m.agentId ? (agentNameMap[m.agentId] ?? m.agentId.slice(0, 8)) : '-',
     m.category ?? '-',
     m.content.length > 40 ? m.content.slice(0, 37) + '...' : m.content,
     m.source,
