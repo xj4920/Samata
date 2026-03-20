@@ -28,6 +28,7 @@ import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignmen
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
+import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
 import { fetchTrades } from '../commands/trade.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
@@ -548,9 +549,10 @@ function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUse
     const session = getSessionForInstance(instance, feishuUserId, '');
     const lines = agents.map(a => {
       const marker = a.name === session.agentName ? '▶ ' : '  ';
-      return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
+      const idTag = `[${a.id.slice(0, 8)}]`;
+      return `${marker}${a.displayName} (${a.name}) ${idTag}${a.description ? `  ${a.description}` : ''}`;
     });
-    return `可用 Agent:\n${lines.join('\n')}`;
+    return `可用 Agent (实例列表):\n${lines.join('\n')}`;
   }
 
   // /agent assign <name> — assign agent to current app
@@ -752,29 +754,14 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     if (text === '/help') {
-      await sendFeishuReply(instance, chatId,
-        `📋 *衍语 Bot 命令*\n\n` +
-        `*基础命令：*\n` +
-        `/start - 开始使用\n` +
-        `/help - 查看帮助\n` +
-        `/reset - 重置对话上下文\n` +
-        `/status - 系统状态\n\n` +
-        `*客户管理：*\n` +
-        `/client list [state=xx] - 客户列表\n` +
-        `/client view <名称> - 查看客户详情\n` +
-        `/client history <名称> - 操作历史\n` +
-        `/client add <名称> - 添加客户 👑\n` +
-        `/client advance <名称> - 推进状态 👑\n\n` +
-        `*查询命令：*\n` +
-        `/trade <参数> - 交易查询\n` +
-        `/faq <关键词> - 搜索知识库\n\n` +
-        `*Agent 管理：*\n` +
-        `/agent - 查看当前 Agent\n` +
-        `/agent list - 列出所有 Agent\n` +
-        `/agent <name> - 切换 Agent\n\n` +
-        `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
-        replyOpts
-      );
+      const entries = getCommandEntries();
+      const lines = ['📋 可用命令：', ''];
+      for (const e of entries) {
+        lines.push(`${e.name} — ${e.description}`);
+        if (e.usage) lines.push(`  用法: ${e.usage}`);
+      }
+      lines.push('', '💡 也可以直接输入自然语言，AI 助手会帮你处理！');
+      await sendFeishuReply(instance, chatId, lines.join('\n'), replyOpts);
       return;
     }
 

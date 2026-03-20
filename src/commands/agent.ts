@@ -181,11 +181,12 @@ function listAgents(): void {
 
   const current = getCurrentAgent();
   const globalTools = getGlobalTools();
-  const head = ['', '名称', '显示名', '描述', 'Tools (可用数量)'];
+  const head = ['', 'ID', '名称', '显示名', '描述', 'Tools (可用数量)'];
   const rows = agents.map(a => {
     const availableTools = getAgentTools(a, globalTools);
     return [
       (current?.name ?? 'otcclaw') === a.name ? '→' : ' ',
+      a.id.slice(0, 8),
       a.name,
       a.displayName,
       a.description ?? '-',
