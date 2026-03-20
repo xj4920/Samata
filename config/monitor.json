@@ -13,11 +13,7 @@
   "notification": {
     "channels": ["feishu"],
     "feishuChatId": "",
-    "feishuUserId": "ou_0e6cf7a054dc5629fa4bb4209236f292",
-    "feishu": {
-      "appId": "cli_a93179134b705cb3",
-      "appSecret": "xedKHZZ0OwWSJx0WG0vMUdW5kYW1D1W6"
-    }
+    "feishuUserId": "ou_0e6cf7a054dc5629fa4bb4209236f292"
   },
   "senders": [
     "肖诗泉",
@@ -45,7 +41,7 @@
     "焦润",
     "朱曌巍"
   ],
-  "pollingIntervalSec": 10
+  "pollingIntervalSec": 10,
   "sales": [
     "陈仰旭",
     "赵晴宇",

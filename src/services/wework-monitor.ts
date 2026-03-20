@@ -5,6 +5,7 @@ import { queryInfluxRaw } from '../db/influxdb.js';
 import { log } from '../utils/logger.js';
 import { FeishuAPI } from '../feishu/api.js';
 import type { FeishuAppRow } from '../llm/agents/config.js';
+import { getDb } from '../db/connection.js';
 
 type NotificationChannel = 'telegram' | 'feishu';
 
@@ -16,7 +17,6 @@ interface MonitorConfig {
     channels: NotificationChannel[];
     feishuChatId?: string;
     feishuUserId?: string;
-    feishu?: { appId: string; appSecret: string };
   };
   senders: string[];
   pollingIntervalSec: number;
@@ -58,13 +58,12 @@ async function sendTelegram(text: string): Promise<void> {
 let feishuApi: FeishuAPI | null = null;
 
 function getFeishuNotifyApp(): FeishuAppRow | null {
-  const cfg = loadConfig();
-  const feishu = cfg.notification?.feishu;
-  if (!feishu?.appId || !feishu?.appSecret) {
-    log.print('[monitor] 未配置飞书 app，请在 config/monitor.json 中设置 notification.feishu.appId 和 appSecret');
+  const row = getDb().prepare("SELECT * FROM feishu_apps WHERE app_name = 'monitor-bot' LIMIT 1").get() as FeishuAppRow | undefined;
+  if (!row) {
+    log.print('[monitor] feishu_apps 表中未找到 monitor-bot，请先添加');
     return null;
   }
-  return { app_id: feishu.appId, app_secret: feishu.appSecret } as FeishuAppRow;
+  return row;
 }
 
 /**
@@ -203,8 +202,7 @@ export function startMonitor(options?: { auto?: boolean }): void {
     }).catch((err: any) => {
       log.error(`[monitor] 飞书连接失败: ${err.message}`);
     });
-  }
-  if (channels.length === 0) {
+  }  if (channels.length === 0) {
     log.print('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
     return;
   }
