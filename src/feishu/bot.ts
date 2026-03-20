@@ -126,6 +126,11 @@ async function handleAIChat(
       onProgress,
     });
 
+    // 关键修复：将 AI 的回复存入会话历史，确保后续对话能记得前面的内容
+    if (textReply) {
+      session.history.push({ role: 'assistant', content: textReply });
+    }
+
     return { text: textReply || '（无回复内容）' };
   } finally {
     setCurrentUser(prevUser);
@@ -250,7 +255,8 @@ async function sendFeishuReply(
         lastMessageId = await api.sendCard(chatId, card);
       }
     } catch (err: any) {
-      log.warn(`[飞书] Card 分片 ${i + 1}/${chunks.length} 发送失败，回退到纯文本: ${err.message}`);
+      const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      log.error(`[飞书] Card 分片 ${i + 1}/${chunks.length} 发送失败: ${errorDetail}，回退到纯文本`);
       try {
         if (useReply) {
           lastMessageId = await api.replyMessage(options.messageId!, 'text', { text: chunkText });

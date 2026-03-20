@@ -30,13 +30,51 @@ function stripThinkBlocks(text: string): string {
 }
 
 /**
+ * 修复 Markdown 表格格式
+ * 飞书卡片对表格非常挑剔：
+ * 1. 必须有分隔行 | --- |
+ * 2. 分隔行前后必须有换行
+ * 3. 列数必须对齐
+ */
+function fixMarkdownTables(text: string): string {
+  const lines = text.split('\n');
+  let inTable = false;
+  const processedLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const isTableRow = line.startsWith('|') && line.endsWith('|') && line.includes('|');
+    const isDivider = line.match(/^\|? *[-:]+ *\| *[-:| ]*$/);
+
+    if (isTableRow && !inTable) {
+      // 表格开始，确保前面有换行
+      if (processedLines.length > 0 && processedLines[processedLines.length - 1] !== '') {
+        processedLines.push('');
+      }
+      inTable = true;
+    }
+
+    if (inTable && !isTableRow && line !== '') {
+      // 表格结束，确保后面有换行
+      inTable = false;
+      processedLines.push('');
+    }
+
+    processedLines.push(lines[i]);
+  }
+
+  return processedLines.join('\n');
+}
+
+/**
  * 构建飞书消息卡片 JSON（schema 2.0）
  *
  * 直接将 markdown 文本放入 body.elements 的 markdown 元素中，
  * 飞书卡片原生支持表格、加粗、列表、代码块等 markdown 语法。
  */
 export function buildCard(rawMarkdown: string): FeishuCard {
-  const content = stripThinkBlocks(rawMarkdown);
+  let content = stripThinkBlocks(rawMarkdown);
+  content = fixMarkdownTables(content);
 
   return {
     schema: '2.0',
