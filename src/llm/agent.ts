@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getProviderName, getProviderByName, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
-import { getCurrentUser, isAdmin, type User } from '../auth/rbac.js';
+import { getCurrentUser, isAdmin, isAgentAdmin, type User } from '../auth/rbac.js';
 import type { AgentConfig } from './agents/config.js';
 import { getAgentTools, getDefaultAgent, getAllAgents, getAgent, saveAgent, deleteAgent, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS } from './agents/config.js';
 import { buildSystemPrompt } from './agents/prompt.js';
@@ -14,12 +14,12 @@ import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
 import { extractWeworkQA } from '../commands/wework-qa.js';
-import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 const showThinking = () => process.env.SHOW_THINKING !== 'false';
 
@@ -334,6 +334,18 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'exec_cmd',
+    description: '在本机执行 shell 命令，返回 stdout/stderr（仅 agent admin 可用）。超时默认 30 秒。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        cmd: { type: 'string', description: '要执行的 shell 命令' },
+        timeout_ms: { type: 'number', description: '超时毫秒数，默认 30000' },
+      },
+      required: ['cmd'],
+    },
+  },
+  {
     name: 'reload_app',
     description: '触发应用热重载，使代码变更生效（仅管理员可用）。会以退出码 120 退出，由 launcher 自动重启。',
     input_schema: {
@@ -356,17 +368,6 @@ const tools: Anthropic.Tool[] = [
         limit: { type: 'number', description: '返回 Q&A 对数量上限，默认 10' },
       },
       required: [],
-    },
-  },
-  {
-    name: 'wework_monitor',
-    description: '控制企微消息监测服务。支持启动、停止、查询状态。仅 alter-ego 可用。',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        action: { type: 'string', description: "'start' | 'stop' | 'status'" },
-      },
-      required: ['action'],
     },
   },
   // --- Agent management tools ---
@@ -425,25 +426,27 @@ const tools: Anthropic.Tool[] = [
   // --- Agent assignment tools ---
   {
     name: 'assign_agent',
-    description: '将 Agent 绑定到指定渠道或用户。可设置渠道默认或用户专属 Agent。',
+    description: '将 Agent 绑定到指定渠道或应用。feishu 渠道用 app_id 标识应用，telegram/cli 渠道用 target_id 标识用户。',
     input_schema: {
       type: 'object' as const,
       properties: {
         agent_name: { type: 'string', description: 'Agent 名称' },
         channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
-        target_id: { type: 'string', description: '可选：用户 ID（不传则设为渠道默认）' },
+        app_id: { type: 'string', description: 'feishu 渠道专用：飞书 app_id（如 cli_xxx）' },
+        target_id: { type: 'string', description: 'telegram/cli 渠道专用：用户 ID' },
       },
       required: ['agent_name', 'channel'],
     },
   },
   {
     name: 'unassign_agent',
-    description: '移除 Agent 绑定',
+    description: '移除 Agent 绑定。feishu 渠道用 app_id，telegram/cli 渠道用 target_id。',
     input_schema: {
       type: 'object' as const,
       properties: {
         channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
-        target_id: { type: 'string', description: '可选：用户 ID（不传则移除渠道默认）' },
+        app_id: { type: 'string', description: 'feishu 渠道专用：飞书 app_id' },
+        target_id: { type: 'string', description: 'telegram/cli 渠道专用：用户 ID' },
       },
       required: ['channel'],
     },
@@ -735,6 +738,19 @@ function handleReadFile(input: { path: string; max_lines?: number }): string {
   }
 }
 
+function handleExecCmd(input: { cmd: string; timeout_ms?: number }): string {
+  if (!isAgentAdmin(getCurrentAgent()?.id ?? '')) {
+    return JSON.stringify({ error: '权限不足：仅 agent admin 可执行命令' });
+  }
+  const timeout = input.timeout_ms ?? 30000;
+  try {
+    const output = execSync(input.cmd, { timeout, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return JSON.stringify({ stdout: output, exit_code: 0 });
+  } catch (err: any) {
+    return JSON.stringify({ stdout: err.stdout ?? '', stderr: err.stderr ?? '', exit_code: err.status ?? 1 });
+  }
+}
+
 function handleSaveSkill(input: { name: string; prompt: string; scope?: string }): string {
   const agentId = input.scope === 'agent' ? getCurrentAgent()?.id ?? undefined : undefined;
   return JSON.stringify(saveSkill(input.name, input.prompt, agentId));
@@ -891,24 +907,6 @@ async function handleExtractWeworkQA(input: {
   }
 }
 
-function handleWeworkMonitor(input: { action: string }): string {
-  const currentAgent = getCurrentAgent();
-  if (currentAgent?.name !== 'alter-ego') {
-    return JSON.stringify({ error: '权限不足：wework_monitor 仅 alter-ego 可用' });
-  }
-  const action = input.action?.trim().toLowerCase();
-  if (action === 'start') {
-    startMonitor();
-    return JSON.stringify({ success: true, message: '企微监测已启动' });
-  } else if (action === 'stop') {
-    stopMonitor();
-    return JSON.stringify({ success: true, message: '企微监测已停止' });
-  } else if (action === 'status') {
-    return JSON.stringify({ running: isMonitorRunning() });
-  }
-  return JSON.stringify({ error: "action 必须为 'start' | 'stop' | 'status'" });
-}
-
 // --- Memory management handlers ---
 
 function handleSaveMemory(input: { content: string; scope?: string; category?: string }): string {
@@ -1053,13 +1051,17 @@ function handleSwitchAgent(input: { name: string }): string {
   return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})` });
 }
 
-function handleAssignAgent(input: { agent_name: string; channel: string; target_id?: string }): string {
-  const result = saveAssignment(input.agent_name, input.channel, undefined, input.target_id);
+function handleAssignAgent(input: { agent_name: string; channel: string; app_id?: string; target_id?: string }): string {
+  const appId = input.channel === 'feishu' ? (input.app_id ?? input.target_id) : undefined;
+  const targetId = input.channel !== 'feishu' ? input.target_id : undefined;
+  const result = saveAssignment(input.agent_name, input.channel, appId, targetId);
   return JSON.stringify(result);
 }
 
-function handleUnassignAgent(input: { channel: string; target_id?: string }): string {
-  const result = deleteAssignment(input.channel, undefined, input.target_id);
+function handleUnassignAgent(input: { channel: string; app_id?: string; target_id?: string }): string {
+  const appId = input.channel === 'feishu' ? (input.app_id ?? input.target_id) : undefined;
+  const targetId = input.channel !== 'feishu' ? input.target_id : undefined;
+  const result = deleteAssignment(input.channel, appId, targetId);
   return JSON.stringify(result);
 }
 
@@ -1091,13 +1093,13 @@ export async function executeTool(name: string, input: any): Promise<string> {
     case 'get_skill': return handleGetSkill(input);
     case 'list_directory': return handleListDirectory(input);
     case 'read_file': return handleReadFile(input);
+    case 'exec_cmd': return handleExecCmd(input);
     case 'save_skill': return handleSaveSkill(input);
     case 'delete_skill': return handleDeleteSkill(input);
     case 'write_file': return handleWriteFile(input);
     case 'edit_file': return handleEditFile(input);
     case 'reload_app': return handleReloadApp();
     case 'extract_wework_qa': return handleExtractWeworkQA(input);
-    case 'wework_monitor': return handleWeworkMonitor(input);
     case 'list_agents': return handleListAgents();
     case 'get_agent': return handleGetAgent(input);
     case 'save_agent': return handleSaveAgent(input);
