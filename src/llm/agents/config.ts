@@ -10,8 +10,9 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
     tools: [
       'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+      'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app',
+      'read_file', 'write_file', 'reload_app', 'exec_cmd',
     ],
   },
   alter_ego: {
@@ -20,8 +21,9 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'search_knowledge', 'update_knowledge', 'extract_wework_qa',
       'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+      'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app',
+      'read_file', 'write_file', 'reload_app', 'exec_cmd',
     ],
   },
   readonly: {
