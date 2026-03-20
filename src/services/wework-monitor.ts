@@ -4,7 +4,7 @@ import { ProxyAgent } from 'undici';
 import { queryInfluxRaw } from '../db/influxdb.js';
 import { log } from '../utils/logger.js';
 import { FeishuAPI } from '../feishu/api.js';
-import { getFeishuAppByAgentName, type FeishuAppRow } from '../llm/agents/config.js';
+import type { FeishuAppRow } from '../llm/agents/config.js';
 
 type NotificationChannel = 'telegram' | 'feishu';
 
@@ -16,6 +16,7 @@ interface MonitorConfig {
     channels: NotificationChannel[];
     feishuChatId?: string;
     feishuUserId?: string;
+    feishu?: { appId: string; appSecret: string };
   };
   senders: string[];
   pollingIntervalSec: number;
@@ -57,11 +58,13 @@ async function sendTelegram(text: string): Promise<void> {
 let feishuApi: FeishuAPI | null = null;
 
 function getFeishuNotifyApp(): FeishuAppRow | null {
-  const app = getFeishuAppByAgentName('alter-ego');
-  if (!app) {
-    log.print('[monitor] 未找到 alter-ego 的飞书 bot 绑定，请执行: /agent assign alter-ego feishu <appId>');
+  const cfg = loadConfig();
+  const feishu = cfg.notification?.feishu;
+  if (!feishu?.appId || !feishu?.appSecret) {
+    log.print('[monitor] 未配置飞书 app，请在 config/monitor.json 中设置 notification.feishu.appId 和 appSecret');
+    return null;
   }
-  return app;
+  return { app_id: feishu.appId, app_secret: feishu.appSecret } as FeishuAppRow;
 }
 
 /**
@@ -73,7 +76,7 @@ function getFeishuNotifyApp(): FeishuAppRow | null {
 async function sendFeishu(text: string, receiveId: string, receiveIdType: 'chat_id' | 'user_id' | 'open_id'): Promise<void> {
   const appCfg = getFeishuNotifyApp();
   if (!appCfg) {
-    log.print('[monitor] 未找到 alter-ego 的飞书 bot 绑定，无法发送飞书通知');
+    log.print('[monitor] 未配置飞书 app，无法发送飞书通知');
     return;
   }
   const { app_id: appId, app_secret: appSecret } = appCfg;
@@ -183,12 +186,23 @@ export function startMonitor(options?: { auto?: boolean }): void {
     return;
   }
   if (hasFeishu && !getFeishuNotifyApp()) {
-    log.print('[monitor] 通知渠道包含 feishu，但未找到 alter-ego 的飞书 bot 绑定，请执行: /agent assign alter-ego feishu <appId>');
+    log.print('[monitor] 通知渠道包含 feishu，但未配置 notification.feishu，请在 config/monitor.json 中设置');
     return;
   }
   if (hasFeishu && !feishuChatId && !feishuUserId) {
     log.print('[monitor] 通知渠道包含 feishu，但未配置 feishuChatId 或 feishuUserId');
     return;
+  }
+
+  // 提前建立飞书连接（验证 token 可用性）
+  if (hasFeishu) {
+    const appCfg = getFeishuNotifyApp()!;
+    feishuApi = new FeishuAPI({ appId: appCfg.app_id, appSecret: appCfg.app_secret, verificationToken: '', encryptKey: '' });
+    feishuApi.getBotInfo().then(info => {
+      log.print(`[monitor] 飞书连接成功: ${info.app_name} (${info.open_id})`);
+    }).catch((err: any) => {
+      log.error(`[monitor] 飞书连接失败: ${err.message}`);
+    });
   }
   if (channels.length === 0) {
     log.print('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
