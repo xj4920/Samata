@@ -130,6 +130,19 @@ export function initSchema(): void {
       show_thinking      INTEGER NOT NULL DEFAULT 1,
       created_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS reminders (
+      id         TEXT PRIMARY KEY,
+      agent_id   TEXT NOT NULL,
+      message    TEXT NOT NULL,
+      remind_at  INTEGER NOT NULL,
+      status     TEXT NOT NULL DEFAULT 'pending'
+                 CHECK(status IN ('pending', 'delivered', 'cancelled')),
+      channel    TEXT NOT NULL,
+      target_id  TEXT NOT NULL,
+      app_id     TEXT,
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
   `);
 
   // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
@@ -178,14 +191,14 @@ export function initSchema(): void {
       'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app',
+      'read_file', 'write_file', 'reload_app', 'exec_cmd',
     ]);
     const alterEgoTools = JSON.stringify([
       'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
       'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app',
+      'read_file', 'write_file', 'reload_app', 'exec_cmd',
     ]);
     ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
     ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
@@ -290,6 +303,61 @@ export function initSchema(): void {
     if (!cols.find(c => c.name === 'auto_start')) {
       db.exec("ALTER TABLE feishu_apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 1");
     }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add exec_cmd to tutor and alter-ego tools_list
+  try {
+    for (const agentName of ['tutor', 'alter-ego']) {
+      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
+      if (row) {
+        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+        if (!current.includes('exec_cmd')) {
+          current.push('exec_cmd');
+          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
+            .run(JSON.stringify(current), agentName);
+        }
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add reminder tools to tutor, doctor, alter-ego tools_list
+  try {
+    const reminderTools = ['set_reminder', 'list_reminders', 'cancel_reminder'];
+    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
+      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
+      if (row) {
+        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+        let changed = false;
+        for (const tool of reminderTools) {
+          if (!current.includes(tool)) {
+            current.push(tool);
+            changed = true;
+          }
+        }
+        if (changed) {
+          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
+            .run(JSON.stringify(current), agentName);
+        }
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: per-feishu-user records for Moss and Falcon + agent_members
+  try {
+    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
+      .run('feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'tutor-admin');
+    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
+      .run('feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'falcon-admin');
+    db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '8f72afd2-3e8a-435b-8595-3bdbc653cff9', 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'admin')")
+      .run(uuid());
+    db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '575518a8-1f3d-4754-8815-243ef2ff3ea9', 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'admin')")
+      .run(uuid());
   } catch (e) {
     // Migration failure should not block startup
   }

@@ -5,6 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent } from '../llm/agents/config.js';
+import { getDb } from '../db/connection.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -31,16 +32,22 @@ export function isAdminFeishuUser(feishuUserId: string): boolean {
 export function getSession(feishuUserId: string, feishuUsername: string): FeishuSession {
   let session = sessions.get(feishuUserId);
   if (!session) {
-    const role = adminIds.has(feishuUserId) ? 'admin' : 'user';
+    const isAdmin = adminIds.has(feishuUserId);
+    let user: User;
+    if (isAdmin) {
+      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
+    } else {
+      const db = getDb();
+      const userId = `feishu_${feishuUserId}`;
+      const username = feishuUsername || userId;
+      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
+      user = { id: userId, username, role: 'user' };
+    }
     const agent = resolveAgent('feishu', feishuUserId);
     session = {
       feishuUserId,
       feishuUsername,
-      user: {
-        id: role === 'admin' ? 'admin-001' : 'user-001',
-        username: feishuUsername || `feishu_${feishuUserId}`,
-        role,
-      },
+      user,
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,
