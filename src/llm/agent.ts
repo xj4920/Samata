@@ -26,7 +26,7 @@ import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../command
 import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
 import { fetchKnowledge, updateKnowledgeById, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
-import { fetchTrades, fetchLatestNotionals } from '../commands/trade.js';
+import { fetchTrades, fetchLatestNotionals, fetchTradeSummary } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
 import { extractWeworkQA } from '../commands/wework-qa.js';
 import { createReminder, listReminders, cancelReminder } from '../commands/reminder.js';
@@ -258,6 +258,17 @@ const tools: Anthropic.Tool[] = [
         user: { type: 'string', description: '用户ID' },
         date: { type: 'string', description: '交易日期，格式 YYYYMMDD' },
         limit: { type: 'number', description: '返回条数上限，默认50' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'trade_summary',
+    description: '获取交易日报汇总（按管理人维度）。当用户询问"按管理人维度查看交易情况"、"日报"、"汇总"或要求提供特定日期的交易表格时，优先调用此工具。此工具在后端完成所有数值累加，确保计算精度。返回已排序的管理人维度汇总数据，包含名义金额、成交金额、净买入金额等。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date: { type: 'string', description: '交易日期，格式 YYYYMMDD。默认查询最新一天的数据。' },
       },
       required: [],
     },
@@ -599,7 +610,7 @@ async function handleQueryClients(input: QueryClientsInput): Promise<string> {
   let notionals = new Map<string, number>();
   try {
     notionals = await fetchLatestNotionals();
-  } catch {}
+  } catch (e) {}
 
   rows.sort((a, b) => {
     const stateDiff = (STATE_PRIORITY[b.state] ?? 0) - (STATE_PRIORITY[a.state] ?? 0);
@@ -735,6 +746,15 @@ async function handleQueryTrades(input: { client?: string; party?: string; user?
     const rows = await fetchTrades(input);
     if (rows.length === 0) return JSON.stringify({ message: '未查询到交易数据' });
     return JSON.stringify(rows);
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message });
+  }
+}
+
+async function handleTradeSummary(input: { date?: string }): Promise<string> {
+  try {
+    const result = await fetchTradeSummary(input.date);
+    return JSON.stringify(result);
   } catch (err: any) {
     return JSON.stringify({ error: err.message });
   }
@@ -1189,6 +1209,7 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
     case 'advance_client': return handleAdvanceClient(input);
     case 'rollback_client': return handleRollbackClient(input);
     case 'query_trades': return handleQueryTrades(input);
+    case 'trade_summary': return handleTradeSummary(input);
     case 'plot_trades': return handlePlotTrades(input);
     case 'list_customers': return handleListCustomers();
     case 'list_skills': return handleListSkills();
@@ -1564,7 +1585,7 @@ function extractLocalImages(input: string): { text: string; images: ImageInput[]
         : 'image/jpeg';
       images.push({ data: buf.toString('base64'), mediaType });
       return ''; // 从文本中移除路径
-    } catch {
+    } catch (e) {
       return match;
     }
   }).trim();

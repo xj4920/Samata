@@ -10,7 +10,6 @@
 - 所有计划文档必须写入 `docs/plan/` 目录，文件名格式：`YYYY-MM-DD_<topic>.md`
 
 ## 数据注意事项
-- InfluxDB（`messages` 库 `wework` 表）的 `time` 字段存储的是北京时间（CST），但标记为 UTC（`Z` 后缀）。实际 UTC = 存储时间 - 8 小时。做时间过滤时需加 8 小时偏移对齐。
 - `knowledge_pending` 表的 `auto_quality_score` 字段 99% 为 NULL（仅 5 条有值），不可用作排序或筛选依据
 
 ## 企业微信数据目录
@@ -100,7 +99,7 @@ async function handleAIChat(userInput: string): Promise<string> {
 const activeTools = agent ? getAgentTools(agent, tools) : tools;
 ```
 
-Tutor agent 使用 `allowlist` 模式，16 个工具（知识库、skill 管理、agent 管理、记忆、系统工具），seed 数据在 `src/db/schema.ts:166-182`。
+Tutor agent 使用 `allowlist`模式，16 个工具（知识库、skill 管理、agent 管理、记忆、系统工具），seed 数据在 `src/db/schema.ts:166-182`。
 
 详细架构见 `docs/plan/agent-skills-management.md`。
 

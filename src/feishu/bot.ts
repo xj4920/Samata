@@ -72,8 +72,22 @@ interface FeishuBotInstance {
 
 const botInstances = new Map<string, FeishuBotInstance>();
 
-function loadFeishuConfigs(): FeishuAppConfig[] {
-  const rows = getDb().prepare('SELECT * FROM feishu_apps WHERE auto_start = 1').all() as FeishuAppRow[];
+function loadFeishuConfig(appId: string): FeishuAppConfig | undefined {
+  const row = getDb().prepare('SELECT * FROM feishu_apps WHERE app_id = ?').get(appId) as FeishuAppRow | undefined;
+  if (!row) return undefined;
+  return {
+    appId: row.app_id,
+    appName: row.app_name,
+    appSecret: row.app_secret,
+    verificationToken: row.verification_token,
+    encryptKey: row.encrypt_key,
+    showThinking: row.show_thinking === 1,
+  };
+}
+
+function loadAllFeishuConfigs(onlyAutoStart = true): FeishuAppConfig[] {
+  const query = onlyAutoStart ? 'SELECT * FROM feishu_apps WHERE auto_start = 1' : 'SELECT * FROM feishu_apps';
+  const rows = getDb().prepare(query).all() as FeishuAppRow[];
   return rows.map(r => ({
     appId: r.app_id,
     appName: r.app_name,
@@ -85,6 +99,44 @@ function loadFeishuConfigs(): FeishuAppConfig[] {
 }
 
 export type FeishuBotMode = 'ws' | 'webhook';
+
+/**
+ * 同步内存中的 Bot 实例与数据库状态
+ */
+export async function syncFeishuBots(options?: { mode?: FeishuBotMode; httpPort?: number }): Promise<void> {
+  const mode = options?.mode ?? 'ws';
+  const dbApps = getDb().prepare('SELECT app_id, auto_start FROM feishu_apps').all() as { app_id: string; auto_start: number }[];
+  
+  for (const row of dbApps) {
+    const isRunning = botInstances.has(row.app_id);
+    const shouldRun = row.auto_start === 1;
+
+    if (shouldRun && !isRunning) {
+      log.info(`[飞书] 检测到新配置或手动开启，正在启动 Bot: ${row.app_id}`);
+      await startFeishuBot(row.app_id, options);
+    } else if (!shouldRun && isRunning) {
+      log.info(`[飞书] 检测到配置已关闭或手动停用，正在停止 Bot: ${row.app_id}`);
+      stopFeishuBot(row.app_id);
+    }
+  }
+}
+
+/**
+ * 启动轮询，自动同步数据库状态到运行中的 Bot
+ */
+let watchTimer: ReturnType<typeof setInterval> | null = null;
+export function watchFeishuApps(options?: { mode?: FeishuBotMode; httpPort?: number }): void {
+  if (watchTimer) return;
+  
+  log.info('[飞书] 启动数据库同步监控 (每 10s)...');
+  watchTimer = setInterval(async () => {
+    try {
+      await syncFeishuBots(options);
+    } catch (err: any) {
+      log.error(`[飞书] 同步数据库状态出错: ${err.message}`);
+    }
+  }, 10000);
+}
 
 /**
  * 获取或创建会话（实例级）
@@ -162,16 +214,30 @@ async function handleAIChat(
   const showThinkingEnabled = instance.config.showThinking !== false;
 
   // 发送过程卡片的辅助函数
+  let progressMessageId: string | undefined;
+
   const sendProgressCard = async (hint: string) => {
     try {
       const card = buildThinkingCard(hint);
+      if (progressMessageId) {
+        // 如果已经有卡片了，尝试更新它
+        try {
+          await instance.api.updateCard(progressMessageId, card);
+          return;
+        } catch (updateErr: any) {
+          log.dim(`[飞书:${instance.appName}] 更新过程卡片失败，尝试发送新卡片: ${updateErr.message}`);
+          // 更新失败则重置，准备发新卡片
+          progressMessageId = undefined;
+        }
+      }
+
       if (replyOpts?.isGroup && replyOpts?.messageId) {
-        await instance.api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
+        progressMessageId = await instance.api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
       } else {
-        await instance.api.sendCard(chatId, card);
+        progressMessageId = await instance.api.sendCard(chatId, card);
       }
     } catch (err: any) {
-      log.warn(`[飞书:${instance.appName}] 发送过程卡片失败: ${err.message}`);
+      log.warn(`[飞书:${instance.appName}] 发送/更新过程卡片失败: ${err.message}`);
     }
   };
 
@@ -218,6 +284,27 @@ async function handleAIChat(
         appId: instance.appId,
       } as DeliveryContext,
     });
+
+    // 关键修复：将 AI 的回复存入会话历史，确保后续对话能记得前面的内容
+    if (textReply) {
+      session.history.push({ role: 'assistant', content: textReply });
+    }
+
+    // 最终回复前，如果进度卡片还在，尝试直接用它进行回复（通过 updateCard）
+    if (textReply && progressMessageId) {
+      try {
+        const finalReplyId = await sendFeishuReply(instance, chatId, textReply, {
+          ...replyOpts,
+          updateMessageId: progressMessageId
+        });
+        // 如果成功更新了卡片，返回空回复，通知外层不要再发新消息了
+        if (finalReplyId === progressMessageId) {
+          return { text: '' };
+        }
+      } catch (err: any) {
+        log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
+      }
+    }
 
     return { text: textReply || '（无回复内容）' };
   } finally {
@@ -276,7 +363,7 @@ async function sendFeishuReply(
       (currentChunk.length > 0 && currentChunk.length + block.length + 2 > MAX_LEN) ||
       (currentTables + tableCount > MAX_TABLES)
     ) {
-      // 达到限制，先把 currentChunk 送�� chunks
+      // 达到限制，先把 currentChunk 送到 chunks
       if (currentChunk) {
         chunks.push(currentChunk.trim());
         currentChunk = '';
@@ -344,7 +431,8 @@ async function sendFeishuReply(
         lastMessageId = await instance.api.sendCard(chatId, card);
       }
     } catch (err: any) {
-      log.warn(`[飞书:${instance.appName}] Card 分片 ${i + 1}/${chunks.length} 发送失败，回退到纯文本: ${err.message}`);
+      const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      log.error(`[飞书:${instance.appName}] Card 分片 ${i + 1}/${chunks.length} 发送失败: ${errorDetail}，回退到纯文本`);
       try {
         if (useReply) {
           lastMessageId = await instance.api.replyMessage(options.messageId!, 'text', { text: chunkText });
@@ -725,7 +813,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   // 群聊回复选项：群里以 reply 方式回复原消息
   const replyOpts = isGroup ? { messageId, isGroup: true } : undefined;
 
-  // /debug ��令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
+  // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
   if (text.startsWith('/debug')) {
     try {
       await sendFeishuReply(instance, chatId, `你的飞书用户 ID: ${senderId}`, replyOpts);
@@ -828,7 +916,9 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
     // 自然语言 → AI Agent
     const { text: reply } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts);
-    await sendFeishuReply(instance, chatId, reply, replyOpts);
+    if (reply) {
+      await sendFeishuReply(instance, chatId, reply, replyOpts);
+    }
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
@@ -1036,8 +1126,7 @@ export async function startFeishuBot(
     return;
   }
 
-  const configs = loadFeishuConfigs();
-  const appConfig = configs.find(c => c.appId === appId);
+  const appConfig = loadFeishuConfig(appId);
   if (!appConfig) {
     log.warn(`[飞书] 未找到应用配置: ${appId}`);
     return;
@@ -1108,9 +1197,9 @@ export async function startFeishuBot(
 export async function startAllFeishuBots(
   options?: { mode?: FeishuBotMode; httpPort?: number }
 ): Promise<void> {
-  const configs = loadFeishuConfigs();
+  const configs = loadAllFeishuConfigs(true); // 只自动启动标记为 auto_start 的
   if (configs.length === 0) {
-    log.warn('[飞书] 未配置 feishu 应用，跳过启动');
+    log.warn('[飞书] 未配置需自动启动的应用，跳过启动');
     return;
   }
 

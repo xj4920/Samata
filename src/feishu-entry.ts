@@ -17,7 +17,7 @@ import { initSchema } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
-import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, type FeishuBotMode } from './feishu/bot.js';
+import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, watchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 
 const MODE = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
@@ -38,6 +38,9 @@ async function main() {
   }
 
   setCurrentUser({ id: 'admin-001', username: 'admin', role: 'admin' });
+
+  // 启动数据库状态监控（实现动态启停）
+  watchFeishuApps({ mode: MODE, httpPort: PORT });
 
   if (MODE === 'ws') {
     // ── 长连接模式 ──

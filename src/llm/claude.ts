@@ -1,17 +1,42 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { LLMProvider, StreamEvent } from './provider.js';
 
 let client: Anthropic | null = null;
 
+/** 尝试从系统路径读取 Claude 配置 */
+function loadSystemClaudeConfig(): { apiKey?: string; baseURL?: string } {
+  const p = join(homedir(), '.claude', 'settings.json');
+  try {
+    if (existsSync(p)) {
+      const config = JSON.parse(readFileSync(p, 'utf-8'));
+      if (config.env) {
+        return {
+          apiKey: config.env.ANTHROPIC_API_KEY || config.env.ANTHROPIC_AUTH_TOKEN,
+          baseURL: config.env.ANTHROPIC_BASE_URL
+        };
+      }
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
 export function initClaude(): boolean {
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
+  const systemConfig = loadSystemClaudeConfig();
+  
+  const apiKey = process.env.ANTHROPIC_API_KEY || 
+                 process.env.ANTHROPIC_AUTH_TOKEN || 
+                 systemConfig.apiKey;
+
   if (!apiKey || apiKey === 'your-api-key-here') {
     return false;
   }
 
   const opts: ConstructorParameters<typeof Anthropic>[0] = { apiKey };
 
-  const baseURL = process.env.ANTHROPIC_BASE_URL;
+  const baseURL = process.env.ANTHROPIC_BASE_URL || systemConfig.baseURL;
   if (baseURL) {
     opts.baseURL = baseURL;
   }

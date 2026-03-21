@@ -80,8 +80,129 @@ export function formatNum(val: number | null): string {
   return Number(val).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+export interface ManagerTradeSummary {
+  manager: string;
+  pos_num: number;
+  trade_num: number;
+  notional_t: number;
+  trade_amt_ft: number;
+  ft_net: number;
+}
+
+/**
+ * 按管理人汇总指定日期的交易数据
+ */
+export async function fetchTradeSummary(date?: string): Promise<{
+  date: string;
+  summaries: ManagerTradeSummary[];
+  totalNotional: number;
+  totalTradeAmt: number;
+}> {
+  if (!isInfluxConfigured()) throw new Error('InfluxDB 未配置');
+
+  const customers = loadCustomers();
+  const partyToManager = new Map<string, string>();
+  for (const c of customers) {
+    for (const p of c.products) {
+      partyToManager.set(p.counter_party.toUpperCase(), c.name);
+    }
+  }
+
+  const records = await queryTrades({ date, limit: 1000 });
+  if (records.length === 0) {
+    return { date: date || '-', summaries: [], totalNotional: 0, totalTradeAmt: 0 };
+  }
+
+  const actualDate = records[0].trade_dt || date || '-';
+  const managerMap = new Map<string, ManagerTradeSummary>();
+
+  for (const r of records) {
+    const manager = partyToManager.get((r.counter_party || '').toUpperCase()) || '其他';
+    const summary = managerMap.get(manager) || {
+      manager,
+      pos_num: 0,
+      trade_num: 0,
+      notional_t: 0,
+      trade_amt_ft: 0,
+      ft_net: 0,
+    };
+
+    summary.pos_num += r.pos_num || 0;
+    summary.trade_num += r.trade_num || 0;
+    summary.notional_t += (r.notional_ft_t_1 || 0) + (r.ft_net || 0);
+    summary.trade_amt_ft += r.trade_amt_ft || 0;
+    summary.ft_net += r.ft_net || 0;
+
+    managerMap.set(manager, summary);
+  }
+
+  const summaries = Array.from(managerMap.values())
+    .sort((a, b) => Math.abs(b.notional_t) - Math.abs(a.notional_t));
+
+  const totalNotional = summaries.reduce((sum, s) => sum + s.notional_t, 0);
+  const totalTradeAmt = summaries.reduce((sum, s) => sum + s.trade_amt_ft, 0);
+
+  return {
+    date: actualDate,
+    summaries,
+    totalNotional,
+    totalTradeAmt,
+  };
+}
+
+/**
+ * 格式化金额：>=1亿用"亿"，<1亿用"万"
+ */
+function formatAmount(val: number, forceBillion = false): string {
+  const abs = Math.abs(val);
+  if (forceBillion || abs >= 100000000) {
+    return `${(val / 100000000).toFixed(2)}亿`;
+  }
+  return `${Math.round(val / 10000).toLocaleString()}万`;
+}
+
+/**
+ * 格式化净买入金额：带符号，>=1亿用"亿"，<1亿用"万"
+ */
+function formatNet(val: number): string {
+  const prefix = val > 0 ? '+' : '';
+  return prefix + formatAmount(val);
+}
+
 export async function trade(args: string): Promise<void> {
   const params = parseArgs(args);
+  
+  // 新增 summary 子命令支持
+  if (args.includes('summary')) {
+    try {
+      const { date, summaries, totalNotional, totalTradeAmt } = await fetchTradeSummary(params.date);
+      if (summaries.length === 0) {
+        log.print('未查询到交易数据');
+        return;
+      }
+
+      log.print(`📊 ${date} 交易日报 (按管理人汇总)`);
+      const head = ['管理人', 'POS#', 'TRADE#', '名义金额', '成交金额', 'T日净买入'];
+      const tableRows = summaries.map(s => [
+        s.manager,
+        formatNum(s.pos_num),
+        formatNum(s.trade_num),
+        formatAmount(s.notional_t, true),
+        formatAmount(s.trade_amt_ft, true),
+        formatNet(s.ft_net),
+      ]);
+      renderTable(head, tableRows);
+
+      log.print('\n📌 当日交易汇总');
+      log.print(`- 存续名义本金：${formatAmount(totalNotional, true)}`);
+      log.print(`- 成交金额：${formatAmount(totalTradeAmt, true)}`);
+      return;
+    } catch (err: any) {
+      log.print(err.message);
+      return;
+    }
+  }
+
   try {
     const rows = await fetchTrades({
       client: params.client,

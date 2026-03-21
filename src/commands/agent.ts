@@ -391,16 +391,20 @@ function manageFeishuApp(args: string): void {
     return;
   }
 
-  if ((sub === 'enable' || sub === 'disable') && appId) {
-    const val = sub === 'enable' ? 1 : 0;
+  if ((sub === 'enable' || sub === 'disable' || sub === 'start' || sub === 'stop') && appId) {
+    const isEnable = sub === 'enable' || sub === 'start';
+    const val = isEnable ? 1 : 0;
     const result = getDb().prepare('UPDATE feishu_apps SET auto_start = ? WHERE app_id = ?').run(val, appId);
     if (result.changes === 0) { log.print(`❌ 未找到 app_id: ${appId}`); return; }
-    log.print(`✅ ${appId} 自动启动已${sub === 'enable' ? '开启' : '关闭'}`);
+    log.print(`✅ ${appId} 已${isEnable ? '开启/启动' : '关闭/停止'}`);
+    log.print(`   (飞书服务每 10s 同步一次状态，请稍候)`);
     return;
   }
 
   log.print('用法:');
   log.print('  agent feishu-app list');
+  log.print('  agent feishu-app start <app_id>');
+  log.print('  agent feishu-app stop <app_id>');
   log.print('  agent feishu-app enable <app_id>');
   log.print('  agent feishu-app disable <app_id>');
 }

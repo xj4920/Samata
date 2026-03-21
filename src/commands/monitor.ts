@@ -4,9 +4,10 @@ import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser } from '../auth/rbac.js';
 import { getProviderName, getModelName } from '../llm/provider.js';
-import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
+import { isMonitorRunning } from '../services/wework-monitor.js';
+import { isWeworkBotRunning } from '../wework/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
 import { getAgentTools } from '../llm/agents/config.js';
 import { getCommandEntries } from './router.js';
@@ -101,6 +102,7 @@ export function fetchSystemStatus(): SystemStatus {
     uptime: formatUptime(),
     services: [
       { name: '企微监测', running: isMonitorRunning(), agentId: 'alter-ego' },
+      { name: '企微 Bot', running: isWeworkBotRunning() },
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
     ].filter(svc => !svc.agentId || svc.agentId === agent?.name),

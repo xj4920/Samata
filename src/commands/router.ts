@@ -146,7 +146,7 @@ function showHelp(): void {
   }
   if (llmEnabled) {
     log.print();
-    log.print('  也���以直接输入自然语言，AI 助手会帮你处理');
+    log.print('  也可以直接输入自然语言，AI 助手会帮你处理');
     log.print('  输入 /reset 可重置 AI 对话上下文');
   }
 }

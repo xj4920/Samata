@@ -1,10 +1,25 @@
-
 {
   "enabled": true,
+  "wework": {
+    "token": "eoVaz8YKnxAj258yYkzBBHypnbz6EJ61",
+    "aesKey": "Z2x4ZHhRU0JUbXllM1VJeEx3NDQ5SFZ3OTlHbXhpZ24",
+    "corpId": "",
+    "agentId": "",
+    "agentSecret": "",
+    "encryptEnabled": false
+  },
   "telegram": {
     "botToken": "8270566710:AAHMhZZuQr8Wi2B6Q7QJs8a4Evv9smqKgwM",
     "chatId": "6630337431",
     "proxy": "http://127.0.0.1:26001"
+  },
+  "feishu": {
+    "appId": "cli_a93212c0b7b9dcc5",
+    "appSecret": "Ngdd5bLmxpgawK9ol3qRsbT4Navnq4Xa",
+    "verificationToken": "",
+    "encryptKey": "",
+    "proxy": "",
+    "showThinking": true
   },
   "influx": {
     "database": "messages",
