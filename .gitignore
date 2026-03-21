@@ -9,3 +9,8 @@ dist/*
 logs/*
 
 .gemini/*
+
+# SQLite database
+data/yanyu.db
+data/yanyu.db-shm
+data/yanyu.db-wal
