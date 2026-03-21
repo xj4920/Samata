@@ -8,6 +8,7 @@ import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './comm
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
+import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
@@ -15,6 +16,7 @@ import { getAllSkills } from './commands/skill.js';
 
 export function gracefulShutdown(): void {
   stopMonitor();
+  stopReminderScheduler();
   stopAllFeishuBots();
   closeDb();
 }
@@ -364,6 +366,9 @@ async function main(): Promise<void> {
   // 启动企微监控
   startMonitor({ auto: true });
 
+  // 启动提醒调度器
+  startReminderScheduler();
+
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
   const feishuPort = parseInt(process.env.FEISHU_PORT || '3001', 10);
@@ -372,9 +377,26 @@ async function main(): Promise<void> {
     httpPort: feishuMode === 'webhook' ? feishuPort : undefined,
   });
 
-  await repl();
-  gracefulShutdown();
-  process.exit(0);
+  const isServer = process.argv.includes('--server') || !process.stdin.isTTY;
+
+  if (isServer) {
+    log.print('以服务器模式运行 (无交互 REPL)');
+    // 监听信号以优雅关闭
+    const handleSignal = () => {
+      log.print('\n正在关闭服务...');
+      gracefulShutdown();
+      process.exit(0);
+    };
+    process.on('SIGINT', handleSignal);
+    process.on('SIGTERM', handleSignal);
+    
+    // 保持进程运行
+    setInterval(() => {}, 1000);
+  } else {
+    await repl();
+    gracefulShutdown();
+    process.exit(0);
+  }
 }
 
 main();

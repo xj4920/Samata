@@ -81,3 +81,11 @@ export type HttpRequestInput = {
   body?: string;
   timeout?: number;
 };
+
+// --- Reminder ---
+export type SetReminderInput = {
+  message: string;
+  remind_at?: string;      // ISO8601 datetime string
+  delay_minutes?: number;  // alternative: relative delay
+};
+export type CancelReminderInput = { id: string };

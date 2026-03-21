@@ -23,7 +23,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { runAgenticChat, type ImageInput, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
+import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
@@ -212,6 +212,11 @@ async function handleAIChat(
       agentConfig,
       images,
       onProgress,
+      deliveryContext: {
+        channel: 'feishu',
+        targetId: feishuUserId,
+        appId: instance.appId,
+      } as DeliveryContext,
     });
 
     return { text: textReply || '（无回复内容）' };

@@ -13,6 +13,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
+      'set_reminder', 'list_reminders', 'cancel_reminder',
     ],
   },
   alter_ego: {

@@ -14,7 +14,7 @@ import { TelegramAPI, type TgMessage } from './api.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminTelegramUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User } from '../auth/rbac.js';
-import { runAgenticChat } from '../llm/agent.js';
+import { runAgenticChat, type DeliveryContext } from '../llm/agent.js';
 import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -61,6 +61,10 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
     logPrefix: `[TG:${telegramUsername}] `,
     showThinking: true,
     agentConfig,
+    deliveryContext: {
+      channel: 'telegram',
+      targetId: String(chatId),
+    } as DeliveryContext,
   });
 
   return textReply || '（无回复内容）';

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 while true; do
-  node --import tsx/esm src/index.ts
+  node --import tsx/esm src/index.ts "$@"
   EXIT_CODE=$?
 
   if [ "$EXIT_CODE" -eq 120 ]; then
