@@ -11,15 +11,15 @@ type NotificationChannel = 'telegram' | 'feishu';
 
 interface MonitorConfig {
   enabled?: boolean;
-  telegram: { botToken: string; chatId: string; proxy?: string };
-  influx: { database: string; measurement: string };
-  notification: {
+  telegram?: { botToken: string; chatId: string; proxy?: string };
+  influx?: { database: string; measurement: string };
+  notification?: {
     channels: NotificationChannel[];
     feishuChatId?: string;
     feishuUserId?: string;
   };
-  senders: string[];
-  pollingIntervalSec: number;
+  senders?: string[];
+  pollingIntervalSec?: number;
 }
 
 let config: MonitorConfig | null = null;
@@ -34,7 +34,9 @@ function loadConfig(): MonitorConfig {
 }
 
 async function sendTelegram(text: string): Promise<void> {
-  const { botToken, chatId, proxy } = loadConfig().telegram;
+  const telegram = loadConfig().telegram;
+  if (!telegram) return;
+  const { botToken, chatId, proxy } = telegram;
   if (!botToken || !chatId) return;
 
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -119,6 +121,7 @@ async function sendNotification(text: string): Promise<void> {
 
 async function poll(): Promise<void> {
   const cfg = loadConfig();
+  if (!cfg.influx || !cfg.senders) return;
   const { database, measurement } = cfg.influx;
 
   const senderFilter = cfg.senders
@@ -168,9 +171,9 @@ export function startMonitor(options?: { auto?: boolean }): void {
 
   const cfg = loadConfig();
 
-  // 自动启动时检查 enabled 配置
-  if (options?.auto && cfg.enabled === false) {
-    log.file('[monitor] 配置 enabled=false，跳过自动启动');
+  // 自动启动时检查 enabled 配置（未配置关键字段也视为未启用）
+  if (options?.auto && (cfg.enabled === false || !cfg.senders?.length || !cfg.influx)) {
+    log.file('[monitor] 未配置或 enabled=false，跳过自动启动');
     return;
   }
 
@@ -206,8 +209,12 @@ export function startMonitor(options?: { auto?: boolean }): void {
     log.print('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
     return;
   }
-  if (cfg.senders.length === 0) {
+  if (!cfg.senders || cfg.senders.length === 0) {
     log.print('[monitor] 请先在 config/monitor.json 中配置 senders 列表');
+    return;
+  }
+  if (!cfg.influx?.database || !cfg.influx?.measurement) {
+    log.print('[monitor] 请先在 config/monitor.json 中配置 influx.database 和 influx.measurement');
     return;
   }
 
