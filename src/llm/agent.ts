@@ -1408,32 +1408,17 @@ export async function runAgenticChat(
   const activeTools = agent ? getAgentTools(agent, tools) : tools;
   const systemPrompt = agent ? buildSystemPrompt(agent, user) : getSystemPrompt(user);
 
-  // 图片需要 vision 能力，选择支持 vision 的 provider
-  // 优先级：anthropic（原生支持）→ openrouter（通过 Claude vision）
+  // 图片处理：非 anthropic provider 主动切换到 anthropic（其他 provider 不支持 vision）
   let visionProvider: import('./provider.js').LLMProvider | undefined;
   let visionModel: string | undefined;
-  if (images && images.length > 0) {
-    const currentProv = getProviderName();
-    if (currentProv === 'anthropic') {
-      // 原生 Anthropic 直接支持 image block，无需切换
+  if (images && images.length > 0 && getProviderName() !== 'anthropic') {
+    const anthropic = getProviderByName('anthropic');
+    if (anthropic) {
+      visionProvider = anthropic;
+      visionModel = anthropic.defaultModel;
+      log.dim(`${logPrefix}📷 图片消息，切换到 anthropic/${visionModel} 处理`);
     } else {
-      // 尝试 openrouter（支持 Claude vision 的 OpenAI 兼容接口）
-      const openrouter = getProviderByName('openrouter');
-      if (openrouter) {
-        visionProvider = openrouter;
-        visionModel = process.env.OPENROUTER_VISION_MODEL || 'anthropic/claude-sonnet-4';
-        log.dim(`${logPrefix}📷 图片消息，临时使用 openrouter/${visionModel} 处理`);
-      } else {
-        // 回退到 anthropic
-        const anthropic = getProviderByName('anthropic');
-        if (anthropic) {
-          visionProvider = anthropic;
-          visionModel = anthropic.defaultModel;
-          log.dim(`${logPrefix}📷 图片消息，临时使用 anthropic/${visionModel} 处理`);
-        } else {
-          log.warn(`${logPrefix}⚠️ 当前 provider 不支持图片，且无可用 vision provider`);
-        }
-      }
+      log.warn(`${logPrefix}⚠️ 当前 provider 不支持图片，且无可用 anthropic provider`);
     }
   }
 

@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser } from '../auth/rbac.js';
@@ -41,6 +42,7 @@ export interface SystemStatus {
   availableCommands: string[];   // slash commands visible to current agent
   availableTools: string[];      // LLM tools available to current agent
   uptime: string;             // e.g. "2h 35m"
+  ipAddresses: string[];      // local non-loopback IPv4 addresses
   services: {
     name: string;
     running: boolean;
@@ -79,6 +81,16 @@ export function fetchSystemStatus(): SystemStatus {
 
   const feishuMode = process.env.FEISHU_MODE || 'ws';
 
+  // Local IP addresses
+  const ipAddresses: string[] = [];
+  for (const iface of Object.values(networkInterfaces())) {
+    for (const addr of iface ?? []) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        ipAddresses.push(addr.address);
+      }
+    }
+  }
+
   // Available commands (filtered by current agent)
   const availableCommands = getCommandEntries().map(e => e.name);
 
@@ -100,6 +112,7 @@ export function fetchSystemStatus(): SystemStatus {
     availableCommands,
     availableTools,
     uptime: formatUptime(),
+    ipAddresses,
     services: [
       { name: '企微监测', running: isMonitorRunning(), agentId: 'alter-ego' },
       { name: '企微 Bot', running: isWeworkBotRunning() },
@@ -119,6 +132,9 @@ export function formatSystemStatus(s: SystemStatus): string {
   lines.push(`👤 User: ${s.user.username} (${s.user.role})`);
   lines.push(`🤖 Agent: ${s.agent.displayName} (${s.agent.name})`);
   lines.push(`⏱  Uptime: ${s.uptime}`);
+  if (s.ipAddresses.length > 0) {
+    lines.push(`🌐 IP: ${s.ipAddresses.join(' · ')}`);
+  }
   lines.push('');
   lines.push('📡 Services:');
   for (const svc of s.services) {

@@ -7,6 +7,8 @@ PID_FILE="$SCRIPT_DIR/.samata.pid"
 if [ -f "$PID_FILE" ]; then
   PID=$(cat "$PID_FILE")
   if kill -0 "$PID" 2>/dev/null; then
+    # 杀掉 launcher bash 及其所有子进程（node）
+    pkill -P "$PID" 2>/dev/null
     kill "$PID"
     echo "Samata 已停止 (PID: $PID)"
   else
