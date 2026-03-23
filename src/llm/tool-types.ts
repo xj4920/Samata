@@ -21,6 +21,7 @@ export type PlotTradesInput  = { client?: string; party?: string; limit?: number
 
 // --- Knowledge ---
 export type SearchKnowledgeInput        = { keyword: string };
+export type AddKnowledgeInput           = { question: string; answer: string; tags?: string; related_users?: string };
 export type UpdateKnowledgeInput        = { id_prefix: string; fields: { question?: string; answer?: string; tags?: string; related_users?: string } };
 export type AssignKnowledgeAgentInput   = { knowledge_id: string; agent_name: string };
 export type UnassignKnowledgeAgentInput = { knowledge_id: string; agent_name: string };

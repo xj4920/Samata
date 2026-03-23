@@ -8,7 +8,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
   common: {
     description: '通用助手：知识库、技能、记忆、Agent管理、文件读写',
     tools: [
-      'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'search_knowledge', 'add_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',

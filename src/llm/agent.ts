@@ -3,7 +3,7 @@ import type {
   QueryClientsInput, ViewClientInput, GetClientHistoryInput, AddClientInput,
   UpdateClientInput, AdvanceClientInput, RollbackClientInput,
   QueryTradesInput, PlotTradesInput,
-  SearchKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput,
+  SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput,
   UnassignKnowledgeAgentInput, GetKnowledgeAgentsInput,
   GetSkillInput, SaveSkillInput, DeleteSkillInput,
   ListDirectoryInput, ReadFileInput, WriteFileInput, EditFileInput, ExecCmdInput,
@@ -24,7 +24,7 @@ import { fetchSystemStatus } from '../commands/monitor.js';
 import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
 import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
-import { fetchKnowledge, updateKnowledgeById, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
+import { fetchKnowledge, addKnowledge, updateKnowledgeById, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { loadCustomers } from '../config/customers.js';
 import { fetchTrades, fetchLatestNotionals, fetchTradeSummary } from '../commands/trade.js';
 import { plotTrades } from '../commands/plot.js';
@@ -115,6 +115,20 @@ const tools: Anthropic.Tool[] = [
         keyword: { type: 'string', description: '搜索关键词（多个关键词用空格分隔，匹配任一即返回，全部匹配排在前面）' },
       },
       required: ['keyword'],
+    },
+  },
+  {
+    name: 'add_knowledge',
+    description: '向知识库新增一条FAQ条目，并自动关联到当前 Agent。需提供问题和答案，标签和相关人员可选。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        question: { type: 'string', description: '问题' },
+        answer: { type: 'string', description: '答案' },
+        tags: { type: 'string', description: '标签（可选，逗号分隔）' },
+        related_users: { type: 'string', description: '相关人员（可选，逗号分隔）' },
+      },
+      required: ['question', 'answer'],
     },
   },
   {
@@ -684,6 +698,11 @@ function handleUpdateKnowledge(input: UpdateKnowledgeInput): string {
   return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
 }
 
+function handleAddKnowledge(input: AddKnowledgeInput): string {
+  const agentId = getCurrentAgent()?.id;
+  return JSON.stringify(addKnowledge(input, agentId));
+}
+
 function handleAssignKnowledgeAgent(input: AssignKnowledgeAgentInput): string {
   if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
   return JSON.stringify(assignKnowledgeToAgent(input.knowledge_id, input.agent_name));
@@ -1200,6 +1219,7 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
     case 'get_client_history': return handleGetHistory(input);
     case 'get_status_summary': return handleStatusSummary();
     case 'search_knowledge': return handleSearchKnowledge(input);
+    case 'add_knowledge': return handleAddKnowledge(input);
     case 'update_knowledge': return handleUpdateKnowledge(input);
     case 'assign_knowledge_agent': return handleAssignKnowledgeAgent(input);
     case 'unassign_knowledge_agent': return handleUnassignKnowledgeAgent(input);

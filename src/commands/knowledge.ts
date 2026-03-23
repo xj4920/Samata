@@ -140,6 +140,31 @@ export function remove(args: string): void {
   log.print(`FAQ已删除: ${rows[0].question}`);
 }
 
+/** LLM 工具调用：新增知识库条目（无需交互式输入） */
+export function addKnowledge(fields: { question: string; answer: string; tags?: string; related_users?: string }, agentId?: string): { success: boolean; id?: string; error?: string } {
+  if (!fields.question?.trim()) return { success: false, error: '问题不能为空' };
+  if (!fields.answer?.trim()) return { success: false, error: '答案不能为空' };
+
+  const db = getDb();
+  const user = getCurrentUser();
+  const id = uuid();
+
+  db.prepare(
+    'INSERT INTO knowledge (id, question, answer, tags, related_users, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, fields.question.trim(), fields.answer.trim(), fields.tags || null, fields.related_users || null, user.id);
+
+  if (agentId) {
+    try {
+      db.prepare(
+        'INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)'
+      ).run(uuid(), id, agentId);
+    } catch (_) { /* ignore */ }
+  }
+
+  recordEvent('knowledge', id, 'create', { question: fields.question });
+  return { success: true, id: id.slice(0, 8) };
+}
+
 /** LLM 工具调用：按 ID 前缀更新知识库 QA（无需交互式输入） */
 export function updateKnowledgeById(idPrefix: string, fields: { question?: string; answer?: string; tags?: string; related_users?: string }): { success: boolean; id?: string; error?: string } {
   if (!idPrefix) return { success: false, error: '需要提供 FAQ ID 或 ID 前缀' };

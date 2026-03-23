@@ -4,12 +4,19 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="$SCRIPT_DIR/.samata.pid"
 
+kill_tree() {
+  local pid=$1
+  for child in $(pgrep -P "$pid" 2>/dev/null); do
+    kill_tree "$child"
+  done
+  kill "$pid" 2>/dev/null
+}
+
 if [ -f "$PID_FILE" ]; then
   PID=$(cat "$PID_FILE")
   if kill -0 "$PID" 2>/dev/null; then
-    # 杀掉 launcher bash 及其所有子进程（node）
-    pkill -P "$PID" 2>/dev/null
-    kill "$PID"
+    # 递归杀掉整个进程树（nohup → launcher bash → node）
+    kill_tree "$PID"
     echo "Samata 已停止 (PID: $PID)"
   else
     echo "Samata 未在运行"
