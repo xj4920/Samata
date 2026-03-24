@@ -1,0 +1,42 @@
+{
+  "enabled": true,
+  "wework": {
+    "token": "your_wework_token",
+    "aesKey": "your_wework_aes_key",
+    "corpId": "your_corp_id",
+    "agentId": "your_agent_id",
+    "agentSecret": "your_agent_secret",
+    "encryptEnabled": false
+  },
+  "telegram": {
+    "botToken": "your_bot_token",
+    "chatId": "your_chat_id",
+    "proxy": "http://127.0.0.1:26001"
+  },
+  "feishu": {
+    "appId": "your_feishu_app_id",
+    "appSecret": "your_feishu_app_secret",
+    "verificationToken": "",
+    "encryptKey": "",
+    "proxy": "",
+    "showThinking": true
+  },
+  "influx": {
+    "database": "messages",
+    "measurement": "wework"
+  },
+  "notification": {
+    "channels": ["feishu"],
+    "feishuChatId": "",
+    "feishuUserId": "your_feishu_user_id"
+  },
+  "senders": [
+    "张三",
+    "李四"
+  ],
+  "pollingIntervalSec": 10,
+  "sales": [
+    "王五",
+    "赵六"
+  ]
+}
