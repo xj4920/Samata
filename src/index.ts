@@ -9,6 +9,7 @@ import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
+import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
@@ -18,6 +19,7 @@ export function gracefulShutdown(): void {
   stopMonitor();
   stopReminderScheduler();
   stopAllFeishuBots();
+  stopMcpServers();
   closeDb();
 }
 
@@ -368,6 +370,9 @@ async function main(): Promise<void> {
 
   // 启动提醒调度器
   startReminderScheduler();
+
+  // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
+  initMcpServers().catch(() => {});
 
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;

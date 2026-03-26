@@ -361,4 +361,87 @@ export function initSchema(): void {
   } catch (e) {
     // Migration failure should not block startup
   }
+
+  // Migration: Create health_records and health_files tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS health_records (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      agent_id    TEXT NOT NULL,
+      record_type TEXT NOT NULL,
+      value       TEXT NOT NULL,
+      unit        TEXT,
+      measured_at TEXT NOT NULL,
+      notes       TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS health_files (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      agent_id    TEXT NOT NULL,
+      file_path   TEXT NOT NULL,
+      doc_type    TEXT NOT NULL,
+      measured_at TEXT NOT NULL,
+      notes       TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Migration: Add health tools and system_prompt to doctor agent
+  try {
+    const doctorRow = db.prepare("SELECT tools_list, system_prompt FROM agents WHERE name='doctor'").get() as { tools_list: string | null; system_prompt: string | null } | undefined;
+    if (doctorRow) {
+      const current: string[] = doctorRow.tools_list ? JSON.parse(doctorRow.tools_list) : [];
+      const healthTools = ['add_health_record', 'query_health_records', 'health_summary',
+        'archive_health_file', 'list_health_files', 'view_health_file', 'set_medication_reminder'];
+      let changed = false;
+      for (const tool of healthTools) {
+        if (!current.includes(tool)) { current.push(tool); changed = true; }
+      }
+      const doctorPrompt = `你是家庭医生助手，具备基础医学知识，能够协助用户管理日常健康数据、解读检查报告、提供用药提醒和健康建议。
+
+**服务范围**
+- 健康数据记录与趋势分析（血压、血糖、体重等指标）
+- 检查报告解读（血常规、生化、影像等）
+- 用药提醒设置与管理
+- 常见症状初步分析（仅供参考）
+- 健康生活方式建议
+
+**回答格式**
+1. **情况评估**：简要描述当前情况
+2. **可能原因**：列出 2-3 个最可能的原因
+3. **建议措施**：具体可操作的建议（就医/用药/生活方式）
+4. **注意事项**：需要警惕的预警信号
+
+**免责声明**
+本助手提供的信息仅供参考，不构成医疗诊断或处方建议。若出现严重或持续症状，请及时就医。用药请遵医嘱，不得自行调整处方药剂量。`;
+
+      const updates: string[] = [];
+      const params: any[] = [];
+      if (changed) { updates.push('tools_list = ?'); params.push(JSON.stringify(current)); }
+      if (!doctorRow.system_prompt) { updates.push('system_prompt = ?'); params.push(doctorPrompt); }
+      if (updates.length > 0) {
+        updates.push("updated_at = datetime('now')");
+        db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE name = 'doctor'`).run(...params);
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Seed browser agent
+  try {
+    const browserAgent = db.prepare("SELECT id FROM agents WHERE name='browser'").get();
+    if (!browserAgent) {
+      const browserTools = JSON.stringify(TOOL_PRESETS.browser.tools);
+      db.prepare(
+        "INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run('agent-browser', 'browser', '浏览器助手', '网页浏览、截图、内容提取', 'allowlist', browserTools, 'admin-001');
+      db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
+        .run(uuid(), 'agent-browser', 'admin-001', 'admin');
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
 }

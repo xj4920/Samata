@@ -31,6 +31,27 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
     description: '只读助手：知识库查询、状态查看，无写入权限',
     tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'search_memory'],
   },
+  browser: {
+    description: '浏览器助手：通过 Playwright MCP 进行网页浏览、截图、内容提取',
+    tools: [
+      'mcp_browser_browser_navigate',
+      'mcp_browser_browser_take_screenshot',
+      'mcp_browser_browser_snapshot',
+      'mcp_browser_browser_click',
+      'mcp_browser_browser_type',
+      'mcp_browser_browser_fill_form',
+      'mcp_browser_browser_evaluate',
+      'mcp_browser_browser_press_key',
+      'mcp_browser_browser_wait_for',
+      'mcp_browser_browser_navigate_back',
+      'mcp_browser_browser_tabs',
+      'mcp_browser_browser_close',
+      'mcp_browser_browser_console_messages',
+      'mcp_browser_browser_network_requests',
+      'search_knowledge',
+      'get_status_summary',
+    ],
+  },
 };
 
 export interface AgentConfig {
@@ -213,6 +234,34 @@ export function manageAgentMember(action: 'add' | 'del', agentName: string, user
 }
 
 import Anthropic from '@anthropic-ai/sdk';
+
+// --- Delivery & Tool context (shared with tool modules) ---
+
+/** Channel-specific context injected by bot layers, used by reminder and health tools */
+export interface DeliveryContext {
+  channel: 'feishu' | 'telegram' | 'cli';
+  targetId: string;
+  appId?: string;
+}
+
+/** Context passed to every tool handler */
+export interface ToolContext {
+  deliveryContext?: DeliveryContext;
+  /** All registered tools — needed by list_agents / get_agent to compute per-agent tool sets */
+  globalTools?: Anthropic.Tool[];
+}
+
+// --- Current agent session state ---
+
+let _currentAgent: AgentConfig | undefined;
+
+export function setCurrentAgent(agent: AgentConfig | undefined): void {
+  _currentAgent = agent;
+}
+
+export function getCurrentAgent(): AgentConfig | undefined {
+  return _currentAgent ?? getDefaultAgent();
+}
 
 /** Tools that are always available to all agents, regardless of tools_mode */
 export const UNIVERSAL_TOOLS = new Set(['http_request']);
