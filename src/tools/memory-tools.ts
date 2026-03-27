@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SaveMemoryInput, SearchMemoryInput, DeleteMemoryInput, UpdateMemoryInput } from '../llm/tool-types.js';
-import { isAdmin } from '../auth/rbac.js';
+import { isAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 import { saveMemory, searchMemory, deleteMemory, updateMemory } from '../llm/agents/memory.js';
 
@@ -56,8 +56,8 @@ export const toolDefinitions: Anthropic.Tool[] = [
 ];
 
 function handleSaveMemory(input: SaveMemoryInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可保存记忆' });
   const currentAgentId = getCurrentAgent()?.id;
+  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可保存记忆' });
   const result = saveMemory({
     content: input.content,
     scope: (input.scope as 'global' | 'agent') ?? 'global',
@@ -75,12 +75,14 @@ function handleSearchMemory(input: SearchMemoryInput): string {
 }
 
 function handleUpdateMemory(input: UpdateMemoryInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可修改记忆' });
+  const currentAgentId = getCurrentAgent()?.id;
+  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可修改记忆' });
   return JSON.stringify(updateMemory(input.id, { content: input.content, category: input.category }));
 }
 
 function handleDeleteMemory(input: DeleteMemoryInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '仅管理员可删除记忆' });
+  const currentAgentId = getCurrentAgent()?.id;
+  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可删除记忆' });
   return JSON.stringify(deleteMemory(input.id));
 }
 

@@ -101,6 +101,53 @@ export const toolDefinitions: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'log_sleep',
+    description: '记录一次睡眠/作息情况，包括入睡时间、起床时间、睡眠质量等',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date: { type: 'string', description: '日期，格式 YYYY-MM-DD（可选，默认今天）' },
+        bedtime: { type: 'string', description: '入睡时间，格式 HH:MM（可选）' },
+        wake_time: { type: 'string', description: '起床时间，格式 HH:MM（可选）' },
+        duration_hours: { type: 'number', description: '睡眠时长（小时），可不填由系统根据入睡/起床时间推算' },
+        quality: { type: 'string', description: '睡眠质量：excellent（极好）、good（良好）、fair（一般）、poor（差）' },
+        notes: { type: 'string', description: '备注，如"多梦"、"入睡困难"等（可选）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'log_meal',
+    description: '记录一次饮食/用餐情况',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        meal_type: { type: 'string', description: '餐次：breakfast（早餐）、lunch（午餐）、dinner（晚餐）、snack（零食/加餐）' },
+        foods: { type: 'string', description: '食物描述，如"米饭、红烧肉、青菜汤"' },
+        calories: { type: 'number', description: '估算卡路里（kcal，可选）' },
+        meal_time: { type: 'string', description: '用餐时间，ISO8601 格式（可选，默认当前时间）' },
+        notes: { type: 'string', description: '备注（可选）' },
+      },
+      required: ['foods'],
+    },
+  },
+  {
+    name: 'log_symptom',
+    description: '记录一次身体症状，用于健康追踪和就诊参考',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symptom: { type: 'string', description: '症状名称，如"头痛"、"发烧"、"咳嗽"' },
+        severity: { type: 'number', description: '严重程度 1-5（1=轻微，5=严重）' },
+        body_part: { type: 'string', description: '部位（可选），如"前额"、"腹部"' },
+        duration: { type: 'string', description: '持续时间（可选），如"2小时"、"3天"' },
+        onset_at: { type: 'string', description: '症状出现时间，ISO8601 格式（可选，默认当前时间）' },
+        notes: { type: 'string', description: '其他说明（可选）' },
+      },
+      required: ['symptom'],
+    },
+  },
+  {
     name: 'set_medication_reminder',
     description: '设置用药提醒，支持指定药物名称、剂量和服药时间',
     input_schema: {
@@ -191,6 +238,72 @@ function handleViewHealthFile(input: { id: string }): string {
   });
 }
 
+function handleLogSleep(input: {
+  date?: string;
+  bedtime?: string;
+  wake_time?: string;
+  duration_hours?: number;
+  quality?: string;
+  notes?: string;
+}): string {
+  const { userId, agentId } = getUserAndAgent();
+  const date = input.date ?? new Date().toISOString().slice(0, 10);
+  let duration = input.duration_hours;
+  if (duration == null && input.bedtime && input.wake_time) {
+    const [bh, bm] = input.bedtime.split(':').map(Number);
+    const [wh, wm] = input.wake_time.split(':').map(Number);
+    let mins = (wh * 60 + wm) - (bh * 60 + bm);
+    if (mins < 0) mins += 24 * 60;
+    duration = Math.round(mins / 60 * 10) / 10;
+  }
+  const value = JSON.stringify({
+    date,
+    bedtime: input.bedtime,
+    wake_time: input.wake_time,
+    duration_hours: duration,
+    quality: input.quality,
+  });
+  const result = addHealthRecord(userId, agentId, 'sleep', value, undefined, `${date}T00:00:00`, input.notes);
+  return JSON.stringify(result);
+}
+
+function handleLogMeal(input: {
+  meal_type?: string;
+  foods: string;
+  calories?: number;
+  meal_time?: string;
+  notes?: string;
+}): string {
+  const { userId, agentId } = getUserAndAgent();
+  const value = JSON.stringify({
+    meal_type: input.meal_type,
+    foods: input.foods,
+    calories: input.calories,
+  });
+  const result = addHealthRecord(userId, agentId, 'meal', value, undefined, input.meal_time, input.notes);
+  return JSON.stringify(result);
+}
+
+function handleLogSymptom(input: {
+  symptom: string;
+  severity?: number;
+  body_part?: string;
+  duration?: string;
+  onset_at?: string;
+  notes?: string;
+}): string {
+  const { userId, agentId } = getUserAndAgent();
+  const value = JSON.stringify({
+    symptom: input.symptom,
+    severity: input.severity,
+    body_part: input.body_part,
+    duration: input.duration,
+  });
+  const onset = input.onset_at ?? new Date(Date.now() + 8 * 3_600_000).toISOString().replace('Z', '+08:00');
+  const result = addHealthRecord(userId, agentId, 'symptom', value, undefined, onset, input.notes);
+  return JSON.stringify(result);
+}
+
 function handleSetMedicationReminder(
   input: {
     drug: string;
@@ -241,6 +354,9 @@ export async function handleTool(name: string, input: any, ctx?: ToolContext): P
     case 'archive_health_file': return handleArchiveHealthFile(input);
     case 'list_health_files': return handleListHealthFiles(input);
     case 'view_health_file': return handleViewHealthFile(input);
+    case 'log_sleep': return handleLogSleep(input);
+    case 'log_meal': return handleLogMeal(input);
+    case 'log_symptom': return handleLogSymptom(input);
     case 'set_medication_reminder': return handleSetMedicationReminder(input, ctx);
     default: return null;
   }

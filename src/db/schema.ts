@@ -143,6 +143,22 @@ export function initSchema(): void {
       app_id     TEXT,
       created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
     );
+
+    CREATE TABLE IF NOT EXISTS todos (
+      id          TEXT PRIMARY KEY,
+      agent_id    TEXT REFERENCES agents(id) ON DELETE CASCADE,
+      user_id     TEXT REFERENCES users(id),
+      title       TEXT NOT NULL,
+      description TEXT,
+      status      TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending', 'in_progress', 'done')),
+      priority    TEXT NOT NULL DEFAULT 'normal'
+                  CHECK(priority IN ('low', 'normal', 'high')),
+      due_date    TEXT,
+      tags        TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
@@ -171,6 +187,16 @@ export function initSchema(): void {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_question ON knowledge(question)");
   } catch (e) {
     // Index may already exist, ignore
+  }
+
+  // Migration: Add tags column to todos (for DBs created before tags was added to schema)
+  try {
+    const todoCols = db.pragma('table_info(todos)') as Array<{ name: string }>;
+    if (!todoCols.find(c => c.name === 'tags')) {
+      db.exec("ALTER TABLE todos ADD COLUMN tags TEXT");
+    }
+  } catch (e) {
+    // Migration failure should not block startup
   }
 
   // Seed default users if empty
@@ -440,6 +466,84 @@ export function initSchema(): void {
       ).run('agent-browser', 'browser', '浏览器助手', '网页浏览、截图、内容提取', 'allowlist', browserTools, 'admin-001');
       db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
         .run(uuid(), 'agent-browser', 'admin-001', 'admin');
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add todo tools to tutor, doctor, alter-ego tools_list
+  try {
+    const todoTools = ['create_todo', 'list_todos', 'update_todo', 'delete_todo'];
+    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
+      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
+      if (row) {
+        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+        let changed = false;
+        for (const tool of todoTools) {
+          if (!current.includes(tool)) {
+            current.push(tool);
+            changed = true;
+          }
+        }
+        if (changed) {
+          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
+            .run(JSON.stringify(current), agentName);
+        }
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add sleep/meal/symptom logging tools to doctor tools_list
+  try {
+    const lifestyleTools = ['log_sleep', 'log_meal', 'log_symptom'];
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
+    if (row) {
+      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      let changed = false;
+      for (const tool of lifestyleTools) {
+        if (!current.includes(tool)) { current.push(tool); changed = true; }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='doctor'")
+          .run(JSON.stringify(current));
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add preset column to agents
+  try {
+    const agentCols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+    if (!agentCols.find(c => c.name === 'preset')) {
+      db.exec("ALTER TABLE agents ADD COLUMN preset TEXT");
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Backfill preset for seeded agents
+  try {
+    db.prepare("UPDATE agents SET preset='common'    WHERE name IN ('doctor','tutor') AND preset IS NULL").run();
+    db.prepare("UPDATE agents SET preset='alter_ego' WHERE name='alter-ego'           AND preset IS NULL").run();
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230 as doctor agent admin
+  try {
+    const userId = 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230';
+    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
+      .run(userId, 'doctor-admin');
+    const doctorAgent = db.prepare("SELECT id FROM agents WHERE name='doctor'").get() as { id: string } | undefined;
+    if (doctorAgent) {
+      const exists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?").get(doctorAgent.id, userId);
+      if (!exists) {
+        db.prepare("INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, 'admin')")
+          .run(uuid(), doctorAgent.id, userId);
+      }
     }
   } catch (e) {
     // Migration failure should not block startup

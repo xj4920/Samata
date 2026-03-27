@@ -146,6 +146,7 @@ function handleSaveAgent(input: {
     provider: input.provider,
     toolsMode: input.tools_mode as any,
     toolsList: input.tools_list,
+    preset: input.preset,
     maxHistory: input.max_history,
   });
   return JSON.stringify(result);

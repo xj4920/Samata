@@ -90,3 +90,26 @@ export type SetReminderInput = {
   delay_minutes?: number;  // alternative: relative delay
 };
 export type CancelReminderInput = { id: string };
+
+// --- Todo ---
+export type CreateTodoInput = {
+  title: string;
+  description?: string;
+  priority?: 'low' | 'normal' | 'high';
+  due_date?: string;  // YYYY-MM-DD
+  tags?: string[];
+};
+export type ListTodosInput = {
+  status?: 'pending' | 'in_progress' | 'done' | 'all';
+  priority?: 'low' | 'normal' | 'high';
+};
+export type UpdateTodoInput = {
+  id: string;
+  title?: string;
+  description?: string;
+  status?: 'pending' | 'in_progress' | 'done';
+  priority?: 'low' | 'normal' | 'high';
+  due_date?: string;
+  tags?: string[];
+};
+export type DeleteTodoInput = { id: string };

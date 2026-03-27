@@ -14,6 +14,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
       'set_reminder', 'list_reminders', 'cancel_reminder',
+      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
     ],
   },
   alter_ego: {
@@ -25,6 +26,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
+      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
     ],
   },
   readonly: {
@@ -64,6 +66,8 @@ export interface AgentConfig {
   provider?: string;
   toolsMode: 'all' | 'allowlist' | 'blocklist';
   toolsList: string[];
+  /** Preset name (e.g. 'common', 'alter_ego'). Tools are resolved dynamically from TOOL_PRESETS[preset] at runtime. */
+  preset?: string;
   maxHistory: number;
 }
 
@@ -88,6 +92,7 @@ interface AgentRow {
   provider: string | null;
   tools_mode: string;
   tools_list: string | null;
+  preset: string | null;
   max_history: number;
   created_by: string;
   created_at: string;
@@ -105,6 +110,7 @@ function rowToConfig(row: AgentRow): AgentConfig {
     provider: row.provider ?? undefined,
     toolsMode: row.tools_mode as AgentConfig['toolsMode'],
     toolsList: row.tools_list ? JSON.parse(row.tools_list) : [],
+    preset: row.preset ?? undefined,
     maxHistory: row.max_history,
   };
 }
@@ -143,6 +149,7 @@ export interface SaveAgentInput {
   provider?: string;
   toolsMode?: 'all' | 'allowlist' | 'blocklist';
   toolsList?: string[];
+  preset?: string;
   maxHistory?: number;
 }
 
@@ -158,11 +165,12 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
 
     db.prepare(`UPDATE agents SET
       display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
-      tools_mode = ?, tools_list = ?, max_history = ?, updated_at = datetime('now')
+      tools_mode = ?, tools_list = ?, preset = ?, max_history = ?, updated_at = datetime('now')
       WHERE name = ?`).run(
       input.displayName, input.description ?? null, input.systemPrompt ?? null,
       input.model ?? null, input.provider ?? null,
       input.toolsMode ?? existing.tools_mode, input.toolsList ? JSON.stringify(input.toolsList) : existing.tools_list,
+      input.preset !== undefined ? (input.preset || null) : existing.preset,
       input.maxHistory ?? existing.max_history, input.name,
     );
     recordEvent('agent', existing.id, 'update', { name: input.name });
@@ -174,11 +182,12 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
   }
 
   const id = uuid();
-  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, max_history, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, preset, max_history, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, input.name, input.displayName, input.description ?? null, input.systemPrompt ?? null,
     input.model ?? null, input.provider ?? null,
     input.toolsMode ?? 'allowlist', input.toolsList ? JSON.stringify(input.toolsList) : null,
+    input.preset ?? null,
     input.maxHistory ?? 80, user.id,
   );
   
@@ -266,15 +275,19 @@ export function getCurrentAgent(): AgentConfig | undefined {
 /** Tools that are always available to all agents, regardless of tools_mode */
 export const UNIVERSAL_TOOLS = new Set(['http_request']);
 
-/** Filter global tools based on agent's tools_mode and tools_list */
+/** Filter global tools based on agent's tools_mode, preset, and tools_list */
 export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[]): Anthropic.Tool[] {
   if (agent.toolsMode === 'all') return globalTools;
-  const set = new Set(agent.toolsList);
+
+  // Effective list = preset tools (resolved dynamically from code) + tools_list (extensions/overrides)
+  const presetTools = agent.preset ? (TOOL_PRESETS[agent.preset]?.tools ?? []) : [];
+  const effectiveSet = new Set([...presetTools, ...agent.toolsList]);
+
   if (agent.toolsMode === 'allowlist') {
-    return globalTools.filter(t => set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+    return globalTools.filter(t => effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
   }
   // blocklist
-  return globalTools.filter(t => !set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+  return globalTools.filter(t => !effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
 }
 
 // --- Agent Assignment (channel/target → agent) ---
