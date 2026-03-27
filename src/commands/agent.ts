@@ -1,4 +1,4 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
@@ -156,12 +156,37 @@ async function createAgent(): Promise<void> {
 
 function manageMembers(args: string): void {
     const parts = args.split(/\s+/);
+    if (parts.length < 2) {
+        log.print('用法: agent member <list|add|del> <agent_name> [username] [role]');
+        return;
+    }
+
+    const action = parts[0];
+    const agentName = parts[1];
+
+    if (action === 'list') {
+        const result = listAgentMembers(agentName);
+        if (!result.success) {
+            log.print(result.error);
+            return;
+        }
+        if (result.data.length === 0) {
+            log.print(`Agent ${agentName} 暂无成员`);
+            return;
+        }
+        const rows = result.data.map(m => [m.username, m.id, m.role, m.created_at]);
+        renderTable(['用户名', '用户ID', '角色', '添加时间'], rows);
+        log.print(`共 ${result.data.length} 个成员`);
+        return;
+    }
+
     if (parts.length < 3) {
         log.print('用法: agent member <add|del> <agent_name> <username> [role]');
         return;
     }
     
-    const [action, agentName, username, roleInput] = parts;
+    const username = parts[2];
+    const roleInput = parts[3];
     const role = (roleInput === 'user') ? 'user' : 'admin';
     
     const result = manageAgentMember(action as 'add' | 'del', agentName, username, role);

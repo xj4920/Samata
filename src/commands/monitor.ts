@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getProviderName, getModelName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
@@ -100,6 +100,9 @@ export function fetchSystemStatus(): SystemStatus {
     ? getAgentTools(agentConfig, getGlobalTools()).map(t => t.name)
     : getGlobalTools().map(t => t.name);
 
+  const displayRole = (agentId && isAgentAdmin(agentId)) ? 'admin' : user.role;
+  console.log(`[DEBUG /status] agentId=${agentId}, userId=${user.id}, isAgentAdmin=${isAgentAdmin(agentId ?? '')}`);
+
   return {
     name: 'Samata',
     version,
@@ -107,7 +110,7 @@ export function fetchSystemStatus(): SystemStatus {
     model,
     knowledgeCount,
     skillCount,
-    user: { username: user.username, role: user.role },
+    user: { username: user.username, role: displayRole },
     agent: { name: agent?.name ?? 'unknown', displayName: agent?.displayName ?? 'unknown' },
     availableCommands,
     availableTools,

@@ -22,7 +22,7 @@ import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
 import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
@@ -148,16 +148,24 @@ function getSessionForInstance(
 ): FeishuSession {
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
-    const role = isAdminFeishuUser(feishuUserId) ? 'admin' : 'user';
+    const isAdmin = isAdminFeishuUser(feishuUserId);
     const agent = resolveAgent('feishu', instance.appId);
+    let user: User;
+
+    if (isAdmin) {
+      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
+    } else {
+      const db = getDb();
+      const userId = `feishu_${feishuUserId}`;
+      const username = feishuUsername || userId;
+      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
+      user = { id: userId, username, role: 'user' };
+    }
+
     session = {
       feishuUserId,
       feishuUsername,
-      user: {
-        id: role === 'admin' ? 'admin-001' : 'user-001',
-        username: feishuUsername || `feishu_${feishuUserId}`,
-        role,
-      },
+      user,
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,

@@ -215,6 +215,36 @@ export function deleteAgent(name: string): { success: true; name: string } | { s
   return { success: true, name };
 }
 
+export interface AgentMember {
+    username: string;
+    id: string;
+    role: string;
+    created_at: string;
+}
+
+export function listAgentMembers(agentName: string): { success: true; data: AgentMember[] } | { success: false; error: string } {
+    const db = getDb();
+    const agent = db.prepare('SELECT id, name FROM agents WHERE name = ?').get(agentName) as { id: string, name: string } | undefined;
+    if (!agent) return { success: false, error: `未找到 Agent: ${agentName}` };
+
+    if (!isSystemAdmin() && !isAgentAdmin(agent.id)) {
+        return { success: false, error: `权限不足：需要 Agent (${agentName}) 的管理员权限或系统管理员权限` };
+    }
+
+    try {
+        const rows = db.prepare(`
+            SELECT u.username, u.id, am.role, am.created_at
+            FROM agent_members am
+            JOIN users u ON am.user_id = u.id
+            WHERE am.agent_id = ?
+            ORDER BY am.role ASC, am.created_at DESC
+        `).all(agent.id) as AgentMember[];
+        return { success: true, data: rows };
+    } catch (e: any) {
+        return { success: false, error: `查询失败: ${e.message}` };
+    }
+}
+
 export function manageAgentMember(action: 'add' | 'del', agentName: string, username: string, role: 'admin' | 'user' = 'admin'): { success: true } | { success: false; error: string } {
     const db = getDb();
     
