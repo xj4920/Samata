@@ -275,6 +275,7 @@ export async function runAgenticChat(
     }
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const activeToolNames = new Set(activeTools.map(t => t.name));
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
         if (showThinkingOpt) {
@@ -284,10 +285,14 @@ export async function runAgenticChat(
         onProgress?.({ type: 'tool_start', name: block.name });
         throwIfAborted();
         let result: string;
-        try {
-          result = await executeTool(block.name, block.input, deliveryContext);
-        } catch (err: any) {
-          result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
+        if (!activeToolNames.has(block.name)) {
+          result = JSON.stringify({ error: `权限不足：工具 "${block.name}" 不在当前用户的允许列表中` });
+        } else {
+          try {
+            result = await executeTool(block.name, block.input, deliveryContext);
+          } catch (err: any) {
+            result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
+          }
         }
         onProgress?.({ type: 'tool_end', name: block.name });
         if (showThinkingOpt) {
