@@ -225,6 +225,7 @@ export function initSchema(): void {
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
+      'markdown_to_image',
     ]);
     ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
     ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
@@ -543,6 +544,21 @@ export function initSchema(): void {
       if (!exists) {
         db.prepare("INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, 'admin')")
           .run(uuid(), doctorAgent.id, userId);
+      }
+    }
+  } catch (e) {
+    // Migration failure should not block startup
+  }
+
+  // Migration: Add markdown_to_image to alter-ego tools_list
+  try {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
+    if (row) {
+      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      if (!current.includes('markdown_to_image')) {
+        current.push('markdown_to_image');
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
+          .run(JSON.stringify(current));
       }
     }
   } catch (e) {

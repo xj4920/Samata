@@ -324,23 +324,46 @@ async function handleAIChat(
 
 /**
  * 扫描文本中的图片路径（本地或 URL），上传到飞书并替换为 ![image](image_key)
+ * 上传失败时移除该图片引用，避免将无效路径作为 image_key 发送给飞书
  */
 async function processImagesInText(instance: FeishuBotInstance, text: string): Promise<string> {
   if (!text) return text;
-  
-  // 匹配本地路径和 HTTP URL (png, jpg, jpeg, gif, webp)
-  const IMAGE_RE = /(?:^|\s)((?:\/|\.\/|~\/|https?:\/\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
-  
+
   let result = text;
-  const matches = [...text.matchAll(IMAGE_RE)];
-  
+
+  // 第一步：处理 Markdown 图片语法 ![alt](path.ext)
+  // 跳过已经是合法飞书 key 的（img_v2_xxx 格式）
+  const MD_IMG_RE = /!\[([^\]]*)\]\(([^)]+\.(?:png|jpe?g|gif|webp))\)/gi;
+  const mdMatches = [...text.matchAll(MD_IMG_RE)];
+
+  for (const m of mdMatches) {
+    const fullMatch = m[0];
+    const filePath = m[2];
+    if (/^img_[a-zA-Z0-9_-]+$/.test(filePath)) continue; // 已是合法 key，跳过
+    try {
+      log.dim(`[飞书:${instance.appName}] 检测到 Markdown 图片: ${filePath}，正在上传...`);
+      const imageKey = await instance.api.uploadImage(filePath);
+      if (imageKey) {
+        result = result.split(fullMatch).join(`![image](${imageKey})`);
+      } else {
+        result = result.split(fullMatch).join(''); // 上传失败，移除引用
+      }
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 上传图片 ${filePath} 失败: ${err.message}`);
+      result = result.split(fullMatch).join(''); // 移除引用，避免无效 key 进入卡片
+    }
+  }
+
+  // 第二步：处理裸路径（/path/to/img.png 或 https://...）
+  const IMAGE_RE = /(?:^|\s)((?:\/|\.\/|~\/|https?:\/\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
+  const matches = [...result.matchAll(IMAGE_RE)];
+
   for (const m of matches) {
     const filePath = m[1];
     try {
       log.dim(`[飞书:${instance.appName}] 检测到图片路径: ${filePath}，正在上传...`);
       const imageKey = await instance.api.uploadImage(filePath);
       if (imageKey) {
-        // 全局替换路径为 image_key
         result = result.split(filePath).join(imageKey);
       }
     } catch (err: any) {
@@ -348,7 +371,7 @@ async function processImagesInText(instance: FeishuBotInstance, text: string): P
     }
   }
 
-  // 补全 Markdown 格式：img_v2_... -> ![image](img_v2_...)
+  // 第三步：补全 Markdown 格式：img_v2_... -> ![image](img_v2_...)
   const KEY_RE = /(img_v2_[a-zA-Z0-9-]+)/g;
   result = result.replace(KEY_RE, (key, offset) => {
     const before = result.slice(Math.max(0, offset - 2), offset);
@@ -545,7 +568,7 @@ async function handleCommand(
       }
     }
     case 'faq': {
-      const items = fetchKnowledge(args || undefined);
+      const items = fetchKnowledge(args || undefined, getCurrentAgent()?.id);
       return formatKnowledge(items);
     }
     case 'skill': {

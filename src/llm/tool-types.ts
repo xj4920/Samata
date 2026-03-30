@@ -114,3 +114,10 @@ export type UpdateTodoInput = {
   tags?: string[];
 };
 export type DeleteTodoInput = { id: string };
+
+// --- Markdown ---
+export type MarkdownToImageInput = {
+  markdown: string;
+  width?: number;
+  theme?: 'light' | 'dark';
+};

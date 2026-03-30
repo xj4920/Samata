@@ -13,6 +13,7 @@ import * as reminderTools from './reminder-tools.js';
 import * as systemTools from './system-tools.js';
 import * as healthTools from './health-tools.js';
 import * as todoTools from './todo-tools.js';
+import * as markdownTools from './markdown-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -32,6 +33,7 @@ const modules: ToolModule[] = [
   systemTools,
   healthTools,
   todoTools,
+  markdownTools,
 ];
 
 export function getAllNativeTools(): Anthropic.Tool[] {
