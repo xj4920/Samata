@@ -7,6 +7,7 @@ import { buildSystemPrompt } from './agents/prompt.js';
 import { isPendingReload, setPendingReload } from './reload.js';
 import { getAllNativeTools, executeNativeTool } from '../tools/index.js';
 import { getMcpTools, callMcpTool } from '../services/mcp-manager.js';
+import { isAgentAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
@@ -197,7 +198,8 @@ export async function runAgenticChat(
   const agent = agentConfig;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
   const allTools = getGlobalTools();
-  const activeTools = agent ? getAgentTools(agent, allTools) : allTools;
+  const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
+  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
   const systemPrompt = agent ? buildSystemPrompt(agent, user) : getSystemPrompt(user);
 
   // 设置当前 agent 上下文，供 tool handler（如 search_knowledge）按 agent 过滤数据

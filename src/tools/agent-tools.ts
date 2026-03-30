@@ -56,6 +56,8 @@ export const toolDefinitions: Anthropic.Tool[] = [
         tools_list: { type: 'array', items: { type: 'string' }, description: '工具名称列表（配合 tools_mode 使用）' },
         max_history: { type: 'number', description: '最大历史消息数，默认 80' },
         preset: { type: 'string', description: "工具预设名称（'common' | 'alter_ego' | 'readonly'），设置后自动填充 tools_list，tools_mode 为 allowlist" },
+        user_tools_mode: { type: 'string', description: "普通成员工具模式: 'inherit'（继承 admin 配置）| 'all' | 'allowlist' | 'blocklist'" },
+        user_tools_list: { type: 'array', items: { type: 'string' }, description: '普通成员工具名称列表（配合 user_tools_mode 使用）' },
       },
       required: ['name', 'display_name'],
     },
@@ -154,6 +156,8 @@ function handleSaveAgent(input: {
   tools_list?: string[];
   max_history?: number;
   preset?: string;
+  user_tools_mode?: string;
+  user_tools_list?: string[];
 }): string {
   if (input.preset) {
     const preset = TOOL_PRESETS[input.preset];
@@ -171,6 +175,8 @@ function handleSaveAgent(input: {
     toolsMode: input.tools_mode as any,
     toolsList: input.tools_list,
     preset: input.preset,
+    userToolsMode: input.user_tools_mode as any,
+    userToolsList: input.user_tools_list,
     maxHistory: input.max_history,
   });
   return JSON.stringify(result);

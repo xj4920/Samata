@@ -75,6 +75,9 @@ export function initSchema(): void {
       tools_mode    TEXT NOT NULL DEFAULT 'all'
                     CHECK(tools_mode IN ('all', 'allowlist', 'blocklist')),
       tools_list    TEXT,
+      user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
+                    CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
+      user_tools_list TEXT,
       max_history   INTEGER DEFAULT 80,
       created_by    TEXT NOT NULL REFERENCES users(id),
       created_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -549,6 +552,14 @@ export function initSchema(): void {
   } catch (e) {
     // Migration failure should not block startup
   }
+
+  // Migration: Add user_tools_mode and user_tools_list to agents table
+  try {
+    db.exec("ALTER TABLE agents ADD COLUMN user_tools_mode TEXT NOT NULL DEFAULT 'inherit'");
+  } catch (e) { /* column may already exist */ }
+  try {
+    db.exec("ALTER TABLE agents ADD COLUMN user_tools_list TEXT");
+  } catch (e) { /* column may already exist */ }
 
   // Migration: Add markdown_to_image to alter-ego tools_list
   try {

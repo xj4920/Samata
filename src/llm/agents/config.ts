@@ -68,6 +68,9 @@ export interface AgentConfig {
   toolsList: string[];
   /** Preset name (e.g. 'common', 'alter_ego'). Tools are resolved dynamically from TOOL_PRESETS[preset] at runtime. */
   preset?: string;
+  /** Tools config for non-admin members. 'inherit' means same as admin config. */
+  userToolsMode: 'inherit' | 'all' | 'allowlist' | 'blocklist';
+  userToolsList: string[];
   maxHistory: number;
 }
 
@@ -79,6 +82,8 @@ const DEFAULT_AGENT: AgentConfig = {
   description: 'OTC 业务专家',
   toolsMode: 'all',
   toolsList: [],
+  userToolsMode: 'inherit',
+  userToolsList: [],
   maxHistory: 80,
 };
 
@@ -93,6 +98,8 @@ interface AgentRow {
   tools_mode: string;
   tools_list: string | null;
   preset: string | null;
+  user_tools_mode: string;
+  user_tools_list: string | null;
   max_history: number;
   created_by: string;
   created_at: string;
@@ -111,6 +118,8 @@ function rowToConfig(row: AgentRow): AgentConfig {
     toolsMode: row.tools_mode as AgentConfig['toolsMode'],
     toolsList: row.tools_list ? JSON.parse(row.tools_list) : [],
     preset: row.preset ?? undefined,
+    userToolsMode: (row.user_tools_mode ?? 'inherit') as AgentConfig['userToolsMode'],
+    userToolsList: row.user_tools_list ? JSON.parse(row.user_tools_list) : [],
     maxHistory: row.max_history,
   };
 }
@@ -150,6 +159,8 @@ export interface SaveAgentInput {
   toolsMode?: 'all' | 'allowlist' | 'blocklist';
   toolsList?: string[];
   preset?: string;
+  userToolsMode?: 'inherit' | 'all' | 'allowlist' | 'blocklist';
+  userToolsList?: string[];
   maxHistory?: number;
 }
 
@@ -165,12 +176,15 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
 
     db.prepare(`UPDATE agents SET
       display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
-      tools_mode = ?, tools_list = ?, preset = ?, max_history = ?, updated_at = datetime('now')
+      tools_mode = ?, tools_list = ?, preset = ?, user_tools_mode = ?, user_tools_list = ?,
+      max_history = ?, updated_at = datetime('now')
       WHERE name = ?`).run(
       input.displayName, input.description ?? null, input.systemPrompt ?? null,
       input.model ?? null, input.provider ?? null,
       input.toolsMode ?? existing.tools_mode, input.toolsList ? JSON.stringify(input.toolsList) : existing.tools_list,
       input.preset !== undefined ? (input.preset || null) : existing.preset,
+      input.userToolsMode ?? existing.user_tools_mode,
+      input.userToolsList ? JSON.stringify(input.userToolsList) : existing.user_tools_list,
       input.maxHistory ?? existing.max_history, input.name,
     );
     recordEvent('agent', existing.id, 'update', { name: input.name });
@@ -182,12 +196,13 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
   }
 
   const id = uuid();
-  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, preset, max_history, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, preset, user_tools_mode, user_tools_list, max_history, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, input.name, input.displayName, input.description ?? null, input.systemPrompt ?? null,
     input.model ?? null, input.provider ?? null,
     input.toolsMode ?? 'allowlist', input.toolsList ? JSON.stringify(input.toolsList) : null,
     input.preset ?? null,
+    input.userToolsMode ?? 'inherit', input.userToolsList ? JSON.stringify(input.userToolsList) : null,
     input.maxHistory ?? 80, user.id,
   );
   
@@ -305,8 +320,27 @@ export function getCurrentAgent(): AgentConfig | undefined {
 /** Tools that are always available to all agents, regardless of tools_mode */
 export const UNIVERSAL_TOOLS = new Set(['http_request']);
 
-/** Filter global tools based on agent's tools_mode, preset, and tools_list */
-export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[]): Anthropic.Tool[] {
+/** Filter global tools based on agent's tools_mode, preset, and tools_list.
+ * @param isAdmin - whether the current user is an admin of this agent.
+ *                  Admins get the full agent tool set; non-admins get the user-restricted set.
+ */
+export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[], isAdmin = true): Anthropic.Tool[] {
+  if (!isAdmin) {
+    // User-level: check userToolsMode
+    const uMode = agent.userToolsMode;
+    if (uMode !== 'inherit') {
+      if (uMode === 'all') return globalTools;
+      const uSet = new Set(agent.userToolsList);
+      if (uMode === 'allowlist') {
+        return globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+      }
+      // blocklist
+      return globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+    }
+    // inherit: fall through to admin logic
+  }
+
+  // Admin-level (or inherit): existing logic
   if (agent.toolsMode === 'all') return globalTools;
 
   // Effective list = preset tools (resolved dynamically from code) + tools_list (extensions/overrides)
