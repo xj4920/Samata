@@ -102,7 +102,6 @@ export function fetchSystemStatus(): SystemStatus {
     : getGlobalTools().map(t => t.name);
 
   const displayRole = (agentId && isAgentAdmin(agentId)) ? 'admin' : user.role;
-  console.log(`[DEBUG /status] agentId=${agentId}, userId=${user.id}, isAgentAdmin=${isAgentAdmin(agentId ?? '')}`);
 
   return {
     name: 'Samata',
