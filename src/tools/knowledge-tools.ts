@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput } from '../llm/tool-types.js';
 import { isAdmin } from '../auth/rbac.js';
-import { fetchKnowledge, addKnowledge, updateKnowledgeById, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
+import { fetchKnowledge, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
@@ -49,6 +49,17 @@ export const toolDefinitions: Anthropic.Tool[] = [
         },
       },
       required: ['id_prefix', 'fields'],
+    },
+  },
+  {
+    name: 'delete_knowledge',
+    description: '删除知识库中的FAQ条目（仅管理员）。���先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行删除。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id_prefix: { type: 'string', description: 'FAQ的ID或ID前缀（通过 search_knowledge 获取）' },
+      },
+      required: ['id_prefix'],
     },
   },
   {
@@ -111,6 +122,11 @@ function handleUpdateKnowledge(input: UpdateKnowledgeInput): string {
   return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
 }
 
+function handleDeleteKnowledge(input: { id_prefix: string }): string {
+  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  return JSON.stringify(deleteKnowledge(input.id_prefix));
+}
+
 function handleAssignKnowledgeAgent(input: AssignKnowledgeAgentInput): string {
   if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
   return JSON.stringify(assignKnowledgeToAgent(input.knowledge_id, input.agent_name));
@@ -130,6 +146,7 @@ export async function handleTool(name: string, input: any, _ctx?: ToolContext): 
     case 'search_knowledge': return handleSearchKnowledge(input);
     case 'add_knowledge': return handleAddKnowledge(input);
     case 'update_knowledge': return handleUpdateKnowledge(input);
+    case 'delete_knowledge': return handleDeleteKnowledge(input);
     case 'assign_knowledge_agent': return handleAssignKnowledgeAgent(input);
     case 'unassign_knowledge_agent': return handleUnassignKnowledgeAgent(input);
     case 'get_knowledge_agents': return handleGetKnowledgeAgents(input);

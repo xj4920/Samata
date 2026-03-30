@@ -200,6 +200,10 @@ export async function runAgenticChat(
   const activeTools = agent ? getAgentTools(agent, allTools) : allTools;
   const systemPrompt = agent ? buildSystemPrompt(agent, user) : getSystemPrompt(user);
 
+  // 设置当前 agent 上下文，供 tool handler（如 search_knowledge）按 agent 过滤数据
+  const prevAgent = getCurrentAgent();
+  if (agent) setCurrentAgent(agent);
+
   // 图片处理：非 anthropic provider 主动切换到 anthropic（其他 provider 不支持 vision）
   let visionProvider: import('./provider.js').LLMProvider | undefined;
   let visionModel: string | undefined;

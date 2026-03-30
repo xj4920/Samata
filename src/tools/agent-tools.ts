@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
-import { getCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, getAgentTools } from '../llm/agents/config.js';
+import { getCurrentAgent, setCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, getAgentTools } from '../llm/agents/config.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -10,11 +10,34 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'get_agent',
-    description: '查看某个 Agent 的详细配置',
+    description: '查看某个 Agent 的详细配置。不传 name 则返回当前会话使用的 Agent。',
     input_schema: {
       type: 'object' as const,
-      properties: { name: { type: 'string', description: 'Agent 名称' } },
-      required: ['name'],
+      properties: { name: { type: 'string', description: 'Agent 名称（不传则返回当前 Agent）' } },
+      required: [],
+    },
+  },
+  {
+    name: 'manage_agent_member',
+    description: '管理 Agent 成员及其角色（仅管理员）。支持添加或删除成员。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', enum: ['add', 'del'], description: '操作：add (添加) 或 del (删除)' },
+        agent_name: { type: 'string', description: 'Agent 名称' },
+        username: { type: 'string', description: '系统内用户名 (通常为 feishu_ou_xxx 或 user_xxxxxx)' },
+        role: { type: 'string', enum: ['admin', 'user'], description: '角色：admin (管理员) 或 user (普通成员)，默认为 admin' },
+      },
+      required: ['action', 'agent_name', 'username'],
+    },
+  },
+  {
+    name: 'list_agent_members',
+    description: '列出某个 Agent 的所有成员',
+    input_schema: {
+      type: 'object' as const,
+      properties: { agent_name: { type: 'string', description: 'Agent 名称' } },
+      required: ['agent_name'],
     },
   },
   {
@@ -108,8 +131,9 @@ function handleListAgents(globalTools?: Anthropic.Tool[]): string {
   }));
 }
 
-function handleGetAgent(input: { name: string }, globalTools?: Anthropic.Tool[]): string {
-  const agent = getAgent(input.name);
+function handleGetAgent(input: { name?: string }, globalTools?: Anthropic.Tool[]): string {
+  const agent = input.name ? getAgent(input.name) : getCurrentAgent();
+  if (!agent) return JSON.stringify({ error: '当前无活跃 Agent' });
   const tools = globalTools ?? [];
   const availableTools = getAgentTools(agent, tools).map(t => t.name);
   return JSON.stringify({
@@ -161,7 +185,10 @@ function handleSwitchAgent(input: { name: string }): string {
   if (agent.name !== input.name && input.name !== 'otcclaw') {
     return JSON.stringify({ error: `未找到 Agent: ${input.name}` });
   }
-  return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})` });
+  // Only set agent; don't resetConversation() here because we're inside the agentic loop.
+  // The conversation history will be cleared on the next chat() call or /reset.
+  setCurrentAgent(agent);
+  return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})，下次对话将使用新 Agent 配置` });
 }
 
 function handleAssignAgent(input: { agent_name: string; channel: string; app_id?: string; target_id?: string }): string {
@@ -180,10 +207,22 @@ function handleListAssignments(): string {
   return JSON.stringify(listAssignments());
 }
 
+function handleManageAgentMember(input: { action: string; agent_name: string; username: string; role?: string }): string {
+  const result = manageAgentMember(input.action as 'add' | 'del', input.agent_name, input.username, (input.role as any) || 'admin');
+  return JSON.stringify(result);
+}
+
+function handleListAgentMembers(input: { agent_name: string }): string {
+  const result = listAgentMembers(input.agent_name);
+  return JSON.stringify(result);
+}
+
 export async function handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
   switch (name) {
     case 'list_agents': return handleListAgents(ctx?.globalTools);
     case 'get_agent': return handleGetAgent(input, ctx?.globalTools);
+    case 'manage_agent_member': return handleManageAgentMember(input);
+    case 'list_agent_members': return handleListAgentMembers(input);
     case 'save_agent': return handleSaveAgent(input);
     case 'delete_agent': return handleDeleteAgent(input);
     case 'switch_agent': return handleSwitchAgent(input);

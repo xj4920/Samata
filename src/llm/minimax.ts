@@ -1,9 +1,37 @@
+import { Agent } from 'undici';
 import type { LLMProvider, StreamEvent } from './provider.js';
 import { convertTools, convertMessages, convertResponse, parseSSEStream } from './openai-compat.js';
 
 /* ----------------------------------------------------------------
  * Provider 工厂
  * ---------------------------------------------------------------- */
+
+// MiniMax 有两个 ALB 节点，偶尔一个不可达。
+// 使用短 connectTimeout 快速失败，fetchWithRetry 最多重试 2 次，
+// 每次重试创建新 Agent 以强制 DNS 重新解析，规避坏节点。
+function makeMinimaxAgent() {
+  return new Agent({
+    connect: { timeout: 8000 },
+    bodyTimeout: 120000,
+    headersTimeout: 30000,
+  });
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i <= maxRetries; i++) {
+    const agent = makeMinimaxAgent();
+    try {
+      return await fetch(url, { ...init, dispatcher: agent } as any);
+    } catch (e: any) {
+      lastErr = e;
+      const isTimeout = e?.cause?.message?.includes('Connect Timeout') ||
+                        e?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+      if (!isTimeout || i === maxRetries) throw e;
+    }
+  }
+  throw lastErr;
+}
 
 export function createMinimaxProvider(): LLMProvider | null {
   const apiKey = process.env.MINIMAX_API_KEY;
@@ -26,7 +54,7 @@ export function createMinimaxProvider(): LLMProvider | null {
         body.tools = convertTools(params.tools);
       }
 
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,7 +90,7 @@ export function createMinimaxProvider(): LLMProvider | null {
         body.tools = convertTools(params.tools);
       }
 
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

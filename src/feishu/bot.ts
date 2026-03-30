@@ -279,7 +279,7 @@ async function handleAIChat(
         }
       : undefined;
 
-    const textReply = await runAgenticChat(session.history, userInput, session.user, {
+    let textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[飞书:${feishuUsername}] `,
       showThinking: true,
@@ -296,6 +296,8 @@ async function handleAIChat(
     // 关键修复：将 AI 的回复存入会话历史，确保后续对话能记得前面的内容
     if (textReply) {
       session.history.push({ role: 'assistant', content: textReply });
+      // 扫描并处理图片（上传并替换为 ![image](key)）
+      textReply = await processImagesInText(instance, textReply);
     }
 
     // 最终回复前，如果进度卡片还在，尝试直接用它进行回复（通过 updateCard）
@@ -318,6 +320,43 @@ async function handleAIChat(
   } finally {
     setCurrentUser(prevUser);
   }
+}
+
+/**
+ * 扫描文本中的图片路径（本地或 URL），上传到飞书并替换为 ![image](image_key)
+ */
+async function processImagesInText(instance: FeishuBotInstance, text: string): Promise<string> {
+  if (!text) return text;
+  
+  // 匹配本地路径和 HTTP URL (png, jpg, jpeg, gif, webp)
+  const IMAGE_RE = /(?:^|\s)((?:\/|\.\/|~\/|https?:\/\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
+  
+  let result = text;
+  const matches = [...text.matchAll(IMAGE_RE)];
+  
+  for (const m of matches) {
+    const filePath = m[1];
+    try {
+      log.dim(`[飞书:${instance.appName}] 检测到图片路径: ${filePath}，正在上传...`);
+      const imageKey = await instance.api.uploadImage(filePath);
+      if (imageKey) {
+        // 全局替换路径为 image_key
+        result = result.split(filePath).join(imageKey);
+      }
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 上传图片 ${filePath} 失败: ${err.message}`);
+    }
+  }
+
+  // 补全 Markdown 格式：img_v2_... -> ![image](img_v2_...)
+  const KEY_RE = /(img_v2_[a-zA-Z0-9-]+)/g;
+  result = result.replace(KEY_RE, (key, offset) => {
+    const before = result.slice(Math.max(0, offset - 2), offset);
+    if (before === '](') return key;
+    return `![image](${key})`;
+  });
+
+  return result;
 }
 
 /**
