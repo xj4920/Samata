@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput } from '../llm/tool-types.js';
-import { isAdmin } from '../auth/rbac.js';
+import { isAdmin, isAgentAdmin } from '../auth/rbac.js';
+import { getDb } from '../db/connection.js';
 import { fetchKnowledge, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 
@@ -32,7 +33,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'update_knowledge',
-    description: '更新知识库中已有的FAQ条目（仅管理员）。需先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行更新。支持修改问题、答案、标签等字段。',
+    description: '更新知识库中已有的FAQ条目（需当前 Agent 管理员权限，且条目须属于当前 Agent）。需先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行更新。支持修改问题、答案、标签等字段。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -53,7 +54,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'delete_knowledge',
-    description: '删除知识库中的FAQ条目（仅管理员）。���先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行删除。',
+    description: '删除知识库中的FAQ条目（需当前 Agent 管理员权限，且条目须属于当前 Agent）。需先通过 search_knowledge 搜索找到目标QA，再用ID前缀进行删除。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -113,17 +114,32 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
 }
 
 function handleAddKnowledge(input: AddKnowledgeInput): string {
-  const agentId = getCurrentAgent()?.id;
+  const agentId = getCurrentAgent()?.id ?? '';
+  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
   return JSON.stringify(addKnowledge(input, agentId));
 }
 
 function handleUpdateKnowledge(input: UpdateKnowledgeInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  const agentId = getCurrentAgent()?.id ?? '';
+  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
+  const db = getDb();
+  const rows = db.prepare('SELECT id FROM knowledge WHERE id LIKE ?').all(`${input.id_prefix}%`) as { id: string }[];
+  if (rows.length === 0) return JSON.stringify({ success: false, error: `未找到FAQ: ${input.id_prefix}` });
+  if (rows.length > 1) return JSON.stringify({ success: false, error: '匹配到多条，请提供���长的ID前缀' });
+  const assoc = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id = ? AND agent_id = ?').get(rows[0].id, agentId);
+  if (!assoc) return JSON.stringify({ success: false, error: '权限不足：该知识条目不属于当前 Agent' });
   return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
 }
 
 function handleDeleteKnowledge(input: { id_prefix: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  const agentId = getCurrentAgent()?.id ?? '';
+  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
+  const db = getDb();
+  const rows = db.prepare('SELECT id FROM knowledge WHERE id LIKE ?').all(`${input.id_prefix}%`) as { id: string }[];
+  if (rows.length === 0) return JSON.stringify({ success: false, error: `未找到FAQ: ${input.id_prefix}` });
+  if (rows.length > 1) return JSON.stringify({ success: false, error: '匹配到多条，请提供更长的ID前缀' });
+  const assoc = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id = ? AND agent_id = ?').get(rows[0].id, agentId);
+  if (!assoc) return JSON.stringify({ success: false, error: '权限不足：该知识条目不属于当前 Agent' });
   return JSON.stringify(deleteKnowledge(input.id_prefix));
 }
 
