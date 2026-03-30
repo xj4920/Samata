@@ -162,104 +162,106 @@ export function initSchema(): void {
       created_at  TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS migrations (
+      id         TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
-  // Migration: Add related_users and updated_at columns to knowledge table if they don't exist
-  try {
-    db.exec("ALTER TABLE knowledge ADD COLUMN related_users TEXT");
-  } catch (e) {
-    // Column may already exist, ignore
-  }
-  try {
-    db.exec("ALTER TABLE knowledge ADD COLUMN updated_at TEXT");
-  } catch (e) {
-    // Column may already exist, ignore
-  }
-  // Update existing rows to set updated_at = created_at if null
-  db.prepare("UPDATE knowledge SET updated_at = created_at WHERE updated_at IS NULL").run();
+  // Each migration runs exactly once, tracked by ID in the migrations table.
+  const runOnce = (id: string, fn: () => void) => {
+    if (db.prepare('SELECT 1 FROM migrations WHERE id = ?').get(id)) return;
+    try {
+      fn();
+      db.prepare('INSERT INTO migrations (id) VALUES (?)').run(id);
+    } catch (e) {
+      // migration failure should not block startup
+    }
+  };
 
-  // Migration: Add agent_id column to skills table
-  try {
-    db.exec("ALTER TABLE skills ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL");
-  } catch (e) {
-    // Column may already exist, ignore
-  }
+  runOnce('add-knowledge-columns', () => {
+    try { db.exec("ALTER TABLE knowledge ADD COLUMN related_users TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE knowledge ADD COLUMN updated_at TEXT"); } catch (e) {}
+    db.prepare("UPDATE knowledge SET updated_at = created_at WHERE updated_at IS NULL").run();
+  });
 
-  // Migration: Add unique index on knowledge.question
-  try {
+  runOnce('add-skills-agent-id', () => {
+    try {
+      db.exec("ALTER TABLE skills ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL");
+    } catch (e) {} // column may already exist
+  });
+
+  runOnce('add-knowledge-unique-index', () => {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_question ON knowledge(question)");
-  } catch (e) {
-    // Index may already exist, ignore
-  }
+  });
 
-  // Migration: Add tags column to todos (for DBs created before tags was added to schema)
-  try {
+  runOnce('add-todos-tags', () => {
     const todoCols = db.pragma('table_info(todos)') as Array<{ name: string }>;
     if (!todoCols.find(c => c.name === 'tags')) {
       db.exec("ALTER TABLE todos ADD COLUMN tags TEXT");
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Seed default users if empty
-  const count = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
-  if (count.c === 0) {
-    const insert = db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)');
-    insert.run('admin-001', 'admin', 'admin');
-    insert.run('user-001', 'user', 'user');
-  }
-
-  // Seed default agents if empty
-  const agentCount = db.prepare('SELECT COUNT(*) as c FROM agents').get() as { c: number };
-  if (agentCount.c === 0) {
-    const ins = db.prepare(
-      'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const commonTools = JSON.stringify([
-      'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
-      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-      'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app', 'exec_cmd',
-    ]);
-    const alterEgoTools = JSON.stringify([
-      'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
-      'list_skills', 'get_skill', 'save_skill', 'delete_skill',
-      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-      'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'reload_app', 'exec_cmd',
-      'markdown_to_image',
-    ]);
-    ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
-    ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
-    ins.run('agent-tutor', 'tutor', '教育辅导', '孩子学习辅导、作业答疑、学习规划', 'allowlist', commonTools, 'admin-001');
-    ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', alterEgoTools, 'admin-001');
-  }
-
-  // Seed default agent_members (Migration)
-  const agentMembersCount = db.prepare('SELECT COUNT(*) as c FROM agent_members').get() as { c: number };
-  if (agentMembersCount.c === 0) {
-    const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string, created_by: string }[];
-    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
-    for (const agent of agents) {
-        // give the creator 'admin' role in the agent
-        const id = uuid();
-        insMember.run(id, agent.id, agent.created_by, 'admin');
+  runOnce('seed-default-users', () => {
+    const count = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
+    if (count.c === 0) {
+      const insert = db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)');
+      insert.run('admin-001', 'admin', 'admin');
+      insert.run('user-001', 'user', 'user');
     }
-  }
+  });
 
-  // Seed default feishu_apps if empty
-  const feishuAppsCount = db.prepare('SELECT COUNT(*) as c FROM feishu_apps').get() as { c: number };
-  if (feishuAppsCount.c === 0) {
-    const insApp = db.prepare(
-      'INSERT OR IGNORE INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    insApp.run('cli_a93212c0b7b9dcc5', 'otcclaw-bot', 'Ngdd5bLmxpgawK9ol3qRsbT4Navnq4Xa', '', '', 1);
-    insApp.run('cli_a9329f3af5b8dcc9', 'tutor-bot', 'l69uf6jF04uEY6Urcn8Tjff0ytTxVSgy', '', '', 1);
-  }
+  runOnce('seed-default-agents', () => {
+    const agentCount = db.prepare('SELECT COUNT(*) as c FROM agents').get() as { c: number };
+    if (agentCount.c === 0) {
+      const ins = db.prepare(
+        'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      );
+      const commonTools = JSON.stringify([
+        'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+        'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+        'save_memory', 'search_memory', 'delete_memory',
+        'read_file', 'write_file', 'reload_app', 'exec_cmd',
+      ]);
+      const alterEgoTools = JSON.stringify([
+        'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
+        'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+        'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+        'save_memory', 'search_memory', 'delete_memory',
+        'read_file', 'write_file', 'reload_app', 'exec_cmd',
+        'markdown_to_image',
+      ]);
+      ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
+      ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
+      ins.run('agent-tutor', 'tutor', '教育辅导', '孩子学习辅导、作业答疑、学习规划', 'allowlist', commonTools, 'admin-001');
+      ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', alterEgoTools, 'admin-001');
+    }
+  });
 
-  // Migration: Populate knowledge_agents — associate all existing knowledge with otcclaw agent
-  try {
+  runOnce('seed-default-agent-members', () => {
+    const agentMembersCount = db.prepare('SELECT COUNT(*) as c FROM agent_members').get() as { c: number };
+    if (agentMembersCount.c === 0) {
+      const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string, created_by: string }[];
+      const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+      for (const agent of agents) {
+        insMember.run(uuid(), agent.id, agent.created_by, 'admin');
+      }
+    }
+  });
+
+  runOnce('seed-default-feishu-apps', () => {
+    const feishuAppsCount = db.prepare('SELECT COUNT(*) as c FROM feishu_apps').get() as { c: number };
+    if (feishuAppsCount.c === 0) {
+      const insApp = db.prepare(
+        'INSERT OR IGNORE INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      insApp.run('cli_a93212c0b7b9dcc5', 'otcclaw-bot', 'Ngdd5bLmxpgawK9ol3qRsbT4Navnq4Xa', '', '', 1);
+      insApp.run('cli_a9329f3af5b8dcc9', 'tutor-bot', 'l69uf6jF04uEY6Urcn8Tjff0ytTxVSgy', '', '', 1);
+    }
+  });
+
+  runOnce('populate-knowledge-agents', () => {
     const kaCount = db.prepare('SELECT COUNT(*) as c FROM knowledge_agents').get() as { c: number };
     if (kaCount.c === 0) {
       const allKnowledge = db.prepare('SELECT id FROM knowledge').all() as { id: string }[];
@@ -268,26 +270,22 @@ export function initSchema(): void {
         insKA.run(uuid(), k.id, 'agent-otcclaw');
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add QA tools to alter-ego
-  const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
-  if (aeRow) {
-    const current: string[] = aeRow.tools_list ? JSON.parse(aeRow.tools_list) : [];
-    if (!current.includes('extract_wework_qa')) {
-      const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
-      db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
+  runOnce('alter-ego-add-qa-tools', () => {
+    const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
+    if (aeRow) {
+      const current: string[] = aeRow.tools_list ? JSON.parse(aeRow.tools_list) : [];
+      if (!current.includes('extract_wework_qa')) {
+        const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
+        db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
+      }
     }
-  }
+  });
 
-  // Migration: Add app_id column to agent_assignments
-  try {
+  runOnce('agent-assignments-add-app-id', () => {
     const cols = db.pragma('table_info(agent_assignments)') as Array<{ name: string }>;
-    const hasAppId = cols.some(c => c.name === 'app_id');
-
-    if (!hasAppId) {
+    if (!cols.some(c => c.name === 'app_id')) {
       db.exec(`
         CREATE TABLE agent_assignments_new (
           id         TEXT PRIMARY KEY,
@@ -299,46 +297,35 @@ export function initSchema(): void {
           UNIQUE(channel, app_id, target_id)
         );
       `);
-
       db.exec(`
         INSERT INTO agent_assignments_new (id, agent_id, channel, app_id, target_id, created_at)
         SELECT id, agent_id, channel, NULL, target_id, created_at FROM agent_assignments;
       `);
-
       db.exec('DROP TABLE agent_assignments;');
       db.exec('ALTER TABLE agent_assignments_new RENAME TO agent_assignments;');
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add wework_monitor to alter-ego tools_list
-  try {
-    const alterEgoRow = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
-    if (alterEgoRow) {
-      const currentTools: string[] = alterEgoRow.tools_list ? JSON.parse(alterEgoRow.tools_list) : [];
-      if (!currentTools.includes('wework_monitor')) {
-        currentTools.push('wework_monitor');
+  runOnce('alter-ego-add-wework-monitor', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
+    if (row) {
+      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      if (!current.includes('wework_monitor')) {
+        current.push('wework_monitor');
         db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
-          .run(JSON.stringify(currentTools));
+          .run(JSON.stringify(current));
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add auto_start column to feishu_apps
-  try {
+  runOnce('feishu-apps-add-auto-start', () => {
     const cols = db.pragma('table_info(feishu_apps)') as Array<{ name: string }>;
     if (!cols.find(c => c.name === 'auto_start')) {
       db.exec("ALTER TABLE feishu_apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 1");
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add exec_cmd to tutor and alter-ego tools_list
-  try {
+  runOnce('agents-add-exec-cmd', () => {
     for (const agentName of ['tutor', 'alter-ego']) {
       const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
       if (row) {
@@ -350,12 +337,9 @@ export function initSchema(): void {
         }
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add reminder tools to tutor, doctor, alter-ego tools_list
-  try {
+  runOnce('agents-add-reminder-tools', () => {
     const reminderTools = ['set_reminder', 'list_reminders', 'cancel_reminder'];
     for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
       const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
@@ -363,10 +347,7 @@ export function initSchema(): void {
         const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
         let changed = false;
         for (const tool of reminderTools) {
-          if (!current.includes(tool)) {
-            current.push(tool);
-            changed = true;
-          }
+          if (!current.includes(tool)) { current.push(tool); changed = true; }
         }
         if (changed) {
           db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
@@ -374,12 +355,9 @@ export function initSchema(): void {
         }
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: per-feishu-user records for Moss and Falcon + agent_members
-  try {
+  runOnce('add-feishu-admin-users', () => {
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
       .run('feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'tutor-admin');
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
@@ -388,38 +366,36 @@ export function initSchema(): void {
       .run(uuid());
     db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '575518a8-1f3d-4754-8815-243ef2ff3ea9', 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'admin')")
       .run(uuid());
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Create health_records and health_files tables
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS health_records (
-      id          TEXT PRIMARY KEY,
-      user_id     TEXT NOT NULL,
-      agent_id    TEXT NOT NULL,
-      record_type TEXT NOT NULL,
-      value       TEXT NOT NULL,
-      unit        TEXT,
-      measured_at TEXT NOT NULL,
-      notes       TEXT,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+  runOnce('create-health-tables', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS health_records (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        agent_id    TEXT NOT NULL,
+        record_type TEXT NOT NULL,
+        value       TEXT NOT NULL,
+        unit        TEXT,
+        measured_at TEXT NOT NULL,
+        notes       TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
 
-    CREATE TABLE IF NOT EXISTS health_files (
-      id          TEXT PRIMARY KEY,
-      user_id     TEXT NOT NULL,
-      agent_id    TEXT NOT NULL,
-      file_path   TEXT NOT NULL,
-      doc_type    TEXT NOT NULL,
-      measured_at TEXT NOT NULL,
-      notes       TEXT,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
+      CREATE TABLE IF NOT EXISTS health_files (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        agent_id    TEXT NOT NULL,
+        file_path   TEXT NOT NULL,
+        doc_type    TEXT NOT NULL,
+        measured_at TEXT NOT NULL,
+        notes       TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  });
 
-  // Migration: Add health tools and system_prompt to doctor agent
-  try {
+  runOnce('doctor-add-health-tools', () => {
     const doctorRow = db.prepare("SELECT tools_list, system_prompt FROM agents WHERE name='doctor'").get() as { tools_list: string | null; system_prompt: string | null } | undefined;
     if (doctorRow) {
       const current: string[] = doctorRow.tools_list ? JSON.parse(doctorRow.tools_list) : [];
@@ -442,7 +418,7 @@ export function initSchema(): void {
 1. **情况评估**：简要描述当前情况
 2. **可能原因**：列出 2-3 个最可能的原因
 3. **建议措施**：具体可操作的建议（就医/用药/生活方式）
-4. **注意事项**：需要警惕的预警信号
+4. **注意���项**：需要警惕的预警信号
 
 **免责声明**
 本助手提供的信息仅供参考，不构成医疗诊断或处方建议。若出现严重或持续症状，请及时就医。用药请遵医嘱，不得自行调整处方药剂量。`;
@@ -456,12 +432,9 @@ export function initSchema(): void {
         db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE name = 'doctor'`).run(...params);
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Seed browser agent
-  try {
+  runOnce('seed-browser-agent', () => {
     const browserAgent = db.prepare("SELECT id FROM agents WHERE name='browser'").get();
     if (!browserAgent) {
       const browserTools = JSON.stringify(TOOL_PRESETS.browser.tools);
@@ -471,12 +444,9 @@ export function initSchema(): void {
       db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
         .run(uuid(), 'agent-browser', 'admin-001', 'admin');
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add todo tools to tutor, doctor, alter-ego tools_list
-  try {
+  runOnce('agents-add-todo-tools', () => {
     const todoTools = ['create_todo', 'list_todos', 'update_todo', 'delete_todo'];
     for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
       const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
@@ -484,10 +454,7 @@ export function initSchema(): void {
         const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
         let changed = false;
         for (const tool of todoTools) {
-          if (!current.includes(tool)) {
-            current.push(tool);
-            changed = true;
-          }
+          if (!current.includes(tool)) { current.push(tool); changed = true; }
         }
         if (changed) {
           db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
@@ -495,12 +462,9 @@ export function initSchema(): void {
         }
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add sleep/meal/symptom logging tools to doctor tools_list
-  try {
+  runOnce('doctor-add-lifestyle-tools', () => {
     const lifestyleTools = ['log_sleep', 'log_meal', 'log_symptom'];
     const row = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
     if (row) {
@@ -514,30 +478,21 @@ export function initSchema(): void {
           .run(JSON.stringify(current));
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add preset column to agents
-  try {
+  runOnce('agents-add-preset-column', () => {
     const agentCols = db.pragma('table_info(agents)') as Array<{ name: string }>;
     if (!agentCols.find(c => c.name === 'preset')) {
       db.exec("ALTER TABLE agents ADD COLUMN preset TEXT");
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Backfill preset for seeded agents
-  try {
+  runOnce('agents-backfill-preset', () => {
     db.prepare("UPDATE agents SET preset='common'    WHERE name IN ('doctor','tutor') AND preset IS NULL").run();
     db.prepare("UPDATE agents SET preset='alter_ego' WHERE name='alter-ego'           AND preset IS NULL").run();
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230 as doctor agent admin
-  try {
+  runOnce('add-doctor-admin-user', () => {
     const userId = 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230';
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
       .run(userId, 'doctor-admin');
@@ -549,20 +504,14 @@ export function initSchema(): void {
           .run(uuid(), doctorAgent.id, userId);
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 
-  // Migration: Add user_tools_mode and user_tools_list to agents table
-  try {
-    db.exec("ALTER TABLE agents ADD COLUMN user_tools_mode TEXT NOT NULL DEFAULT 'inherit'");
-  } catch (e) { /* column may already exist */ }
-  try {
-    db.exec("ALTER TABLE agents ADD COLUMN user_tools_list TEXT");
-  } catch (e) { /* column may already exist */ }
+  runOnce('agents-add-user-tools-columns', () => {
+    try { db.exec("ALTER TABLE agents ADD COLUMN user_tools_mode TEXT NOT NULL DEFAULT 'inherit'"); } catch (e) {}
+    try { db.exec("ALTER TABLE agents ADD COLUMN user_tools_list TEXT"); } catch (e) {}
+  });
 
-  // Migration: Add markdown_to_image to alter-ego tools_list
-  try {
+  runOnce('alter-ego-add-markdown-to-image', () => {
     const row = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
     if (row) {
       const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
@@ -572,7 +521,5 @@ export function initSchema(): void {
           .run(JSON.stringify(current));
       }
     }
-  } catch (e) {
-    // Migration failure should not block startup
-  }
+  });
 }
