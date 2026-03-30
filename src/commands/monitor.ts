@@ -94,10 +94,11 @@ export function fetchSystemStatus(): SystemStatus {
   // Available commands (filtered by current agent)
   const availableCommands = getCommandEntries().map(e => e.name);
 
-  // Available LLM tools (filtered by agent's toolsMode)
+  // Available LLM tools (filtered by agent's toolsMode and current user's role)
   const agentConfig = agent ?? undefined;
+  const userIsAdmin = agentConfig ? isAgentAdmin(agentConfig.id) : true;
   const availableTools = agentConfig
-    ? getAgentTools(agentConfig, getGlobalTools()).map(t => t.name)
+    ? getAgentTools(agentConfig, getGlobalTools(), userIsAdmin).map(t => t.name)
     : getGlobalTools().map(t => t.name);
 
   const displayRole = (agentId && isAgentAdmin(agentId)) ? 'admin' : user.role;
