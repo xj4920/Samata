@@ -12,6 +12,7 @@ export interface Skill {
   id: string;
   name: string;
   prompt: string;
+  description: string | null;
   agent_id: string | null;
   created_by: string;
   created_at: string;
@@ -35,10 +36,10 @@ export function getSkillByName(name: string, agentId?: string): Skill | null {
   return (db.prepare('SELECT * FROM skills WHERE name = ? AND agent_id IS NULL').get(name) as Skill) ?? null;
 }
 
-export function saveSkill(name: string, prompt: string, agentId?: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } | { success: false; error: string } {
+export function saveSkill(name: string, prompt: string, agentId?: string, description?: string): { success: true; action: 'created' | 'updated'; name: string; id?: string } | { success: false; error: string } {
   const db = getDb();
   const user = getCurrentUser();
-  
+
   if (agentId) {
       if (!isSystemAdmin() && !isAgentAdmin(agentId)) {
           return { success: false, error: '权限不足：需要对应 Agent 的管理员权限或系统管理员权限' };
@@ -52,13 +53,13 @@ export function saveSkill(name: string, prompt: string, agentId?: string): { suc
   const existing = getSkillByName(name, agentId);
 
   if (existing) {
-    db.prepare('UPDATE skills SET prompt = ?, agent_id = ? WHERE id = ?').run(prompt, agentId ?? null, existing.id);
-    recordEvent('skill', existing.id, 'update', { name, prompt, agent_id: agentId });
+    db.prepare('UPDATE skills SET prompt = ?, description = ?, agent_id = ? WHERE id = ?').run(prompt, description ?? existing.description ?? null, agentId ?? null, existing.id);
+    recordEvent('skill', existing.id, 'update', { name, prompt, description, agent_id: agentId });
     return { success: true, action: 'updated', name };
   } else {
     const id = uuid();
-    db.prepare('INSERT INTO skills (id, name, prompt, agent_id, created_by) VALUES (?, ?, ?, ?, ?)').run(id, name, prompt, agentId ?? null, user.id);
-    recordEvent('skill', id, 'create', { name, prompt, agent_id: agentId });
+    db.prepare('INSERT INTO skills (id, name, prompt, description, agent_id, created_by) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, prompt, description ?? null, agentId ?? null, user.id);
+    recordEvent('skill', id, 'create', { name, prompt, description, agent_id: agentId });
     return { success: true, action: 'created', name, id: id.slice(0, 8) };
   }
 }
@@ -85,8 +86,10 @@ export function deleteSkill(name: string): { success: true; name: string } | { s
 
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
-    result[m[1]] = m[2];
+  for (const m of args.matchAll(/(\w+)="([^"]+)"|(\w+)=(\S+)/g)) {
+    const key = m[1] ?? m[3];
+    const val = m[2] ?? m[4];
+    result[key] = val;
   }
   return result;
 }
@@ -207,5 +210,6 @@ async function runSkill(args: string): Promise<void> {
   }
 
   log.print(`▶ 执行 skill [${name}]: ${prompt}`);
+  recordEvent('skill', skill.id, 'run', { name, params });
   await chat(prompt);
 }

@@ -8,7 +8,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
   common: {
     description: '通用助手：知识库、技能、记忆、Agent管理、文件读写',
     tools: [
-      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
@@ -21,7 +21,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
     description: '个人分身：包含 common 基础上额外支持知识库写入和企微 QA 提取',
     tools: [
       'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'extract_wework_qa',
-      'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
@@ -31,7 +31,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
   },
   readonly: {
     description: '只读助手：知识库查询、状态查看，无写入权限',
-    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'search_memory'],
+    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'run_skill', 'search_memory'],
   },
   browser: {
     description: '浏览器助手：通过 Playwright MCP 进行网页浏览、截图、内容提取',

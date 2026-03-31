@@ -192,6 +192,32 @@ export function initSchema(): void {
     } catch (e) {} // column may already exist
   });
 
+  runOnce('add-skills-description', () => {
+    try {
+      db.exec("ALTER TABLE skills ADD COLUMN description TEXT");
+    } catch (e) {}
+  });
+
+  runOnce('fix-skills-unique-constraint', () => {
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS skills_name_agent_unique ON skills(name, COALESCE(agent_id, ''))");
+    } catch (e) {}
+  });
+
+  runOnce('add-run-skill-to-agents', () => {
+    const agents = db.prepare("SELECT id, tools_list FROM agents WHERE tools_list IS NOT NULL").all() as { id: string; tools_list: string }[];
+    for (const agent of agents) {
+      try {
+        const tools: string[] = JSON.parse(agent.tools_list);
+        if (!tools.includes('run_skill')) {
+          tools.push('run_skill');
+          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE id=?")
+            .run(JSON.stringify(tools), agent.id);
+        }
+      } catch (e) {}
+    }
+  });
+
   runOnce('add-knowledge-unique-index', () => {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_question ON knowledge(question)");
   });
@@ -219,14 +245,14 @@ export function initSchema(): void {
         'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       const commonTools = JSON.stringify([
-        'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+        'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
         'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
         'save_memory', 'search_memory', 'delete_memory',
         'read_file', 'write_file', 'reload_app', 'exec_cmd',
       ]);
       const alterEgoTools = JSON.stringify([
         'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
-        'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+        'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
         'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
         'save_memory', 'search_memory', 'delete_memory',
         'read_file', 'write_file', 'reload_app', 'exec_cmd',

@@ -63,11 +63,13 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     base = buildGenericPrompt(agent, u);
   }
 
-  // Inject available skills
+  // Inject available skills (name + description only, full content loaded via get_skill/run_skill)
   const skills = getAllSkills(agentId);
   if (skills.length > 0) {
-    const skillList = skills.map(s => `- 「${s.name}」: ${s.prompt}`).join('\n');
-    base += `\n\n🛠️ **当前可用技能库 (Skills)：**\n你已经学会了以下特定场景的处理技能。当用户的问题匹配这些场景时，请务必严格按照技能定义的逻辑和格式进行回答：\n${skillList}\n\n**技能调用指令：**\n- 当用户要求执行某个技能，或者当前场景符合某个技能描述时，你应该“进入技能模式”。\n- 严格遵循技能 prompt 中的格式要求（如表格布局、汇总方式等）。`;
+    const skillList = skills.map(s =>
+      `- 「${s.name}」: ${s.description ?? s.prompt.slice(0, 60).replace(/\n/g, ' ')}`
+    ).join('\n');
+    base += `\n\n🛠️ **可用技能 (Skills)：**\n${skillList}\n\n当场景匹配某个技能时，使用 run_skill 执行，使用 get_skill 获取完整内容。`;
   }
 
   // Inject persistent memory
