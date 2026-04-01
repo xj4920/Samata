@@ -1,18 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SaveMemoryInput, SearchMemoryInput, DeleteMemoryInput, UpdateMemoryInput } from '../llm/tool-types.js';
-import { isAdmin, isAgentAdmin } from '../auth/rbac.js';
+import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
-import { saveMemory, searchMemory, deleteMemory, updateMemory } from '../llm/agents/memory.js';
+import { saveMemory, searchMemory, deleteMemory, updateMemory, getMemoryByIdPrefix } from '../llm/agents/memory.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'save_memory',
-    description: '保存一条记忆/事实到持久化存储，跨会话可用。当对话中出现重要事实、用户偏好、关键信息时主动调用。',
+    description: '保存一条记忆/事实到持久化存储，跨会话可用。scope=global 仅系统管理员可用，scope=agent 需当前 Agent 管理员权限。',
     input_schema: {
       type: 'object' as const,
       properties: {
         content: { type: 'string', description: '要记住的事实或信息（最大500字符）' },
-        scope: { type: 'string', description: "'global'（全局，所有 Agent 可见）或 'agent'（仅当前 Agent 可见）。默认 global" },
+        scope: { type: 'string', description: "'global'（全局，仅系统管理员可保存）或 'agent'（仅当前 Agent 可见，需 Agent 管理员权限）。默认 agent" },
         category: { type: 'string', description: "可选分类: 'fact' | 'preference' | 'rule' | 'context'" },
       },
       required: ['content'],
@@ -31,7 +31,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'update_memory',
-    description: '修改一条已保存的记忆内容或分类（仅管理员）',
+    description: '修改一条已保存的记忆内容或分类。全局记忆仅系统管理员可修改，Agent 记忆需对应 Agent 管理员权限。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -44,7 +44,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'delete_memory',
-    description: '删除一条已保存的记忆（仅 admin 可用）。需要提供记忆 ID 前缀。',
+    description: '删除一条已保存的记忆。全局记忆仅系统管理员可删除，Agent 记忆需对应 Agent 管理员权限。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -55,13 +55,27 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
+/** Check write permission based on memory scope/ownership */
+function checkMemoryWritePermission(scope: string, agentId: string | null): string | null {
+  if (scope === 'global') {
+    if (!isSystemAdmin()) return '仅系统管理员可操作全局记忆';
+    return null;
+  }
+  if (!isSystemAdmin() && !isAgentAdmin(agentId ?? '')) return '仅该 Agent 管理员可操作此记忆';
+  return null;
+}
+
 function handleSaveMemory(input: SaveMemoryInput): string {
   const currentAgentId = getCurrentAgent()?.id;
-  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可保存记忆' });
+  const scope = (input.scope as 'global' | 'agent') ?? 'agent';
+
+  const permErr = checkMemoryWritePermission(scope, currentAgentId ?? null);
+  if (permErr) return JSON.stringify({ error: permErr });
+
   const result = saveMemory({
     content: input.content,
-    scope: (input.scope as 'global' | 'agent') ?? 'global',
-    agentId: input.scope === 'agent' ? currentAgentId ?? undefined : undefined,
+    scope,
+    agentId: scope === 'agent' ? currentAgentId ?? undefined : undefined,
     category: input.category,
     source: 'manual',
   });
@@ -75,14 +89,22 @@ function handleSearchMemory(input: SearchMemoryInput): string {
 }
 
 function handleUpdateMemory(input: UpdateMemoryInput): string {
-  const currentAgentId = getCurrentAgent()?.id;
-  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可修改记忆' });
+  const row = getMemoryByIdPrefix(input.id);
+  if (!row) return JSON.stringify({ error: `未找到记忆: ${input.id}` });
+
+  const permErr = checkMemoryWritePermission(row.scope, row.agent_id);
+  if (permErr) return JSON.stringify({ error: permErr });
+
   return JSON.stringify(updateMemory(input.id, { content: input.content, category: input.category }));
 }
 
 function handleDeleteMemory(input: DeleteMemoryInput): string {
-  const currentAgentId = getCurrentAgent()?.id;
-  if (!isAgentAdmin(currentAgentId ?? '')) return JSON.stringify({ error: '仅 Agent 管理员可删除记忆' });
+  const row = getMemoryByIdPrefix(input.id);
+  if (!row) return JSON.stringify({ error: `未找到记忆: ${input.id}` });
+
+  const permErr = checkMemoryWritePermission(row.scope, row.agent_id);
+  if (permErr) return JSON.stringify({ error: permErr });
+
   return JSON.stringify(deleteMemory(input.id));
 }
 
