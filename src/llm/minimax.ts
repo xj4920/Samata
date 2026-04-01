@@ -78,6 +78,26 @@ export function createMinimaxProvider(): LLMProvider | null {
       return convertResponse(data, 'MiniMax');
     },
 
+    async describeImage(imageDataUrl: string, prompt: string): Promise<string> {
+      const vlmUrl = process.env.MINIMAX_VLM_URL;
+      if (!vlmUrl) throw new Error('MINIMAX_VLM_URL 未配置');
+      const res = await fetchWithRetry(vlmUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ prompt, image_url: imageDataUrl }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`MiniMax VLM ${res.status}: ${text.slice(0, 500)}`);
+      }
+      const data = await res.json();
+      if (data.error) throw new Error(`MiniMax VLM error: ${JSON.stringify(data.error)}`);
+      return data.reply ?? data.choices?.[0]?.message?.content ?? JSON.stringify(data);
+    },
+
     async *createMessageStream(params): AsyncGenerator<StreamEvent> {
       const body: Record<string, unknown> = {
         model: params.model,

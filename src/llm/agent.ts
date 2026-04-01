@@ -206,18 +206,30 @@ export async function runAgenticChat(
   const prevAgent = getCurrentAgent();
   if (agent) setCurrentAgent(agent);
 
-  // 图片处理：非 anthropic provider 主动切换到 anthropic（其他 provider 不支持 vision）
-  let visionProvider: import('./provider.js').LLMProvider | undefined;
-  let visionModel: string | undefined;
-  if (images && images.length > 0 && getProviderName() !== 'anthropic') {
-    const anthropic = getProviderByName('anthropic');
-    if (anthropic) {
-      visionProvider = anthropic;
-      visionModel = anthropic.defaultModel;
-      log.dim(`${logPrefix}📷 图片消息，切换到 anthropic/${visionModel} 处理`);
-    } else {
-      log.warn(`${logPrefix}⚠️ 当前 provider 不支持图片，且无可用 anthropic provider`);
+  // 图片预处理：优先用当前 provider.describeImage，fallback 到 anthropic（Claude 原生多模态）
+  let processedImages: ImageInput[] | undefined = images;
+  let processedInput = userInput;
+
+  if (images && images.length > 0) {
+    const currentProvider = getProvider();
+    const describer = currentProvider.describeImage
+      ? currentProvider
+      : getProviderByName('anthropic');
+
+    if (describer?.describeImage) {
+      log.dim(`${logPrefix}📷 使用 ${describer.name} 描述图片...`);
+      const descriptions: string[] = [];
+      for (const img of images) {
+        const dataUrl = `data:${img.mediaType};base64,${img.data}`;
+        const desc = await describer.describeImage(dataUrl, userInput || '请描述这张图片的内容');
+        descriptions.push(desc);
+      }
+      const descText = descriptions.map((d, i) => `[图片${i + 1}]\n${d}`).join('\n\n');
+      processedInput = `${descText}\n\n${userInput}`.trim();
+      processedImages = undefined;
+      log.dim(`${logPrefix}✅ 图片已转为文字描述`);
     }
+    // 若 describer 不存在（anthropic 未配置），保留原图进 chat（仅当前 provider 是 anthropic 时有效）
   }
 
   trimHistory(history, maxHistory);
@@ -225,24 +237,24 @@ export async function runAgenticChat(
   const historyLenBefore = history.length;
 
   // 构建 user message：如果有图片则使用 content block 数组
-  if (images && images.length > 0) {
+  if (processedImages && processedImages.length > 0) {
     const contentBlocks: Anthropic.MessageParam['content'] = [];
-    for (const img of images) {
+    for (const img of processedImages) {
       (contentBlocks as any[]).push({
         type: 'image',
         source: { type: 'base64', media_type: img.mediaType, data: img.data },
       });
     }
-    if (userInput) {
-      (contentBlocks as any[]).push({ type: 'text', text: userInput });
+    if (processedInput) {
+      (contentBlocks as any[]).push({ type: 'text', text: processedInput });
     }
     history.push({ role: 'user', content: contentBlocks });
   } else {
-    history.push({ role: 'user', content: userInput });
+    history.push({ role: 'user', content: processedInput });
   }
 
   const makeParams = (): CreateMessageParams => ({
-    model: visionModel ?? agent?.model ?? getModelName(),
+    model: agent?.model ?? getModelName(),
     max_tokens: 4096,
     system: systemPrompt,
     tools: activeTools,
@@ -252,7 +264,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, visionProvider));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
   } catch (err: any) {
     log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
     history.length = historyLenBefore;
@@ -306,7 +318,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, visionProvider));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
     } catch (err: any) {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;

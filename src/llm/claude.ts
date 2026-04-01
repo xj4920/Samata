@@ -64,6 +64,24 @@ export function createAnthropicProvider(): LLMProvider | null {
         stop_reason: resp.stop_reason ?? 'end_turn',
       };
     },
+    async describeImage(imageDataUrl: string, prompt: string): Promise<string> {
+      const match = imageDataUrl.match(/^data:(image\/[\w+]+);base64,(.+)$/);
+      if (!match) throw new Error('无效的 imageDataUrl 格式');
+      const [, mediaType, base64Data] = match;
+      const resp = await getClaude().messages.create({
+        model: defaultModel,
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType as any, data: base64Data } },
+            { type: 'text', text: prompt || '请详细描述这张图片的内容' },
+          ],
+        }],
+      });
+      const block = resp.content[0];
+      return block.type === 'text' ? block.text : '';
+    },
     async *createMessageStream(params): AsyncGenerator<StreamEvent> {
       const stream = getClaude().messages.stream(params);
       const content: Anthropic.ContentBlock[] = [];
