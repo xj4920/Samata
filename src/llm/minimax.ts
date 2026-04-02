@@ -95,7 +95,10 @@ export function createMinimaxProvider(): LLMProvider | null {
       }
       const data = await res.json();
       if (data.error) throw new Error(`MiniMax VLM error: ${JSON.stringify(data.error)}`);
-      return data.reply ?? data.choices?.[0]?.message?.content ?? JSON.stringify(data);
+      if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
+        throw new Error(`MiniMax VLM error (${data.base_resp.status_code}): ${data.base_resp.status_msg}`);
+      }
+      return data.content ?? data.reply ?? data.choices?.[0]?.message?.content ?? JSON.stringify(data);
     },
 
     async *createMessageStream(params): AsyncGenerator<StreamEvent> {
