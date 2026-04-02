@@ -9,18 +9,18 @@ import { convertTools, convertMessages, convertResponse, parseSSEStream } from '
 // MiniMax 有两个 ALB 节点，偶尔一个不可达。
 // 使用短 connectTimeout 快速失败，fetchWithRetry 最多重试 2 次，
 // 每次重试创建新 Agent 以强制 DNS 重新解析，规避坏节点。
-function makeMinimaxAgent() {
+function makeMinimaxAgent(headersTimeout = 30000) {
   return new Agent({
     connect: { timeout: 8000 },
     bodyTimeout: 120000,
-    headersTimeout: 30000,
+    headersTimeout,
   });
 }
 
-async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2, headersTimeout = 30000): Promise<Response> {
   let lastErr: unknown;
   for (let i = 0; i <= maxRetries; i++) {
-    const agent = makeMinimaxAgent();
+    const agent = makeMinimaxAgent(headersTimeout);
     try {
       return await fetch(url, { ...init, dispatcher: agent } as any);
     } catch (e: any) {
@@ -88,7 +88,7 @@ export function createMinimaxProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({ prompt, image_url: imageDataUrl }),
-      });
+      }, 2, 120000);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`MiniMax VLM ${res.status}: ${text.slice(0, 500)}`);
