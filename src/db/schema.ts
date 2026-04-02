@@ -58,7 +58,7 @@ export function initSchema(): void {
 
     CREATE TABLE IF NOT EXISTS skills (
       id         TEXT PRIMARY KEY,
-      name       TEXT NOT NULL UNIQUE,
+      name       TEXT NOT NULL,
       prompt     TEXT NOT NULL,
       created_by TEXT NOT NULL REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -202,6 +202,29 @@ export function initSchema(): void {
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS skills_name_agent_unique ON skills(name, COALESCE(agent_id, ''))");
     } catch (e) {}
+  });
+
+  runOnce('rebuild-skills-drop-name-unique', () => {
+    const hasOldUnique = (db.prepare(
+      "SELECT COUNT(*) as cnt FROM pragma_index_list('skills') WHERE origin = 'u' AND name LIKE 'sqlite_autoindex_skills%'"
+    ).get() as { cnt: number }).cnt > 0;
+    if (hasOldUnique) {
+      db.exec(`
+        CREATE TABLE skills_new (
+          id          TEXT PRIMARY KEY,
+          name        TEXT NOT NULL,
+          prompt      TEXT NOT NULL,
+          description TEXT,
+          agent_id    TEXT REFERENCES agents(id) ON DELETE SET NULL,
+          created_by  TEXT NOT NULL REFERENCES users(id),
+          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO skills_new SELECT id, name, prompt, description, agent_id, created_by, created_at FROM skills;
+        DROP TABLE skills;
+        ALTER TABLE skills_new RENAME TO skills;
+        CREATE UNIQUE INDEX IF NOT EXISTS skills_name_agent_unique ON skills(name, COALESCE(agent_id, ''));
+      `);
+    }
   });
 
   runOnce('add-run-skill-to-agents', () => {

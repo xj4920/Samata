@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import { getCurrentAgent } from '../llm/agents/config.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
+import { recordEvent } from '../models/event.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -97,7 +98,8 @@ function handleSaveSkill(input: { name: string; prompt: string; description?: st
 }
 
 function handleDeleteSkill(input: { name: string }): string {
-  return JSON.stringify(deleteSkill(input.name));
+  const agentId = getCurrentAgent()?.id;
+  return JSON.stringify(deleteSkill(input.name, agentId));
 }
 
 function handleRunSkill(input: { name: string; params?: Record<string, string> }): string {
@@ -113,7 +115,7 @@ function handleRunSkill(input: { name: string; params?: Record<string, string> }
     return JSON.stringify({ error: `缺少参数: ${unresolved.join(', ')}` });
   }
 
-  // Return resolved prompt — the agentic loop will process it as the next user turn
+  recordEvent('skill', skill.id, 'run', { name: input.name, params });
   return JSON.stringify({ resolved_prompt: resolved, skill: input.name });
 }
 

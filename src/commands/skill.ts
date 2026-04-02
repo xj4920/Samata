@@ -64,8 +64,8 @@ export function saveSkill(name: string, prompt: string, agentId?: string, descri
   }
 }
 
-export function deleteSkill(name: string): { success: true; name: string } | { success: false; error: string } {
-  const skill = getSkillByName(name);
+export function deleteSkill(name: string, agentId?: string): { success: true; name: string } | { success: false; error: string } {
+  const skill = getSkillByName(name, agentId);
   if (!skill) return { success: false, error: `未找到 skill: ${name}` };
   
   if (skill.agent_id) {
@@ -177,7 +177,7 @@ function delSkillCmd(args: string): void {
     log.print('用法: skill del <name>');
     return;
   }
-  const result = deleteSkill(name);
+  const result = deleteSkill(name, getCurrentAgent()?.id);
   if (!result.success) {
     log.print(result.error);
     return;
