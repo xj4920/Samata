@@ -23,6 +23,7 @@ export type PlotTradesInput  = { client?: string; party?: string; limit?: number
 export type SearchKnowledgeInput        = { keyword: string };
 export type AddKnowledgeInput           = { question: string; answer: string; tags?: string; related_users?: string };
 export type UpdateKnowledgeInput        = { id_prefix: string; fields: { question?: string; answer?: string; tags?: string; related_users?: string } };
+export type DeleteKnowledgeInput        = { id_prefix: string };
 export type AssignKnowledgeAgentInput   = { knowledge_id: string; agent_name: string };
 export type UnassignKnowledgeAgentInput = { knowledge_id: string; agent_name: string };
 export type GetKnowledgeAgentsInput     = { knowledge_id: string };
@@ -90,3 +91,33 @@ export type SetReminderInput = {
   delay_minutes?: number;  // alternative: relative delay
 };
 export type CancelReminderInput = { id: string };
+
+// --- Todo ---
+export type CreateTodoInput = {
+  title: string;
+  description?: string;
+  priority?: 'low' | 'normal' | 'high';
+  due_date?: string;  // YYYY-MM-DD
+  tags?: string[];
+};
+export type ListTodosInput = {
+  status?: 'pending' | 'in_progress' | 'done' | 'all';
+  priority?: 'low' | 'normal' | 'high';
+};
+export type UpdateTodoInput = {
+  id: string;
+  title?: string;
+  description?: string;
+  status?: 'pending' | 'in_progress' | 'done';
+  priority?: 'low' | 'normal' | 'high';
+  due_date?: string;
+  tags?: string[];
+};
+export type DeleteTodoInput = { id: string };
+
+// --- Markdown ---
+export type MarkdownToImageInput = {
+  markdown: string;
+  width?: number;
+  theme?: 'light' | 'dark';
+};

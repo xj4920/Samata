@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getProviderName, getModelName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
@@ -94,11 +94,14 @@ export function fetchSystemStatus(): SystemStatus {
   // Available commands (filtered by current agent)
   const availableCommands = getCommandEntries().map(e => e.name);
 
-  // Available LLM tools (filtered by agent's toolsMode)
+  // Available LLM tools (filtered by agent's toolsMode and current user's role)
   const agentConfig = agent ?? undefined;
+  const userIsAdmin = agentConfig ? isAgentAdmin(agentConfig.id) : true;
   const availableTools = agentConfig
-    ? getAgentTools(agentConfig, getGlobalTools()).map(t => t.name)
+    ? getAgentTools(agentConfig, getGlobalTools(), userIsAdmin).map(t => t.name)
     : getGlobalTools().map(t => t.name);
+
+  const displayRole = (agentId && isAgentAdmin(agentId)) ? 'admin' : user.role;
 
   return {
     name: 'Samata',
@@ -107,7 +110,7 @@ export function fetchSystemStatus(): SystemStatus {
     model,
     knowledgeCount,
     skillCount,
-    user: { username: user.username, role: user.role },
+    user: { username: user.username, role: displayRole },
     agent: { name: agent?.name ?? 'unknown', displayName: agent?.displayName ?? 'unknown' },
     availableCommands,
     availableTools,

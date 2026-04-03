@@ -18,11 +18,11 @@ import crypto from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
-import { FeishuAPI, type FeishuConfig, type FeishuMessage } from './api.js';
+import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
 import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
@@ -148,16 +148,24 @@ function getSessionForInstance(
 ): FeishuSession {
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
-    const role = isAdminFeishuUser(feishuUserId) ? 'admin' : 'user';
+    const isAdmin = isAdminFeishuUser(feishuUserId);
     const agent = resolveAgent('feishu', instance.appId);
+    let user: User;
+
+    if (isAdmin) {
+      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
+    } else {
+      const db = getDb();
+      const userId = `feishu_${feishuUserId}`;
+      const username = feishuUsername || userId;
+      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
+      user = { id: userId, username, role: 'user' };
+    }
+
     session = {
       feishuUserId,
       feishuUsername,
-      user: {
-        id: role === 'admin' ? 'admin-001' : 'user-001',
-        username: feishuUsername || `feishu_${feishuUserId}`,
-        role,
-      },
+      user,
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,
@@ -209,7 +217,7 @@ async function handleAIChat(
   feishuUsername: string,
   images?: ImageInput[],
   replyOpts?: { messageId?: string; isGroup?: boolean },
-): Promise<{ text: string }> {
+): Promise<{ text: string; mediaPaths?: string[] }> {
   const session = getSessionForInstance(instance, feishuUserId, feishuUsername);
   const showThinkingEnabled = instance.config.showThinking !== false;
 
@@ -271,7 +279,7 @@ async function handleAIChat(
         }
       : undefined;
 
-    const textReply = await runAgenticChat(session.history, userInput, session.user, {
+    let textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[飞书:${feishuUsername}] `,
       showThinking: true,
@@ -285,20 +293,29 @@ async function handleAIChat(
       } as DeliveryContext,
     });
 
-    // 关键修复：将 AI 的回复存入会话历史，确保后续对话能记得前面的内容
+    // 将 AI 的回复存入会话历史（原始文本，保留完整上下文）
     if (textReply) {
       session.history.push({ role: 'assistant', content: textReply });
     }
 
+    // 提取媒体文件路径（图片/文件），从文本中分离
+    const { cleanText, mediaPaths } = extractMediaFromText(textReply);
+
+    // 对剩余文本中的 markdown 图片语法做上传替换（嵌入 Card）
+    let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
+
     // 最终回复前，如果进度卡片还在，尝试直接用它进行回复（通过 updateCard）
-    if (textReply && progressMessageId) {
+    if (processedText && progressMessageId) {
       try {
-        const finalReplyId = await sendFeishuReply(instance, chatId, textReply, {
+        const finalReplyId = await sendFeishuReply(instance, chatId, processedText, {
           ...replyOpts,
           updateMessageId: progressMessageId
         });
-        // 如果成功更新了卡片，返回空回复，通知外层不要再发新消息了
         if (finalReplyId === progressMessageId) {
+          // 卡片更新成功，文本部分已发送；继续发送媒体附件
+          if (mediaPaths.length > 0) {
+            await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
+          }
           return { text: '' };
         }
       } catch (err: any) {
@@ -306,10 +323,153 @@ async function handleAIChat(
       }
     }
 
-    return { text: textReply || '（无回复内容）' };
+    // 发送独立媒体附件（在文本消息之后由外层 handleEvent 调用 sendFeishuReply 后执行）
+    return { text: processedText || '（无回复内容）', mediaPaths };
   } finally {
     setCurrentUser(prevUser);
   }
+}
+
+/**
+ * 从 LLM 回复中提取独立的媒体文件路径（图片和文件）
+ * 返回清理后的文本和提取的媒体路径列表
+ */
+const MEDIA_EXTS = /\.(?:png|jpe?g|gif|webp|bmp|ico|tiff|pdf|docx?|xlsx?|csv|pptx?|mp4|mov|avi|opus|ogg)$/i;
+
+function extractMediaFromText(text: string): { cleanText: string; mediaPaths: string[] } {
+  if (!text) return { cleanText: text, mediaPaths: [] };
+
+  const mediaPaths: string[] = [];
+  let cleanText = text;
+
+  // Match bare file paths: /absolute/path.ext, ~/path.ext, ./path.ext
+  const BARE_PATH_RE = /(?:^|\s)((?:\/|\.\/|~\/)[^\s]+?\.(?:png|jpe?g|gif|webp|bmp|ico|tiff|pdf|docx?|xlsx?|csv|pptx?|mp4|mov|avi|opus|ogg))\b/gi;
+  const matches = [...text.matchAll(BARE_PATH_RE)];
+
+  for (const m of matches) {
+    const filePath = m[1];
+    // Skip image paths already in markdown image syntax — those are handled by processImagesInText
+    const idx = m.index!;
+    const before = text.slice(Math.max(0, idx - 4), idx);
+    if (before.includes('](')) continue;
+
+    mediaPaths.push(filePath);
+    cleanText = cleanText.replace(filePath, '').replace(/\n{3,}/g, '\n\n');
+  }
+
+  return { cleanText: cleanText.trim(), mediaPaths };
+}
+
+/**
+ * 上传并发送媒体文件（图片或文件），支持私聊和群聊
+ */
+async function sendMediaMessages(
+  instance: FeishuBotInstance,
+  chatId: string,
+  mediaPaths: string[],
+  replyOpts?: { messageId?: string; isGroup?: boolean },
+): Promise<void> {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const useReply = replyOpts?.isGroup && replyOpts?.messageId;
+
+  for (const rawPath of mediaPaths) {
+    const resolved = rawPath.startsWith('~/')
+      ? path.join(process.env.HOME || '', rawPath.slice(1))
+      : path.resolve(rawPath);
+
+    if (!fs.existsSync(resolved)) {
+      log.warn(`[飞书:${instance.appName}] 媒体文件不存在，跳过: ${resolved}`);
+      continue;
+    }
+
+    const fileName = path.basename(resolved);
+
+    try {
+      if (isImageFile(fileName)) {
+        const imageKey = await instance.api.uploadImage(resolved);
+        if (!imageKey) continue;
+        if (useReply) {
+          await instance.api.replyImage(replyOpts!.messageId!, imageKey);
+        } else {
+          await instance.api.sendImage(chatId, imageKey);
+        }
+        log.dim(`[飞书:${instance.appName}] 已发送图片: ${fileName}`);
+      } else {
+        const fileType = detectFileType(fileName);
+        const fileKey = await instance.api.uploadFile(resolved, fileName, fileType);
+        if (!fileKey) continue;
+        if (useReply) {
+          await instance.api.replyFile(replyOpts!.messageId!, fileKey);
+        } else {
+          await instance.api.sendFile(chatId, fileKey);
+        }
+        log.dim(`[飞书:${instance.appName}] 已发送文件: ${fileName}`);
+      }
+    } catch (err: any) {
+      log.error(`[飞书:${instance.appName}] 发送媒体失败 (${fileName}): ${err.message}`);
+    }
+  }
+}
+
+/**
+ * 扫描文本中的图片路径（本地或 URL），上传到飞书并替换为 ![image](image_key)
+ * 上传失败时移除该图片引用，避免将无效路径作为 image_key 发送给飞书
+ */
+async function processImagesInText(instance: FeishuBotInstance, text: string): Promise<string> {
+  if (!text) return text;
+
+  let result = text;
+
+  // 第一步：处理 Markdown 图片语法 ![alt](path.ext)
+  // 跳过已经是合法飞书 key 的（img_v2_xxx 格式）
+  const MD_IMG_RE = /!\[([^\]]*)\]\(([^)]+\.(?:png|jpe?g|gif|webp))\)/gi;
+  const mdMatches = [...text.matchAll(MD_IMG_RE)];
+
+  for (const m of mdMatches) {
+    const fullMatch = m[0];
+    const filePath = m[2];
+    if (/^img_[a-zA-Z0-9_-]+$/.test(filePath)) continue; // 已是合法 key，跳过
+    try {
+      log.dim(`[飞书:${instance.appName}] 检测到 Markdown 图片: ${filePath}，正在上传...`);
+      const imageKey = await instance.api.uploadImage(filePath);
+      if (imageKey) {
+        result = result.split(fullMatch).join(`![image](${imageKey})`);
+      } else {
+        result = result.split(fullMatch).join(''); // 上传失败，移除引用
+      }
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 上传图片 ${filePath} 失败: ${err.message}`);
+      result = result.split(fullMatch).join(''); // 移除引用，避免无效 key 进入卡片
+    }
+  }
+
+  // 第二步：处理裸路径（/path/to/img.png 或 https://...）
+  const IMAGE_RE = /(?:^|\s)((?:\/|\.\/|~\/|https?:\/\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
+  const matches = [...result.matchAll(IMAGE_RE)];
+
+  for (const m of matches) {
+    const filePath = m[1];
+    try {
+      log.dim(`[飞书:${instance.appName}] 检测到图片路径: ${filePath}，正在上传...`);
+      const imageKey = await instance.api.uploadImage(filePath);
+      if (imageKey) {
+        result = result.split(filePath).join(imageKey);
+      }
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 上传图片 ${filePath} 失败: ${err.message}`);
+    }
+  }
+
+  // 第三步：补全 Markdown 格式：img_v2_... -> ![image](img_v2_...)
+  const KEY_RE = /(img_v2_[a-zA-Z0-9-]+)/g;
+  result = result.replace(KEY_RE, (key, offset) => {
+    const before = result.slice(Math.max(0, offset - 2), offset);
+    if (before === '](') return key;
+    return `![image](${key})`;
+  });
+
+  return result;
 }
 
 /**
@@ -498,7 +658,7 @@ async function handleCommand(
       }
     }
     case 'faq': {
-      const items = fetchKnowledge(args || undefined);
+      const items = fetchKnowledge(args || undefined, getCurrentAgent()?.id);
       return formatKnowledge(items);
     }
     case 'skill': {
@@ -786,8 +946,27 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
           text = '';
         }
       }
+    } else if (messageType === 'file') {
+      const fileKey = content.file_key;
+      const fileName = content.file_name || '未知文件';
+      if (fileKey) {
+        try {
+          const buf = await instance.api.downloadMessageResource(messageId, fileKey, 'file');
+          // 将文件内容的前 2000 字符作为文本预览传给 LLM
+          const preview = buf.toString('utf-8', 0, Math.min(buf.length, 2000));
+          const isPrintable = /^[\x20-\x7E\t\n\r\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+$/.test(preview.slice(0, 200));
+          text = isPrintable
+            ? `用户发送了文件 "${fileName}" (${buf.length} bytes)，内容预览:\n\`\`\`\n${preview}\n\`\`\``
+            : `用户发送了文件 "${fileName}" (${buf.length} bytes)，该文件为二进制格式，无法预览文本内容。`;
+          log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes)`);
+        } catch (err: any) {
+          log.error(`[飞书:${instance.appName}] 下载文件失败: ${err.message}`);
+          text = `用户发送了文件 "${fileName}"，但下载失败。`;
+        }
+      }
+    } else if (messageType === 'audio') {
+      text = '';
     } else {
-      // file / audio 等暂不支持，提示用户
       text = '';
     }
   } catch {
@@ -820,6 +999,17 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     } catch (err: any) {
       log.error(`[飞书:${instance.appName}] /debug 发送失败: ${err.message}`);
     }
+    return;
+  }
+
+  // 对不支持的消息类型给出友好提示
+  if (!text && (messageType === 'audio' || messageType === 'media')) {
+    const hint = messageType === 'audio'
+      ? '暂不支持语音消息，请发送文字或图片。'
+      : '暂不支持该类型的消息，请发送文字、图片或文件。';
+    try {
+      await sendFeishuReply(instance, chatId, hint, replyOpts);
+    } catch { /* ignore */ }
     return;
   }
 
@@ -915,9 +1105,13 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     // 自然语言 → AI Agent
-    const { text: reply } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts);
+    const { text: reply, mediaPaths } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts);
     if (reply) {
       await sendFeishuReply(instance, chatId, reply, replyOpts);
+    }
+    // 文本之后发送独立媒体附件（图片/文件）
+    if (mediaPaths && mediaPaths.length > 0) {
+      await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
     }
 
   } catch (err: any) {

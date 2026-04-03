@@ -77,11 +77,17 @@ export function search(args: string): void {
     return;
   }
 
+  const db = getDb();
   for (const item of rows) {
+    const agents = (db.prepare(
+      `SELECT a.name FROM agents a INNER JOIN knowledge_agents ka ON ka.agent_id = a.id WHERE ka.knowledge_id = ?`
+    ).all(item.id) as { name: string }[]).map(a => a.name);
+
     log.print(`  [${item.id.slice(0, 8)}] Q: ${item.question}`);
     log.print(`           A: ${item.answer}`);
     if (item.tags) log.print(`           标签: ${item.tags}`);
     if (item.related_users) log.print(`           相关人员: ${item.related_users}`);
+    log.print(`           所属Agent: ${agents.length > 0 ? agents.join(', ') : '(全局)'}`);
     log.print(`           创建: ${item.created_at} | 修改: ${item.updated_at}`);
     log.print();
   }
@@ -138,6 +144,24 @@ export function remove(args: string): void {
   db.prepare('DELETE FROM knowledge WHERE id = ?').run(rows[0].id);
   recordEvent('knowledge', rows[0].id, 'delete', { question: rows[0].question });
   log.print(`FAQ已删除: ${rows[0].question}`);
+}
+
+/** LLM 工具调用：按 ID 前缀删除知识库条目 */
+export function deleteKnowledge(idPrefix: string): { success: boolean; question?: string; error?: string } {
+  if (!idPrefix) return { success: false, error: '需要提供 FAQ ID 或 ID 前缀' };
+
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM knowledge WHERE id LIKE ?').all(`${idPrefix}%`) as KnowledgeItem[];
+
+  if (rows.length === 0) return { success: false, error: `未找到FAQ: ${idPrefix}` };
+  if (rows.length > 1) return { success: false, error: '匹配到多条，请提供更长的ID前缀' };
+
+  const item = rows[0];
+  // 同时清理 knowledge_agents 关联
+  db.prepare('DELETE FROM knowledge_agents WHERE knowledge_id = ?').run(item.id);
+  db.prepare('DELETE FROM knowledge WHERE id = ?').run(item.id);
+  recordEvent('knowledge', item.id, 'delete', { question: item.question });
+  return { success: true, question: item.question };
 }
 
 /** LLM 工具调用：新增知识库条目（无需交互式输入） */

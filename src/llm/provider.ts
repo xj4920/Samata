@@ -25,6 +25,8 @@ export interface LLMProvider {
   defaultModel: string;
   createMessage(params: CreateMessageParams): Promise<CreateMessageResult>;
   createMessageStream?(params: CreateMessageParams): AsyncGenerator<StreamEvent>;
+  /** 将图片转为文字描述，imageDataUrl 格式为 data:image/xxx;base64,... */
+  describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }
 
 export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter';

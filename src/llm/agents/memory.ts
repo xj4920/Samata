@@ -13,7 +13,7 @@ export interface MemoryItem {
   createdAt: string;
 }
 
-interface MemoryRow {
+export interface MemoryRow {
   id: string;
   agent_id: string | null;
   scope: string;
@@ -123,6 +123,12 @@ export function saveMemory(input: SaveMemoryInput): { success: true; id: string 
   return { success: true, id: id.slice(0, 8) };
 }
 
+/** Find a memory row by id prefix (for ownership checks before update/delete) */
+export function getMemoryByIdPrefix(idPrefix: string): MemoryRow | undefined {
+  const db = getDb();
+  return db.prepare("SELECT * FROM memory WHERE id LIKE ?").get(`${idPrefix}%`) as MemoryRow | undefined;
+}
+
 /** Update content/category of a memory item by id prefix */
 export function updateMemory(
   idPrefix: string,
@@ -134,9 +140,9 @@ export function updateMemory(
   if (updates.content && updates.content.length > MAX_CONTENT_LENGTH) {
     return { success: false, error: `内容过长，最大 ${MAX_CONTENT_LENGTH} 字符` };
   }
-  const db = getDb();
-  const row = db.prepare("SELECT id FROM memory WHERE id LIKE ?").get(`${idPrefix}%`) as { id: string } | undefined;
+  const row = getMemoryByIdPrefix(idPrefix);
   if (!row) return { success: false, error: `未找到记忆: ${idPrefix}` };
+  const db = getDb();
   if (updates.content && updates.category) {
     db.prepare('UPDATE memory SET content = ?, category = ? WHERE id = ?').run(updates.content.trim(), updates.category, row.id);
   } else if (updates.content) {
@@ -149,9 +155,9 @@ export function updateMemory(
 
 /** Delete a memory item by id prefix */
 export function deleteMemory(idPrefix: string): { success: true } | { success: false; error: string } {
-  const db = getDb();
-  const row = db.prepare("SELECT id FROM memory WHERE id LIKE ?").get(`${idPrefix}%`) as { id: string } | undefined;
+  const row = getMemoryByIdPrefix(idPrefix);
   if (!row) return { success: false, error: `未找到记忆: ${idPrefix}` };
+  const db = getDb();
   db.prepare('DELETE FROM memory WHERE id = ?').run(row.id);
   return { success: true };
 }

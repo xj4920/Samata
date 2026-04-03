@@ -12,6 +12,7 @@ import { switchProvider, getProviderName, getModelName, getAvailableProviders, t
 import { handleSkill } from './skill.js';
 import { handleAgent } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
+import { handleUser } from './user.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startAllFeishuBots, stopAllFeishuBots, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
@@ -37,10 +38,10 @@ const commands: Record<string, Command> = {
   trade:   { description: '交易查询', usage: '/trade [client=xx] [party=xx] [date=xx] [limit=xx]', adminOnly: false, agentId: 'otcclaw', handler: tradeCmd.trade },
   plot:    { description: '交易曲线图', usage: '/plot [client=xx] [date=xx]', adminOnly: false, agentId: 'otcclaw', handler: plotCmd.handlePlot },
   'wework-qa': { description: '企微Q&A提取', usage: '/wework-qa <群组名>', adminOnly: false, agentId: 'alter-ego', handler: weworkQACmd.weworkQA },
-  faq:       { description: '查询知识库', usage: '/faq <关键词>', adminOnly: false, agentId: 'otcclaw', handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', adminOnly: true, agentId: 'otcclaw', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
-  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', adminOnly: true, agentId: 'otcclaw', handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', adminOnly: true, agentId: 'otcclaw', handler: knowledgeCmd.remove },
+  faq:       { description: '查询知识库', usage: '/faq <关键词>', adminOnly: false, handler: knowledgeCmd.search },
+  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', adminOnly: true, handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
+  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', adminOnly: true, handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },
   plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|create|switch|info|del|member|assign|...> [参数]', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del', 'member', 'assign', 'unassign', 'assignments', 'feishu-app'] },
@@ -48,6 +49,8 @@ const commands: Record<string, Command> = {
   watch:   { description: '企微监测', usage: '/watch <start|stop|status>', adminOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
   model:   { description: '切换模型', usage: '/model <list|anthropic|minimax|gemini|openrouter>', adminOnly: true, handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
+  user:    { description: '系统用户', usage: '/user <list|add|update|delete>', adminOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
+
   help:    { description: '显示帮助', usage: '/help', adminOnly: false, handler: showHelp },
 };
 

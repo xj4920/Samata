@@ -424,22 +424,53 @@ export class FeishuAPI {
   }
 
   /**
-   * 上传图片
+   * 上传图片（支持 URL、Buffer 或本地路径）
    */
-  async uploadImage(imageUrl: string): Promise<string | null> {
+  async uploadImage(image: string | Buffer): Promise<string | null> {
     const token = await this.getTenantAccessToken();
 
-    // 下载图片
-    const imageResponse = await fetch(imageUrl, this.fetchOpts({}));
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    let imageBuffer: Buffer;
+    let contentType = 'image/png';
+    let filename = 'image.png';
+
+    if (Buffer.isBuffer(image)) {
+      imageBuffer = image;
+      // 简单探测
+      if (image[0] === 0xFF && image[1] === 0xD8) { contentType = 'image/jpeg'; filename = 'image.jpg'; }
+      else if (image[0] === 0x47 && image[1] === 0x49 && image[2] === 0x46) { contentType = 'image/gif'; filename = 'image.gif'; }
+      else if (image[0] === 0x89 && image[1] === 0x50 && image[2] === 0x4E && image[3] === 0x47) { contentType = 'image/png'; filename = 'image.png'; }
+    } else if (typeof image === 'string') {
+      if (image.startsWith('http://') || image.startsWith('https://')) {
+        // 下载图片
+        const imageResponse = await fetch(image, this.fetchOpts({}));
+        imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        const typeMatch = imageResponse.headers.get('content-type');
+        if (typeMatch) contentType = typeMatch;
+      } else {
+        // 本地文件
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const resolved = image.startsWith('~/')
+          ? path.join(process.env.HOME || '', image.slice(1))
+          : path.resolve(image);
+        imageBuffer = fs.readFileSync(resolved);
+        const ext = path.extname(resolved).toLowerCase();
+        if (ext === '.jpg' || ext === '.jpeg') { contentType = 'image/jpeg'; filename = 'image.jpg'; }
+        else if (ext === '.gif') { contentType = 'image/gif'; filename = 'image.gif'; }
+        else if (ext === '.webp') { contentType = 'image/webp'; filename = 'image.webp'; }
+      }
+    } else {
+      throw new Error('Unsupported image input');
+    }
 
     const url = 'https://open.feishu.cn/open-apis/im/v1/images';
-
     const boundary = `----FeishuBoundary${Date.now()}`;
-    const body = Buffer.concat([
+    const bodyForm = Buffer.concat([
       Buffer.from(`--${boundary}\r\n`),
-      Buffer.from('Content-Disposition: form-data; name="image"; filename="image.png"\r\n'),
-      Buffer.from('Content-Type: image/png\r\n\r\n'),
+      Buffer.from(`Content-Disposition: form-data; name="image_type"\r\n\r\nmessage\r\n`),
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(`Content-Disposition: form-data; name="image"; filename="${filename}"\r\n`),
+      Buffer.from(`Content-Type: ${contentType}\r\n\r\n`),
       imageBuffer,
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]);
@@ -450,16 +481,121 @@ export class FeishuAPI {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
         'Authorization': `Bearer ${token}`,
       },
-      body,
+      body: bodyForm,
     }));
 
     const data = await response.json() as any;
 
     if (data.code !== 0) {
-      log.error(`上传图片失败: ${data.msg}`);
+      log.error(`[飞书] 上传图片失败: ${data.msg} (code: ${data.code})`);
       return null;
     }
 
     return data.data.image_key;
   }
+
+  /**
+   * 发送图片消息
+   */
+  async sendImage(chatId: string, imageKey: string): Promise<string> {
+    return this.sendMessage(chatId, 'image', { image_key: imageKey });
+  }
+
+  /**
+   * 回复图片消息
+   */
+  async replyImage(messageId: string, imageKey: string): Promise<string> {
+    return this.replyMessage(messageId, 'image', { image_key: imageKey });
+  }
+
+  /**
+   * 上传文件（支持 Buffer 或本地路径），最大 30MB
+   * 文档：https://open.feishu.cn/document/server-docs/im-v1/file/create
+   */
+  async uploadFile(file: Buffer | string, fileName: string, fileType: FeishuFileType): Promise<string | null> {
+    const token = await this.getTenantAccessToken();
+
+    let fileBuffer: Buffer;
+    if (Buffer.isBuffer(file)) {
+      fileBuffer = file;
+    } else {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const resolved = file.startsWith('~/')
+        ? path.join(process.env.HOME || '', file.slice(1))
+        : path.resolve(file);
+      fileBuffer = fs.readFileSync(resolved);
+    }
+
+    const url = 'https://open.feishu.cn/open-apis/im/v1/files';
+    const boundary = `----FeishuBoundary${Date.now()}`;
+    const bodyForm = Buffer.concat([
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(`Content-Disposition: form-data; name="file_type"\r\n\r\n${fileType}\r\n`),
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(`Content-Disposition: form-data; name="file_name"\r\n\r\n${fileName}\r\n`),
+      Buffer.from(`--${boundary}\r\n`),
+      Buffer.from(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`),
+      Buffer.from(`Content-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const response = await fetch(url, this.fetchOpts({
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Authorization': `Bearer ${token}`,
+      },
+      body: bodyForm,
+    }));
+
+    const data = await response.json() as any;
+
+    if (data.code !== 0) {
+      log.error(`[飞书] 上传文件失败: ${data.msg} (code: ${data.code})`);
+      return null;
+    }
+
+    return data.data.file_key;
+  }
+
+  /**
+   * 发送文件消息
+   */
+  async sendFile(chatId: string, fileKey: string, msgType: 'file' | 'audio' | 'media' = 'file'): Promise<string> {
+    return this.sendMessage(chatId, msgType, { file_key: fileKey });
+  }
+
+  /**
+   * 回复文件消息
+   */
+  async replyFile(messageId: string, fileKey: string, msgType: 'file' | 'audio' | 'media' = 'file'): Promise<string> {
+    return this.replyMessage(messageId, msgType, { file_key: fileKey });
+  }
+}
+
+// --- File type utilities ---
+
+export type FeishuFileType = 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream';
+
+const EXT_TO_FILE_TYPE: Record<string, FeishuFileType> = {
+  '.opus': 'opus', '.ogg': 'opus',
+  '.mp4': 'mp4', '.mov': 'mp4', '.avi': 'mp4',
+  '.pdf': 'pdf',
+  '.doc': 'doc', '.docx': 'doc',
+  '.xls': 'xls', '.xlsx': 'xls', '.csv': 'xls',
+  '.ppt': 'ppt', '.pptx': 'ppt',
+};
+
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff']);
+
+export function detectFileType(fileName: string): FeishuFileType {
+  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
+  return EXT_TO_FILE_TYPE[ext] || 'stream';
+}
+
+export function isImageFile(fileName: string): boolean {
+  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
+  return IMAGE_EXTS.has(ext);
 }

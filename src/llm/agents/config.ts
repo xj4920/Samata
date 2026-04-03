@@ -8,28 +8,51 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
   common: {
     description: '通用助手：知识库、技能、记忆、Agent管理、文件读写',
     tools: [
-      'search_knowledge', 'add_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
       'set_reminder', 'list_reminders', 'cancel_reminder',
+      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
     ],
   },
   alter_ego: {
     description: '个人分身：包含 common 基础上额外支持知识库写入和企微 QA 提取',
     tools: [
-      'search_knowledge', 'update_knowledge', 'extract_wework_qa',
-      'list_skills', 'get_skill', 'save_skill', 'delete_skill',
+      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'extract_wework_qa',
+      'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
       'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
       'assign_agent', 'unassign_agent', 'list_agent_assignments',
       'save_memory', 'search_memory', 'delete_memory',
       'read_file', 'write_file', 'reload_app', 'exec_cmd',
+      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
     ],
   },
   readonly: {
     description: '只读助手：知识库查询、状态查看，无写入权限',
-    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'search_memory'],
+    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'run_skill', 'search_memory'],
+  },
+  browser: {
+    description: '浏览器助手：通过 Playwright MCP 进行网页浏览、截图、内容提取',
+    tools: [
+      'mcp_browser_browser_navigate',
+      'mcp_browser_browser_take_screenshot',
+      'mcp_browser_browser_snapshot',
+      'mcp_browser_browser_click',
+      'mcp_browser_browser_type',
+      'mcp_browser_browser_fill_form',
+      'mcp_browser_browser_evaluate',
+      'mcp_browser_browser_press_key',
+      'mcp_browser_browser_wait_for',
+      'mcp_browser_browser_navigate_back',
+      'mcp_browser_browser_tabs',
+      'mcp_browser_browser_close',
+      'mcp_browser_browser_console_messages',
+      'mcp_browser_browser_network_requests',
+      'search_knowledge',
+      'get_status_summary',
+    ],
   },
 };
 
@@ -43,6 +66,11 @@ export interface AgentConfig {
   provider?: string;
   toolsMode: 'all' | 'allowlist' | 'blocklist';
   toolsList: string[];
+  /** Preset name (e.g. 'common', 'alter_ego'). Tools are resolved dynamically from TOOL_PRESETS[preset] at runtime. */
+  preset?: string;
+  /** Tools config for non-admin members. 'inherit' means same as admin config. */
+  userToolsMode: 'inherit' | 'all' | 'allowlist' | 'blocklist';
+  userToolsList: string[];
   maxHistory: number;
 }
 
@@ -54,6 +82,8 @@ const DEFAULT_AGENT: AgentConfig = {
   description: 'OTC 业务专家',
   toolsMode: 'all',
   toolsList: [],
+  userToolsMode: 'inherit',
+  userToolsList: [],
   maxHistory: 80,
 };
 
@@ -67,6 +97,9 @@ interface AgentRow {
   provider: string | null;
   tools_mode: string;
   tools_list: string | null;
+  preset: string | null;
+  user_tools_mode: string;
+  user_tools_list: string | null;
   max_history: number;
   created_by: string;
   created_at: string;
@@ -84,6 +117,9 @@ function rowToConfig(row: AgentRow): AgentConfig {
     provider: row.provider ?? undefined,
     toolsMode: row.tools_mode as AgentConfig['toolsMode'],
     toolsList: row.tools_list ? JSON.parse(row.tools_list) : [],
+    preset: row.preset ?? undefined,
+    userToolsMode: (row.user_tools_mode ?? 'inherit') as AgentConfig['userToolsMode'],
+    userToolsList: row.user_tools_list ? JSON.parse(row.user_tools_list) : [],
     maxHistory: row.max_history,
   };
 }
@@ -122,6 +158,9 @@ export interface SaveAgentInput {
   provider?: string;
   toolsMode?: 'all' | 'allowlist' | 'blocklist';
   toolsList?: string[];
+  preset?: string;
+  userToolsMode?: 'inherit' | 'all' | 'allowlist' | 'blocklist';
+  userToolsList?: string[];
   maxHistory?: number;
 }
 
@@ -137,11 +176,15 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
 
     db.prepare(`UPDATE agents SET
       display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
-      tools_mode = ?, tools_list = ?, max_history = ?, updated_at = datetime('now')
+      tools_mode = ?, tools_list = ?, preset = ?, user_tools_mode = ?, user_tools_list = ?,
+      max_history = ?, updated_at = datetime('now')
       WHERE name = ?`).run(
       input.displayName, input.description ?? null, input.systemPrompt ?? null,
       input.model ?? null, input.provider ?? null,
       input.toolsMode ?? existing.tools_mode, input.toolsList ? JSON.stringify(input.toolsList) : existing.tools_list,
+      input.preset !== undefined ? (input.preset || null) : existing.preset,
+      input.userToolsMode ?? existing.user_tools_mode,
+      input.userToolsList ? JSON.stringify(input.userToolsList) : existing.user_tools_list,
       input.maxHistory ?? existing.max_history, input.name,
     );
     recordEvent('agent', existing.id, 'update', { name: input.name });
@@ -153,11 +196,13 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
   }
 
   const id = uuid();
-  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, max_history, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, preset, user_tools_mode, user_tools_list, max_history, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, input.name, input.displayName, input.description ?? null, input.systemPrompt ?? null,
     input.model ?? null, input.provider ?? null,
     input.toolsMode ?? 'allowlist', input.toolsList ? JSON.stringify(input.toolsList) : null,
+    input.preset ?? null,
+    input.userToolsMode ?? 'inherit', input.userToolsList ? JSON.stringify(input.userToolsList) : null,
     input.maxHistory ?? 80, user.id,
   );
   
@@ -183,6 +228,36 @@ export function deleteAgent(name: string): { success: true; name: string } | { s
   db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
   recordEvent('agent', row.id, 'delete', { name });
   return { success: true, name };
+}
+
+export interface AgentMember {
+    username: string;
+    id: string;
+    role: string;
+    created_at: string;
+}
+
+export function listAgentMembers(agentName: string): { success: true; data: AgentMember[] } | { success: false; error: string } {
+    const db = getDb();
+    const agent = db.prepare('SELECT id, name FROM agents WHERE name = ?').get(agentName) as { id: string, name: string } | undefined;
+    if (!agent) return { success: false, error: `未找到 Agent: ${agentName}` };
+
+    if (!isSystemAdmin() && !isAgentAdmin(agent.id)) {
+        return { success: false, error: `权限不足：需要 Agent (${agentName}) 的管理员权限或系统管理员权限` };
+    }
+
+    try {
+        const rows = db.prepare(`
+            SELECT u.username, u.id, am.role, am.created_at
+            FROM agent_members am
+            JOIN users u ON am.user_id = u.id
+            WHERE am.agent_id = ?
+            ORDER BY am.role ASC, am.created_at DESC
+        `).all(agent.id) as AgentMember[];
+        return { success: true, data: rows };
+    } catch (e: any) {
+        return { success: false, error: `查询失败: ${e.message}` };
+    }
 }
 
 export function manageAgentMember(action: 'add' | 'del', agentName: string, username: string, role: 'admin' | 'user' = 'admin'): { success: true } | { success: false; error: string } {
@@ -214,18 +289,69 @@ export function manageAgentMember(action: 'add' | 'del', agentName: string, user
 
 import Anthropic from '@anthropic-ai/sdk';
 
+// --- Delivery & Tool context (shared with tool modules) ---
+
+/** Channel-specific context injected by bot layers, used by reminder and health tools */
+export interface DeliveryContext {
+  channel: 'feishu' | 'telegram' | 'cli';
+  targetId: string;
+  appId?: string;
+}
+
+/** Context passed to every tool handler */
+export interface ToolContext {
+  deliveryContext?: DeliveryContext;
+  /** All registered tools — needed by list_agents / get_agent to compute per-agent tool sets */
+  globalTools?: Anthropic.Tool[];
+}
+
+// --- Current agent session state ---
+
+let _currentAgent: AgentConfig | undefined;
+
+export function setCurrentAgent(agent: AgentConfig | undefined): void {
+  _currentAgent = agent;
+}
+
+export function getCurrentAgent(): AgentConfig | undefined {
+  return _currentAgent ?? getDefaultAgent();
+}
+
 /** Tools that are always available to all agents, regardless of tools_mode */
 export const UNIVERSAL_TOOLS = new Set(['http_request']);
 
-/** Filter global tools based on agent's tools_mode and tools_list */
-export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[]): Anthropic.Tool[] {
+/** Filter global tools based on agent's tools_mode, preset, and tools_list.
+ * @param isAdmin - whether the current user is an admin of this agent.
+ *                  Admins get the full agent tool set; non-admins get the user-restricted set.
+ */
+export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[], isAdmin = true): Anthropic.Tool[] {
+  if (!isAdmin) {
+    // User-level: check userToolsMode
+    const uMode = agent.userToolsMode;
+    if (uMode !== 'inherit') {
+      if (uMode === 'all') return globalTools;
+      const uSet = new Set(agent.userToolsList);
+      if (uMode === 'allowlist') {
+        return globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+      }
+      // blocklist
+      return globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+    }
+    // inherit: fall through to admin logic
+  }
+
+  // Admin-level (or inherit): existing logic
   if (agent.toolsMode === 'all') return globalTools;
-  const set = new Set(agent.toolsList);
+
+  // Effective list = preset tools (resolved dynamically from code) + tools_list (extensions/overrides)
+  const presetTools = agent.preset ? (TOOL_PRESETS[agent.preset]?.tools ?? []) : [];
+  const effectiveSet = new Set([...presetTools, ...agent.toolsList]);
+
   if (agent.toolsMode === 'allowlist') {
-    return globalTools.filter(t => set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+    return globalTools.filter(t => effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
   }
   // blocklist
-  return globalTools.filter(t => !set.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+  return globalTools.filter(t => !effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
 }
 
 // --- Agent Assignment (channel/target → agent) ---
