@@ -271,14 +271,14 @@ export function initSchema(): void {
         'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
         'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
         'save_memory', 'search_memory', 'delete_memory',
-        'read_file', 'write_file', 'reload_app', 'exec_cmd',
+        'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
       ]);
       const alterEgoTools = JSON.stringify([
         'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
         'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
         'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
         'save_memory', 'search_memory', 'delete_memory',
-        'read_file', 'write_file', 'reload_app', 'exec_cmd',
+        'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
         'markdown_to_image',
       ]);
       ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
@@ -568,6 +568,26 @@ export function initSchema(): void {
         current.push('markdown_to_image');
         db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
           .run(JSON.stringify(current));
+      }
+    }
+  });
+
+  runOnce('agents-add-delivery-tools', () => {
+    const deliveryTools = ['write_artifact', 'send_file', 'send_image'];
+    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
+      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
+      if (!row) continue;
+      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      let changed = false;
+      for (const tool of deliveryTools) {
+        if (!current.includes(tool)) {
+          current.push(tool);
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
+          .run(JSON.stringify(current), agentName);
       }
     }
   });

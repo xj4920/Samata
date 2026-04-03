@@ -2,6 +2,8 @@
  * Telegram API 封装 — 纯 HTTP 长轮询
  * 使用 node 内置 fetch (undici)，支持 HTTP 代理
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { ProxyAgent } from 'undici';
 import { log } from '../utils/logger.js';
 
@@ -132,5 +134,54 @@ export class TelegramAPI {
    */
   async setMyCommands(commands: Array<{ command: string; description: string }>): Promise<void> {
     await this.request('setMyCommands', { commands });
+  }
+
+  private async requestMultipart(
+    method: string,
+    fields: Record<string, string>,
+    fileField: string,
+    file: Buffer | string,
+    fallbackFileName: string,
+  ): Promise<any> {
+    const boundary = `----TelegramBoundary${Date.now()}`;
+    const chunks: Buffer[] = [];
+
+    for (const [key, value] of Object.entries(fields)) {
+      chunks.push(Buffer.from(`--${boundary}\r\n`));
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`));
+    }
+
+    const fileBuffer = Buffer.isBuffer(file) ? file : fs.readFileSync(file);
+    const fileName = Buffer.isBuffer(file) ? fallbackFileName : path.basename(file);
+
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${fileField}"; filename="${fileName}"\r\n`));
+    chunks.push(Buffer.from('Content-Type: application/octet-stream\r\n\r\n'));
+    chunks.push(fileBuffer);
+    chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+    const url = `${this.baseUrl}/${method}`;
+    const opts: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body: Buffer.concat(chunks),
+    };
+    if (this.dispatcher) {
+      (opts as any).dispatcher = this.dispatcher;
+    }
+    const res = await fetch(url, opts);
+    const data = await res.json() as any;
+    if (!data.ok) {
+      throw new Error(`Telegram API error [${method}]: ${data.description ?? JSON.stringify(data)}`);
+    }
+    return data.result;
+  }
+
+  async sendDocument(chatId: number, file: Buffer | string, filename = 'document.bin'): Promise<TgMessage> {
+    return this.requestMultipart('sendDocument', { chat_id: String(chatId) }, 'document', file, filename);
+  }
+
+  async sendPhoto(chatId: number, file: Buffer | string, filename = 'photo.png'): Promise<TgMessage> {
+    return this.requestMultipart('sendPhoto', { chat_id: String(chatId) }, 'photo', file, filename);
   }
 }

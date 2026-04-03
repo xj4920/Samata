@@ -36,7 +36,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'write_file',
-    description: '写入文件内容（仅限项目目录内，仅管理员可用）。可用于新建文件。修改已有文件请优先使用 edit_file。',
+    description: '写入文件内容（仅限项目目录内，仅管理员可用）。用于项目内源码或数据文件；若要生成待发送给用户的临时附件，请使用 write_artifact。修改已有文件请优先使用 edit_file。',
     input_schema: {
       type: 'object' as const,
       properties: {

@@ -4,6 +4,12 @@ import type { AgentConfig } from './config.js';
 import { buildMemoryBlock } from './memory.js';
 import { getAllSkills } from '../../commands/skill.js';
 
+const ATTACHMENT_GUIDANCE = `附件发送规范：
+- 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
+- 需要发送图片时，可先用 markdown_to_image 生成 PNG，再调用 send_image
+- markdown_to_image 只负责生成图片，不等于已经发送成功
+- 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;
+
 /** Default system prompt for the otcclaw agent (backward compatible) */
 function getDefaultSystemPrompt(user: User): string {
   return `你是衍语，英文名：OTC Claw。你可以：
@@ -33,7 +39,9 @@ function getDefaultSystemPrompt(user: User): string {
   * 用户问"常速客户" → keyword="常速"
   * 用户问"某某公司" → keyword="某某"
   * 只有用户明确说"所有客户"或"全部客户"时才可以不传keyword
-- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制`;
+- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制
+
+${ATTACHMENT_GUIDANCE}`;
 }
 
 /** Generic system prompt for agents without a custom prompt (non-otcclaw) */
@@ -44,7 +52,9 @@ function buildGenericPrompt(agent: AgentConfig, user: User): string {
 
 回答要求：
 - 用简洁专业的中文回答
-- 查询数据时主动使用工具获取最新信息，不要凭记忆回答`;
+- 查询数据时主动使用工具获取最新信息，不要凭记忆回答
+
+${ATTACHMENT_GUIDANCE}`;
 }
 
 /** Build the full system prompt for an agent, injecting user context */
@@ -61,6 +71,9 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     base = getDefaultSystemPrompt(u);
   } else {
     base = buildGenericPrompt(agent, u);
+  }
+  if (!base.includes('send_file')) {
+    base += `\n\n${ATTACHMENT_GUIDANCE}`;
   }
 
   // Inject available skills (name + description only, full content loaded via get_skill/run_skill)
