@@ -111,7 +111,11 @@ export function getSystemPrompt(user?: User): string {
   * 用户问"常速客户" → keyword="常速"
   * 用户问"某某公司" → keyword="某某"
   * 只有用户明确说"所有客户"或"全部客户"时才可以不传keyword
-- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制`;
+- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制
+- 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
+- 需要发送图片时，可先用 markdown_to_image 生成 PNG，再调用 send_image
+- markdown_to_image 只负责生成图片，不等于已经发送成功
+- 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;
 }
 
 /**
@@ -167,9 +171,9 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
 }
 
 export type ProgressEvent =
-  | { type: 'tool_start'; name: string }
-  | { type: 'tool_end'; name: string }
-  | { type: 'thinking'; text: string };
+  | { type: 'tool_start'; name: string; input: unknown; round: number }
+  | { type: 'tool_end'; name: string; result: string; round: number; durationMs: number }
+  | { type: 'thinking'; text: string; round: number };
 
 /**
  * 通用的 agentic chat 函数，支持 CLI 和飞书bot复用
@@ -272,6 +276,7 @@ export async function runAgenticChat(
   }
 
   // Agentic loop: keep processing until no more tool calls
+  let round = 1;
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
     const assistantContent = response.content;
@@ -281,7 +286,7 @@ export async function runAgenticChat(
       for (const block of assistantContent) {
         if (block.type === 'text' && block.text) {
           log.dim(`${logPrefix}💭 ${block.text}`);
-          onProgress?.({ type: 'thinking', text: block.text });
+          onProgress?.({ type: 'thinking', text: block.text, round });
         }
       }
     }
@@ -294,8 +299,9 @@ export async function runAgenticChat(
           log.dim(`${logPrefix}🔧 调用工具: ${block.name}`);
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
-        onProgress?.({ type: 'tool_start', name: block.name });
+        onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
         throwIfAborted();
+        const toolStartedAt = Date.now();
         let result: string;
         if (!activeToolNames.has(block.name)) {
           result = JSON.stringify({ error: `权限不足：工具 "${block.name}" 不在当前用户的允许列表中` });
@@ -306,7 +312,7 @@ export async function runAgenticChat(
             result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
           }
         }
-        onProgress?.({ type: 'tool_end', name: block.name });
+        onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: Date.now() - toolStartedAt });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -324,6 +330,7 @@ export async function runAgenticChat(
       history.length = historyLenBefore;
       throw err;
     }
+    round += 1;
   }
 
   const assistantContent = response.content;
