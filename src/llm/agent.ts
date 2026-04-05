@@ -7,12 +7,13 @@ import { buildSystemPrompt } from './agents/prompt.js';
 import { isPendingReload, setPendingReload } from './reload.js';
 import { getAllNativeTools, executeNativeTool } from '../tools/index.js';
 import { getMcpTools, callMcpTool } from '../services/mcp-manager.js';
-import { isAgentAdmin } from '../auth/rbac.js';
+import { isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
@@ -86,6 +87,9 @@ export function getTools(): Anthropic.Tool[] {
 
 export function getSystemPrompt(user?: User): string {
   const u = user ?? getCurrentUser();
+  const permissionText = isSystemAdmin()
+    ? `当前接入渠道：${getExecutionChannel()}。当前用户：${u.username}，系统角色：${u.role}。你当前是 CLI 系统管理员，可执行全局与当前 Agent 的写操作。`
+    : `当前接入渠道：${getExecutionChannel()}。当前用户：${u.username}，系统角色：${u.role}。你当前不是系统管理员，不可执行全局写操作。`;
   return `你是 Samata，意为"平等，技术平权"。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact ↔ Requirement Discussion ↔ Solution Design ↔ UAT ↔ PROD，支持 advance 推进和 rollback 回退）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
@@ -97,7 +101,7 @@ export function getSystemPrompt(user?: User): string {
    - 修改已有文件优先使用 edit_file（搜索替换），新建文件使用 write_file
    - 修改代码前请先用 read_file 了解现有代码结构
 
-当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
+${permissionText}
 
 回答要求：
 - 用简洁专业的中文回答
@@ -136,7 +140,7 @@ function stripThinkBlocks(text: string, showThinkingOpt: boolean): string {
  * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
  * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
  */
-async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider, onTextChunk?: (chunk: string) => void): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = providerOverride ?? getProvider();
 
   if (streamText && provider.createMessageStream) {
@@ -156,7 +160,12 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
         if (clean) {
           log.print();
           const rendered = renderMarkdown(clean);
-          process.stdout.write(rendered.trimEnd() + '\n');
+          const line = rendered.trimEnd() + '\n';
+          if (onTextChunk) {
+            onTextChunk(line);
+          } else {
+            process.stdout.write(line);
+          }
         }
       }
       if (!result) throw new Error('Stream ended without done event');
@@ -194,10 +203,11 @@ export async function runAgenticChat(
     agentConfig?: AgentConfig;
     images?: ImageInput[];
     onProgress?: (event: ProgressEvent) => void;
+    onTextChunk?: (chunk: string) => void;
     deliveryContext?: DeliveryContext;
   } = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, deliveryContext } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
 
   const agent = agentConfig;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
@@ -268,7 +278,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
   } catch (err: any) {
     log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
     history.length = historyLenBefore;
@@ -324,7 +334,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
     } catch (err: any) {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
@@ -350,7 +360,12 @@ export async function runAgenticChat(
     if (clean) {
       log.print();
       const rendered = renderMarkdown(clean);
-      process.stdout.write(rendered.trimEnd() + '\n');
+      const line = rendered.trimEnd() + '\n';
+      if (onTextChunk) {
+        onTextChunk(line);
+      } else {
+        process.stdout.write(line);
+      }
     }
   }
 

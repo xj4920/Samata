@@ -3,9 +3,9 @@
  * 每个飞书 user 对应一个独立的对话上下文
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent } from '../llm/agents/config.js';
-import { getDb } from '../db/connection.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -32,17 +32,10 @@ export function isAdminFeishuUser(feishuUserId: string): boolean {
 export function getSession(feishuUserId: string, feishuUsername: string): FeishuSession {
   let session = sessions.get(feishuUserId);
   if (!session) {
-    const isAdmin = adminIds.has(feishuUserId);
-    let user: User;
-    if (isAdmin) {
-      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
-    } else {
-      const db = getDb();
-      const userId = `feishu_${feishuUserId}`;
-      const username = feishuUsername || userId;
-      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
-      user = { id: userId, username, role: 'user' };
-    }
+    const userId = `feishu_${feishuUserId}`;
+    const username = feishuUsername || userId;
+    getOrCreateUser(userId, username, 'user');
+    const user: User = { id: userId, username, role: 'user' };
     const agent = resolveAgent('feishu', feishuUserId);
     session = {
       feishuUserId,

@@ -1,8 +1,9 @@
 import type { User } from '../../auth/rbac.js';
-import { getCurrentUser } from '../../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin, isAgentMember, isSystemAdmin } from '../../auth/rbac.js';
 import type { AgentConfig } from './config.js';
 import { buildMemoryBlock } from './memory.js';
 import { getAllSkills } from '../../commands/skill.js';
+import { getExecutionChannel } from '../../runtime/execution-context.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -11,7 +12,31 @@ const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;
 
 /** Default system prompt for the otcclaw agent (backward compatible) */
-function getDefaultSystemPrompt(user: User): string {
+function buildPermissionText(user: User, agent?: AgentConfig): string {
+  const channel = getExecutionChannel();
+  const parts = [`当前接入渠道：${channel}`, `当前用户：${user.username}，系统角色：${user.role}`];
+
+  if (isSystemAdmin()) {
+    parts.push('你当前是 CLI 系统管理员，可管理全局 memory/knowledge/skill，也可管理所有 agent。');
+    return parts.join('。') + '。';
+  }
+
+  if (agent && isAgentAdmin(agent.id)) {
+    parts.push(`你当前是 Agent「${agent.displayName}」的管理员，可写当前 Agent 的 memory/knowledge/skill，但不可操作全局资源。`);
+    return parts.join('。') + '。';
+  }
+
+  if (agent && isAgentMember(agent.id)) {
+    parts.push(`你当前是 Agent「${agent.displayName}」的普通成员，可查询和使用当前 Agent 资源，不可新增、修改、删除。`);
+    return parts.join('。') + '。';
+  }
+
+  parts.push('你当前没有写权限，只能执行只读查询和使用型操作。');
+  return parts.join('。') + '。';
+}
+
+/** Default system prompt for the otcclaw agent (backward compatible) */
+function getDefaultSystemPrompt(user: User, agent?: AgentConfig): string {
   return `你是衍语，英文名：OTC Claw。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact ↔ Requirement Discussion ↔ Solution Design ↔ UAT ↔ PROD，支持 advance 推进和 rollback 回退 ）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
@@ -24,7 +49,7 @@ function getDefaultSystemPrompt(user: User): string {
    - 修改代码后使用 reload_app 重启应用使变更生效
    - 修改代码前请先用 read_file 了解现有代码结构
 
-当前用户：${user.username}，角色：${user.role}。${user.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
+${buildPermissionText(user, agent)}
 
 回答要求：
 - 用简洁专业的中文回答，避免冗长描述
@@ -48,7 +73,7 @@ ${ATTACHMENT_GUIDANCE}`;
 function buildGenericPrompt(agent: AgentConfig, user: User): string {
   return `你是${agent.displayName}。${agent.description ?? ''}
 
-当前用户：${user.username}，角色：${user.role}。
+${buildPermissionText(user, agent)}
 
 回答要求：
 - 用简洁专业的中文回答
@@ -66,9 +91,9 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
   if (agent.systemPrompt) {
     base = agent.systemPrompt;
     // Append user context to custom prompts
-    base += `\n\n当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作。' : '当前为管理员，可执行所有操作。'}`;
+    base += `\n\n${buildPermissionText(u, agent)}`;
   } else if (agent.name === 'otcclaw') {
-    base = getDefaultSystemPrompt(u);
+    base = getDefaultSystemPrompt(u, agent);
   } else {
     base = buildGenericPrompt(agent, u);
   }

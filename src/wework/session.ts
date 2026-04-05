@@ -3,6 +3,7 @@
  * 每个企微用户对应一个独立的对话上下文
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent } from '../llm/agents/config.js';
 
@@ -29,16 +30,14 @@ export function isAdminWeworkUser(weworkUserId: string): boolean {
 export function getSession(weworkUserId: string, weworkUsername: string): WeworkSession {
   let session = sessions.get(weworkUserId);
   if (!session) {
-    const role = adminIds.has(weworkUserId) ? 'admin' : 'user';
     const agent = resolveAgent('wework', weworkUserId);
+    const userId = `wework_${weworkUserId}`;
+    const username = weworkUsername || `wework_${weworkUserId}`;
+    getOrCreateUser(userId, username, 'user');
     session = {
       weworkUserId,
       weworkUsername,
-      user: {
-        id: role === 'admin' ? 'admin-001' : 'user-001',
-        username: weworkUsername || `wework_${weworkUserId}`,
-        role,
-      },
+      user: { id: userId, username, role: 'user' },
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,

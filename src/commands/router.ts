@@ -1,4 +1,4 @@
-import { isAdmin } from '../auth/rbac.js';
+import { isSystemAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import * as clientCmd from './client.js';
 import * as knowledgeCmd from './knowledge.js';
@@ -39,9 +39,9 @@ const commands: Record<string, Command> = {
   plot:    { description: '交易曲线图', usage: '/plot [client=xx] [date=xx]', adminOnly: false, agentId: 'otcclaw', handler: plotCmd.handlePlot },
   'wework-qa': { description: '企微Q&A提取', usage: '/wework-qa <群组名>', adminOnly: false, agentId: 'alter-ego', handler: weworkQACmd.weworkQA },
   faq:       { description: '查询知识库', usage: '/faq <关键词>', adminOnly: false, handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', adminOnly: true, handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
-  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', adminOnly: true, handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', adminOnly: true, handler: knowledgeCmd.remove },
+  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', adminOnly: false, handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
+  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', adminOnly: false, handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', adminOnly: false, handler: knowledgeCmd.remove },
   plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|create|switch|info|del|member|assign|...> [参数]', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del', 'member', 'assign', 'unassign', 'assignments', 'feishu-app'] },
@@ -230,8 +230,8 @@ export async function route(input: string): Promise<void> {
     return;
   }
 
-  if (command.adminOnly && !isAdmin()) {
-    log.print('权限不足：该命令需要管理员权限');
+  if (command.adminOnly && !isSystemAdmin()) {
+    log.print('权限不足：该命令需要系统管理员权限');
     return;
   }
 

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { QueryClientsInput, ViewClientInput, GetClientHistoryInput, AdvanceClientInput, RollbackClientInput } from '../llm/tool-types.js';
-import { isAdmin } from '../auth/rbac.js';
+import { isSystemAdmin } from '../auth/rbac.js';
 import { fetchClients, fetchClient, fetchHistory, createClient, updateClient, advanceClient, rollbackClient } from '../commands/client.js';
 import { fetchLatestNotionals } from '../commands/trade.js';
 import { STATE_LABELS, STATE_PRIORITY } from '../models/client.js';
@@ -156,22 +156,22 @@ function handleGetHistory(input: { name_or_id: string }): string {
 }
 
 function handleAddClient(input: { name: string; contact?: string; wework_group?: string; requirements?: string; sales?: string; notes?: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(createClient(input));
 }
 
 function handleUpdateClient(input: { name_or_id: string; fields: Record<string, string> }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(updateClient(input.name_or_id, input.fields));
 }
 
 function handleAdvanceClient(input: AdvanceClientInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(advanceClient(input.name_or_id));
 }
 
 function handleRollbackClient(input: { name_or_id: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(rollbackClient(input.name_or_id));
 }
 

@@ -17,7 +17,7 @@ import { WeworkAPI, type WeworkConfig, type WeworkMessage } from './api.js';
 import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminWeworkUser } from './session.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
 import { runAgenticChat } from '../llm/agent.js';
-import { getAgent, getAllAgents } from '../llm/agents/config.js';
+import { getAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -195,25 +195,7 @@ function handleAgentCommand(args: string, weworkUserId: string): string {
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
 
-  if (sub === 'list') {
-    const agents = getAllAgents();
-    const session = getSession(weworkUserId, '');
-    const lines = agents.map(a => {
-      const marker = a.name === session.agentName ? '▶ ' : '  ';
-      return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
-    });
-    return `可用 Agent:\n${lines.join('\n')}`;
-  }
-
-  const agent = getAgent(sub);
-  if (agent.name !== sub && sub !== 'otcclaw') {
-    return `未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
-  }
-
-  const session = getSession(weworkUserId, '');
-  session.agentName = agent.name;
-  session.history = [];
-  return `已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
+  return '`/agent` 的 list/switch 等管理操作仅支持 CLI channel';
 }
 
 /**
@@ -250,7 +232,7 @@ async function handleEvent(message: WeworkMessage): Promise<string> {
       const role = isAdminWeworkUser(userId) ? '管理员' : '普通用户';
       reply = `欢迎使用 OTC Claw！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
     } else if (text === '/help') {
-      reply = `OTC Claw Bot 命令\n\n基础命令：\n/start - 开始使用\n/help - 查看帮助\n/reset - 重置对话上下文\n/status - 系统状态\n\n客户管理：\n/client list [state=xx] - 客户列表\n/client view <名称> - 查看客户详情\n/client history <名称> - 操作历史\n/client add <名称> - 添加客户（管理员）\n/client advance <名称> - 推进状态（管理员）\n\n查询命令：\n/trade <参数> - 交易查询\n/faq <关键词> - 搜索知识库\n\nAgent 管理：\n/agent - 查看当前 Agent\n/agent list - 列出所有 Agent\n/agent <name> - 切换 Agent\n\n也可以直接输入自然语言，AI 助手会帮你处理！`;
+      reply = `OTC Claw Bot 命令\n\n基础命令：\n/start - 开始使用\n/help - 查看帮助\n/reset - 重置对话上下文\n/status - 系统状态\n\n客户管理：\n/client list [state=xx] - 客户列表\n/client view <名称> - 查看客户详情\n/client history <名称> - 操作历史\n/client add <名称> - 添加客户（管理员）\n/client advance <名称> - 推进状态（管理员）\n\n查询命令：\n/trade <参数> - 交易查询\n/faq <关键词> - 搜索知识库\n\nAgent 管理：\n/agent - 查看当前 Agent\n其他 Agent 管理操作仅支持 CLI\n\n也可以直接输入自然语言，AI 助手会帮你处理！`;
     } else if (text === '/reset') {
       resetSession(userId);
       reply = '对话上下文已重置';

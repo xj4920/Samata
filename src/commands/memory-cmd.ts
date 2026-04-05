@@ -1,6 +1,5 @@
 import { listAllMemory, saveMemory, deleteMemory, searchMemory, getMemoryByIdPrefix, type MemoryItem } from '../llm/agents/memory.js';
 import { getCurrentAgent } from '../llm/agent.js';
-import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
@@ -96,15 +95,6 @@ function addMemory(args: string): void {
 
   const currentAgentId = getCurrentAgent()?.id;
 
-  if (scope === 'global' && !isSystemAdmin()) {
-    log.print('权限不足：仅系统管理员可保存全局记忆');
-    return;
-  }
-  if (scope === 'agent' && !isSystemAdmin() && !isAgentAdmin(currentAgentId ?? '')) {
-    log.print('权限不足：仅该 Agent 管理员可保存 Agent 记忆');
-    return;
-  }
-
   const result = saveMemory({
     content,
     scope,
@@ -155,15 +145,6 @@ function delMemory(idPrefix: string): void {
   const row = getMemoryByIdPrefix(idPrefix);
   if (!row) {
     log.print(`未找到记忆: ${idPrefix}`);
-    return;
-  }
-
-  if (row.scope === 'global' && !isSystemAdmin()) {
-    log.print('权限不足：仅系统管理员可删除全局记忆');
-    return;
-  }
-  if (row.scope === 'agent' && !isSystemAdmin() && !isAgentAdmin(row.agent_id ?? '')) {
-    log.print('权限不足：仅该 Agent 管理员可删除此记忆');
     return;
   }
 

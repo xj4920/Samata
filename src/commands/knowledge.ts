@@ -1,5 +1,5 @@
 import { getDb } from '../db/connection.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { getCurrentAgent } from '../llm/agent.js';
 import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
@@ -15,6 +15,28 @@ export interface KnowledgeItem {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+function ensureKnowledgeWriteAccess(agentId?: string, knowledgeId?: string): { success: true } | { success: false; error: string } {
+  const db = getDb();
+
+  if (agentId) {
+    if (!isAgentAdmin(agentId)) {
+      return { success: false, error: '权限不足：需要当前 Agent 的管理员权限' };
+    }
+    if (knowledgeId) {
+      const assoc = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id = ? AND agent_id = ?').get(knowledgeId, agentId);
+      if (!assoc) {
+        return { success: false, error: '权限不足：该知识条目不属于当前 Agent' };
+      }
+    }
+    return { success: true };
+  }
+
+  if (!isSystemAdmin()) {
+    return { success: false, error: '权限不足：需要系统管理员权限' };
+  }
+  return { success: true };
 }
 
 export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeItem[] {
@@ -141,13 +163,19 @@ export function remove(args: string): void {
     return;
   }
 
+  const perm = ensureKnowledgeWriteAccess(getCurrentAgent()?.id, rows[0].id);
+  if (!perm.success) {
+    log.print(perm.error);
+    return;
+  }
+
   db.prepare('DELETE FROM knowledge WHERE id = ?').run(rows[0].id);
   recordEvent('knowledge', rows[0].id, 'delete', { question: rows[0].question });
   log.print(`FAQ已删除: ${rows[0].question}`);
 }
 
 /** LLM 工具调用：按 ID 前缀删除知识库条目 */
-export function deleteKnowledge(idPrefix: string): { success: boolean; question?: string; error?: string } {
+export function deleteKnowledge(idPrefix: string, agentId?: string): { success: boolean; question?: string; error?: string } {
   if (!idPrefix) return { success: false, error: '需要提供 FAQ ID 或 ID 前缀' };
 
   const db = getDb();
@@ -157,6 +185,8 @@ export function deleteKnowledge(idPrefix: string): { success: boolean; question?
   if (rows.length > 1) return { success: false, error: '匹配到多条，请提供更长的ID前缀' };
 
   const item = rows[0];
+  const perm = ensureKnowledgeWriteAccess(agentId, item.id);
+  if (!perm.success) return perm;
   // 同时清理 knowledge_agents 关联
   db.prepare('DELETE FROM knowledge_agents WHERE knowledge_id = ?').run(item.id);
   db.prepare('DELETE FROM knowledge WHERE id = ?').run(item.id);
@@ -168,6 +198,8 @@ export function deleteKnowledge(idPrefix: string): { success: boolean; question?
 export function addKnowledge(fields: { question: string; answer: string; tags?: string; related_users?: string }, agentId?: string): { success: boolean; id?: string; error?: string } {
   if (!fields.question?.trim()) return { success: false, error: '问题不能为空' };
   if (!fields.answer?.trim()) return { success: false, error: '答案不能为空' };
+  const perm = ensureKnowledgeWriteAccess(agentId);
+  if (!perm.success) return perm;
 
   const db = getDb();
   const user = getCurrentUser();
@@ -190,7 +222,7 @@ export function addKnowledge(fields: { question: string; answer: string; tags?: 
 }
 
 /** LLM 工具调用：按 ID 前缀更新知识库 QA（无需交互式输入） */
-export function updateKnowledgeById(idPrefix: string, fields: { question?: string; answer?: string; tags?: string; related_users?: string }): { success: boolean; id?: string; error?: string } {
+export function updateKnowledgeById(idPrefix: string, fields: { question?: string; answer?: string; tags?: string; related_users?: string }, agentId?: string): { success: boolean; id?: string; error?: string } {
   if (!idPrefix) return { success: false, error: '需要提供 FAQ ID 或 ID 前缀' };
 
   const db = getDb();
@@ -200,6 +232,8 @@ export function updateKnowledgeById(idPrefix: string, fields: { question?: strin
   if (rows.length > 1) return { success: false, error: '匹配到多条，请提供更长的ID前缀' };
 
   const item = rows[0];
+  const perm = ensureKnowledgeWriteAccess(agentId, item.id);
+  if (!perm.success) return perm;
   const question = fields.question ?? item.question;
   const answer = fields.answer ?? item.answer;
   const tags = fields.tags !== undefined ? (fields.tags || null) : item.tags;
@@ -233,6 +267,11 @@ export async function update(idPrefix: string): Promise<void> {
   }
 
   const item = rows[0];
+  const perm = ensureKnowledgeWriteAccess(getCurrentAgent()?.id, item.id);
+  if (!perm.success) {
+    log.print(perm.error);
+    return;
+  }
   const question = await input({ message: `问题 [${item.question}]：`, default: item.question });
   const answer = await input({ message: `回答 [${item.answer}]：`, default: item.answer });
   const tags = await input({ message: `标签 [${item.tags || ''}]：`, default: item.tags || '' });

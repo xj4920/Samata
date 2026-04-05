@@ -1,5 +1,5 @@
 import { getDb } from '../db/connection.js';
-import { getCurrentUser, isAdmin } from '../auth/rbac.js';
+import { getCurrentUser, isSystemAdmin } from '../auth/rbac.js';
 import { recordEvent, getEvents } from '../models/event.js';
 import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState, prevState } from '../models/client.js';
 import { log } from '../utils/logger.js';
@@ -364,8 +364,8 @@ export async function handleClient(args: string): Promise<void> {
   const sub = (parts[0] || '').toLowerCase();
   const rest = parts.slice(1).join(' ');
 
-  if (ADMIN_SUBCMDS.has(sub) && !isAdmin()) {
-    log.print('权限不足：该命令需要管理员权限');
+  if (ADMIN_SUBCMDS.has(sub) && !isSystemAdmin()) {
+    log.print('权限不足：该命令需要系统管理员权限');
     return;
   }
 

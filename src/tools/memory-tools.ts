@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SaveMemoryInput, SearchMemoryInput, DeleteMemoryInput, UpdateMemoryInput } from '../llm/tool-types.js';
-import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 import { saveMemory, searchMemory, deleteMemory, updateMemory, getMemoryByIdPrefix } from '../llm/agents/memory.js';
 
@@ -55,22 +54,9 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
-/** Check write permission based on memory scope/ownership */
-function checkMemoryWritePermission(scope: string, agentId: string | null): string | null {
-  if (scope === 'global') {
-    if (!isSystemAdmin()) return '仅系统管理员可操作全局记忆';
-    return null;
-  }
-  if (!isSystemAdmin() && !isAgentAdmin(agentId ?? '')) return '仅该 Agent 管理员可操作此记忆';
-  return null;
-}
-
 function handleSaveMemory(input: SaveMemoryInput): string {
   const currentAgentId = getCurrentAgent()?.id;
   const scope = (input.scope as 'global' | 'agent') ?? 'agent';
-
-  const permErr = checkMemoryWritePermission(scope, currentAgentId ?? null);
-  if (permErr) return JSON.stringify({ error: permErr });
 
   const result = saveMemory({
     content: input.content,
@@ -92,18 +78,12 @@ function handleUpdateMemory(input: UpdateMemoryInput): string {
   const row = getMemoryByIdPrefix(input.id);
   if (!row) return JSON.stringify({ error: `未找到记忆: ${input.id}` });
 
-  const permErr = checkMemoryWritePermission(row.scope, row.agent_id);
-  if (permErr) return JSON.stringify({ error: permErr });
-
   return JSON.stringify(updateMemory(input.id, { content: input.content, category: input.category }));
 }
 
 function handleDeleteMemory(input: DeleteMemoryInput): string {
   const row = getMemoryByIdPrefix(input.id);
   if (!row) return JSON.stringify({ error: `未找到记忆: ${input.id}` });
-
-  const permErr = checkMemoryWritePermission(row.scope, row.agent_id);
-  if (permErr) return JSON.stringify({ error: permErr });
 
   return JSON.stringify(deleteMemory(input.id));
 }

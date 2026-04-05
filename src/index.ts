@@ -14,8 +14,15 @@ import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './fei
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
 import { getAllSkills } from './commands/skill.js';
+import { startCliApiServer } from './server/cli-api.js';
+import type { Server } from 'node:http';
+import { runWithExecutionContext } from './runtime/execution-context.js';
+
+let cliApiServer: Server | null = null;
 
 export function gracefulShutdown(): void {
+  cliApiServer?.close();
+  cliApiServer = null;
   stopMonitor();
   stopReminderScheduler();
   stopAllFeishuBots();
@@ -325,7 +332,9 @@ async function repl(): Promise<void> {
       process.stdin.on('data', onData);
 
       try {
-        await route(trimmed);
+        await runWithExecutionContext({ channel: 'cli' }, async () => {
+          await route(trimmed);
+        });
       } catch (err: any) {
         if (err?.name === 'AbortError') {
           log.print('\n⏹ 命令已取消');
@@ -385,6 +394,7 @@ async function main(): Promise<void> {
   const isServer = process.argv.includes('--server') || !process.stdin.isTTY;
 
   if (isServer) {
+    cliApiServer = startCliApiServer();
     log.print('以服务器模式运行 (无交互 REPL)');
     // 监听信号以优雅关闭
     const handleSignal = () => {

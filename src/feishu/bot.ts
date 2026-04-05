@@ -24,9 +24,9 @@ import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isIma
 import { buildCard, buildThinkingCard } from './card.js';
 import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser, type User } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, getOrCreateUser, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
-import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
+import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -201,19 +201,11 @@ function getSessionForInstance(
 ): FeishuSession {
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
-    const isAdmin = isAdminFeishuUser(feishuUserId);
     const agent = resolveAgent('feishu', instance.appId);
-    let user: User;
-
-    if (isAdmin) {
-      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
-    } else {
-      const db = getDb();
-      const userId = `feishu_${feishuUserId}`;
-      const username = feishuUsername || userId;
-      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
-      user = { id: userId, username, role: 'user' };
-    }
+    const userId = `feishu_${feishuUserId}`;
+    const username = feishuUsername || userId;
+    getOrCreateUser(userId, username, 'user');
+    const user: User = { id: userId, username, role: 'user' };
 
     session = {
       feishuUserId,
@@ -942,17 +934,21 @@ function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUs
   }
 
   if (sub === 'add') {
-    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
     if (!rest) return '用法: /memory add <内容>';
+    const prevUser = getCurrentUser();
+    setCurrentUser(session.user);
     const result = saveMemory({ content: rest, scope: 'agent', agentId, source: 'manual' });
+    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已保存: ${rest}`;
   }
 
   if (sub === 'del' || sub === 'delete') {
-    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
     if (!rest) return '用法: /memory del <id>';
+    const prevUser = getCurrentUser();
+    setCurrentUser(session.user);
     const result = deleteMemory(rest);
+    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已删除: ${rest}`;
   }
@@ -971,64 +967,7 @@ function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUse
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
 
-  // /agent list — list all agents
-  if (sub === 'list') {
-    const agents = getAllAgents();
-    const session = getSessionForInstance(instance, feishuUserId, '');
-    const lines = agents.map(a => {
-      const marker = a.name === session.agentName ? '▶ ' : '  ';
-      const idTag = `[${a.id.slice(0, 8)}]`;
-      return `${marker}${a.displayName} (${a.name}) ${idTag}${a.description ? `  ${a.description}` : ''}`;
-    });
-    return `可用 Agent (实例列表):\n${lines.join('\n')}`;
-  }
-
-  // /agent assign <name> — assign agent to current app
-  if (sub === 'assign') {
-    const agentName = parts[1];
-    if (!agentName) return '用法: /agent assign <agent_name>';
-
-    const result = saveAssignment(agentName, 'feishu', instance.appId);
-    if (!result.success) return `❌ ${result.error}`;
-
-    // 重置所有会话（应用级切换）
-    instance.sessions.clear();
-    return `✅ 已将 ${agentName} 绑定到当前应用，所有用户下次对话生效`;
-  }
-
-  // /agent unassign — remove app assignment
-  if (sub === 'unassign') {
-    const result = deleteAssignment('feishu', instance.appId);
-    if (!result.success) return `❌ ${result.error}`;
-
-    instance.sessions.clear();
-    return `✅ 已移除绑定，将使用默认 Agent`;
-  }
-
-  // /agent assignments — list all (admin only)
-  if (sub === 'assignments') {
-    if (!isAdminFeishuUser(feishuUserId)) return '❌ 权限不足：该命令需要管理员权限';
-
-    const assignments = listAssignments();
-    if (assignments.length === 0) return '暂无 Agent 绑定';
-
-    const lines = assignments.map(a => {
-      const target = a.appId || a.targetId || '(渠道默认)';
-      return `${a.channel}/${target} → ${a.agentDisplayName} (${a.agentName})`;
-    });
-    return `Agent 绑定关系:\n${lines.join('\n')}`;
-  }
-
-  // /agent <name> — switch agent (session-level)
-  const agent = getAgent(sub);
-  if (agent.name !== sub && sub !== 'otcclaw') {
-    return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
-  }
-
-  const session = getSessionForInstance(instance, feishuUserId, '');
-  session.agentName = agent.name;
-  session.history = [];
-  return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
+  return '❌ `/agent` 的 list/switch/assign 等管理操作仅支持 CLI channel';
 }
 
 /**

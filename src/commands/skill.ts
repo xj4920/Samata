@@ -122,7 +122,7 @@ export async function handleSkill(args: string): Promise<void> {
 function showSkillHelp(): void {
   log.print('Skill 用法：');
   log.print('  skill list                          列出所有 skill');
-  log.print('  skill save <name> "<prompt>"         保存 skill（支持 {param} 占位符）');
+  log.print('  skill save <name> "<prompt>" [--scope=global|agent]  保存 skill（支持 {param} 占位符）');
   log.print('  skill run <name> [param=value ...]   执行 skill');
   log.print('  skill del <name>                     删除 skill');
 }
@@ -158,17 +158,21 @@ function listSkills(): void {
 }
 
 function saveSkillCmd(args: string): void {
-  const match = args.match(/^(\S+)\s+"([^"]+)"/s) || args.match(/^(\S+)\s+(.*)/s);
+  const scopeMatch = args.match(/\s--scope=(global|agent)\s*$/);
+  const scope = (scopeMatch?.[1] as 'global' | 'agent' | undefined) ?? (isSystemAdmin() ? 'global' : 'agent');
+  const normalizedArgs = scopeMatch ? args.slice(0, scopeMatch.index).trim() : args;
+  const match = normalizedArgs.match(/^(\S+)\s+"([^"]+)"/s) || normalizedArgs.match(/^(\S+)\s+(.*)/s);
   if (!match) {
-    log.print('用法: skill save <name> "<prompt>"');
+    log.print('用法: skill save <name> "<prompt>" [--scope=global|agent]');
     return;
   }
-  const result = saveSkill(match[1], match[2]);
+  const agentId = scope === 'agent' ? getCurrentAgent()?.id : undefined;
+  const result = saveSkill(match[1], match[2], agentId);
   if (!result.success) {
       log.print(result.error);
       return;
   }
-  log.print(`Skill 已${result.action === 'updated' ? '更新' : '保存'}: ${result.name}`);
+  log.print(`Skill 已${result.action === 'updated' ? '更新' : '保存'}: ${result.name} (${scope})`);
 }
 
 function delSkillCmd(args: string): void {

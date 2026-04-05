@@ -3,6 +3,7 @@
  * 每个 Telegram user 对应一个独立的对话上下文
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent } from '../llm/agents/config.js';
 
@@ -31,16 +32,14 @@ export function isAdminTelegramUser(telegramUserId: number): boolean {
 export function getSession(telegramUserId: number, telegramUsername: string): TelegramSession {
   let session = sessions.get(telegramUserId);
   if (!session) {
-    const role = adminIds.has(telegramUserId) ? 'admin' : 'user';
     const agent = resolveAgent('telegram', undefined, String(telegramUserId));
+    const userId = `telegram_${telegramUserId}`;
+    const username = telegramUsername || `tg_${telegramUserId}`;
+    getOrCreateUser(userId, username, 'user');
     session = {
       telegramUserId,
       telegramUsername,
-      user: {
-        id: role === 'admin' ? 'admin-001' : 'user-001',
-        username: telegramUsername || `tg_${telegramUserId}`,
-        role,
-      },
+      user: { id: userId, username, role: 'user' },
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,

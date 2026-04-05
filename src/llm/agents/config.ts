@@ -3,6 +3,7 @@ import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../../auth/rbac.js'
 import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
+import { getExecutionChannel } from '../../runtime/execution-context.js';
 
 export const TOOL_PRESETS: Record<string, { description: string; tools: string[] }> = {
   common: {
@@ -320,6 +321,23 @@ export function getCurrentAgent(): AgentConfig | undefined {
 
 /** Tools that are always available to all agents, regardless of tools_mode */
 export const UNIVERSAL_TOOLS = new Set(['http_request']);
+const CLI_ONLY_TOOLS = new Set([
+  'list_agents',
+  'get_agent',
+  'manage_agent_member',
+  'list_agent_members',
+  'save_agent',
+  'delete_agent',
+  'switch_agent',
+  'assign_agent',
+  'unassign_agent',
+  'list_agent_assignments',
+]);
+
+function applyChannelToolRestrictions(tools: Anthropic.Tool[]): Anthropic.Tool[] {
+  if (getExecutionChannel() === 'cli') return tools;
+  return tools.filter(tool => !CLI_ONLY_TOOLS.has(tool.name));
+}
 
 /** Filter global tools based on agent's tools_mode, preset, and tools_list.
  * @param isAdmin - whether the current user is an admin of this agent.
@@ -330,29 +348,29 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     // User-level: check userToolsMode
     const uMode = agent.userToolsMode;
     if (uMode !== 'inherit') {
-      if (uMode === 'all') return globalTools;
+      if (uMode === 'all') return applyChannelToolRestrictions(globalTools);
       const uSet = new Set(agent.userToolsList);
       if (uMode === 'allowlist') {
-        return globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+        return applyChannelToolRestrictions(globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
       }
       // blocklist
-      return globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+      return applyChannelToolRestrictions(globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
     }
     // inherit: fall through to admin logic
   }
 
   // Admin-level (or inherit): existing logic
-  if (agent.toolsMode === 'all') return globalTools;
+  if (agent.toolsMode === 'all') return applyChannelToolRestrictions(globalTools);
 
   // Effective list = preset tools (resolved dynamically from code) + tools_list (extensions/overrides)
   const presetTools = agent.preset ? (TOOL_PRESETS[agent.preset]?.tools ?? []) : [];
   const effectiveSet = new Set([...presetTools, ...agent.toolsList]);
 
   if (agent.toolsMode === 'allowlist') {
-    return globalTools.filter(t => effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+    return applyChannelToolRestrictions(globalTools.filter(t => effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
   }
   // blocklist
-  return globalTools.filter(t => !effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name));
+  return applyChannelToolRestrictions(globalTools.filter(t => !effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
 }
 
 // --- Agent Assignment (channel/target → agent) ---

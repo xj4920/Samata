@@ -1,5 +1,5 @@
 import { getDb } from '../../db/connection.js';
-import { getCurrentUser } from '../../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../../auth/rbac.js';
 import { v4 as uuid } from 'uuid';
 
 export interface MemoryItem {
@@ -39,6 +39,15 @@ function rowToItem(row: MemoryRow): MemoryItem {
 
 const MAX_MEMORY_PER_SCOPE = 100;
 const MAX_CONTENT_LENGTH = 500;
+
+function getMemoryWriteError(scope: 'global' | 'agent', agentId: string | null): string | null {
+  if (scope === 'global') {
+    return isSystemAdmin() ? null : '仅系统管理员可操作全局记忆';
+  }
+  return isSystemAdmin() || (agentId && isAgentAdmin(agentId))
+    ? null
+    : '仅该 Agent 管理员可操作此记忆';
+}
 
 /** Fetch global memory + agent-specific memory */
 export function fetchMemory(agentId?: string): MemoryItem[] {
@@ -99,6 +108,11 @@ export function saveMemory(input: SaveMemoryInput): { success: true; id: string 
     return { success: false, error: 'agent 范围的记忆需要指定 agentId' };
   }
 
+  const permErr = getMemoryWriteError(scope, agentId);
+  if (permErr) {
+    return { success: false, error: permErr };
+  }
+
   // Check limit
   const db = getDb();
   const countQuery = scope === 'global'
@@ -142,6 +156,8 @@ export function updateMemory(
   }
   const row = getMemoryByIdPrefix(idPrefix);
   if (!row) return { success: false, error: `未找到记忆: ${idPrefix}` };
+  const permErr = getMemoryWriteError(row.scope as MemoryItem['scope'], row.agent_id);
+  if (permErr) return { success: false, error: permErr };
   const db = getDb();
   if (updates.content && updates.category) {
     db.prepare('UPDATE memory SET content = ?, category = ? WHERE id = ?').run(updates.content.trim(), updates.category, row.id);
@@ -157,6 +173,8 @@ export function updateMemory(
 export function deleteMemory(idPrefix: string): { success: true } | { success: false; error: string } {
   const row = getMemoryByIdPrefix(idPrefix);
   if (!row) return { success: false, error: `未找到记忆: ${idPrefix}` };
+  const permErr = getMemoryWriteError(row.scope as MemoryItem['scope'], row.agent_id);
+  if (permErr) return { success: false, error: permErr };
   const db = getDb();
   db.prepare('DELETE FROM memory WHERE id = ?').run(row.id);
   return { success: true };

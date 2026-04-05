@@ -6,6 +6,8 @@
   "scripts": {
     "start": "bash scripts/start.sh",
     "dev": "tsx watch src/index.ts",
+    "server": "tsx src/index.ts --server",
+    "cli": "tsx src/cli/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts",
     "wework": "npx tsx src/wework-entry.ts"
   },

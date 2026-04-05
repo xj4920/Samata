@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { captureOutputLine, getExecutionContext } from '../runtime/execution-context.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logsDir = path.join(__dirname, '../../logs');
@@ -50,5 +51,11 @@ export const log = {
   /** 仅写入日志文件，不输出到终端 */
   file: (msg: string) => { writeToFile('info', msg); },
   /** 仅输出到终端，不写日志文件（用于 CLI 交互显示） */
-  print: (...args: any[]) => console.log(...args),
+  print: (...args: any[]) => {
+    if (getExecutionContext()?.outputCapture) {
+      captureOutputLine(...args);
+      return;
+    }
+    console.log(...args);
+  },
 };
