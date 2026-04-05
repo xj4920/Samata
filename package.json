@@ -9,7 +9,8 @@
     "server": "tsx src/index.ts --server",
     "cli": "tsx src/cli/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts",
-    "wework": "npx tsx src/wework-entry.ts"
+    "wework": "npx tsx src/wework-entry.ts",
+    "check-readme": "npx tsx scripts/check-readme.ts"
   },
   "keywords": [],
   "author": "",

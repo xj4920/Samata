@@ -1,23 +1,39 @@
-# 衍语 (YanYu)
+# Samata
 
-客户展业全生命周期管理系统，为销售团队提供从初次接触到上线投产的全流程客户跟踪，内置 AI 助手辅助日常操作。
+多 Agent 智能助手平台，立意「技术平权」。支持飞书、Telegram、企微 Bot 及命令行多渠道接入，内置多 LLM Provider 切换、工具调用、知识库、技能系统与 MCP 集成。
 
-## 功能特性
+> **衍语（YanYu / otcclaw）** 是系统内置的默认 agent，专注于客户展业知识助手。
 
-- 客户生命周期管理 — 5 阶段流转：初次接触 → 需求沟通 → 方案设计 → UAT 测试 → 上线投产
-- AI 助手 — 基于 Claude 的自然语言交互，支持工具调用自动执行操作
-- 知识库 — FAQ 管理，快速检索常见问题
-- 插件系统 — 可扩展架构，内置 CSV 导出插件
-- 权限控制 — 基于角色的访问控制（admin / user）
-- 数据导入 — 支持 Excel 批量导入客户数据
-- 操作审计 — 完整的事件日志记录
+## 架构概览
 
-## 技术栈
+```
+┌─────────────────────────────────────────────┐
+│  npm run cli   (CLI 客户端，HTTP/SSE)         │
+│  飞书 Bot  /  Telegram Bot  /  企微 Bot      │
+└────────────────────┬────────────────────────┘
+                     │ HTTP / SSE
+┌────────────────────▼────────────────────────┐
+│  npm run server  (主进程)                     │
+│  ├── CLI API  http://127.0.0.1:3456          │
+│  ├── 飞书 / Telegram / 企微 Bot 自动启动      │
+│  └── SQLite DB                               │
+└─────────────────────────────────────────────┘
+```
 
-- TypeScript + Node.js
-- SQLite（better-sqlite3，WAL 模式）
-- Anthropic Claude SDK
-- Inquirer.js 交互式命令行
+- **客户端/服务端分离**：`npm run cli` 是轻量客户端，通过 HTTP/SSE 与 server 交互，不直连 DB
+- **SSE 流式推送**：agentic chat 实时推送 `text / tool_start / tool_end / thinking / done / error` 事件，消除黑屏等待
+- **Channel 隔离**：通过 `AsyncLocalStorage` 为每条执行路径注入 channel 标识（`cli | feishu | telegram | wework | system`）；`isSystemAdmin()` 仅在 `channel=cli && role=admin` 时成立，bot channel 永远不满足
+
+## 多 Agent 系统
+
+系统支持多个 agent 实例，每个 agent 独立管理工具权限、知识库、技能和成员。
+
+| Agent ID  | 中文名   | 说明                            |
+|-----------|--------|---------------------------------|
+| otcclaw   | 衍语    | 客户展业知识助手，`tools_mode=all` |
+| tutor     | 家庭教育 | 教育辅导，allowlist 工具模式      |
+| alter-ego | 数字分身 | 个人分身                         |
+| doctor    | 家庭医生 | 健康咨询                         |
 
 ## 快速开始
 
@@ -27,59 +43,162 @@ npm install
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入 ANTHROPIC_API_KEY
+# 编辑 .env，填入至少 ANTHROPIC_API_KEY
 
-# 启动（支持热重载）
-npm start
+# 启动服务端（主进程：DB + Bot + CLI API）
+npm run server
 
-# 开发模式
-npm run dev
+# 新开终端，启动 CLI 客户端
+npm run cli
+```
+
+其他启动方式：
+
+```bash
+npm run dev          # 开发模式（tsx watch，单进程 REPL）
+npm run telegram     # 单独启动 Telegram Bot 进程
+npm run wework       # 单独启动企微 Bot 进程
+npm run start        # 通过 scripts/start.sh 启动（含 screen 守护）
+npm run check-readme # 检查 README 与实现是否一致
 ```
 
 ## 环境变量
 
+### 必填
+
 | 变量 | 说明 |
 |------|------|
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
-| `ANTHROPIC_AUTH_TOKEN` | 自定义网关认证令牌（可选） |
-| `ANTHROPIC_BASE_URL` | 自定义网关地址（可选） |
+
+### 可选
+
+| 变量 | 说明 |
+|------|------|
+| `ANTHROPIC_AUTH_TOKEN` | 自定义网关认证令牌 |
+| `ANTHROPIC_BASE_URL` | 自定义网关地址 |
+| `LLM_PROVIDER` | ��换 LLM provider（`anthropic` \| `minimax` \| `gemini` \| `openrouter`），默认 `anthropic` |
+| `LLM_MODEL` | 覆盖默认模型名 |
+| `SHOW_THINKING` | 显示 AI 思考过程和工具调用日志，默认 `true` |
+
+### MiniMax
+
+| 变量 | 说明 |
+|------|------|
+| `MINIMAX_API_KEY` | MiniMax API 密钥 |
+| `MINIMAX_BASE_URL` | MiniMax API 地址 |
+| `MINIMAX_MODEL` | MiniMax 模型名 |
+
+### Gemini
+
+| 变量 | 说明 |
+|------|------|
+| `GEMINI_API_KEY` | Gemini API 密钥 |
+| `GEMINI_BASE_URL` | Gemini API 地址 |
+| `GEMINI_MODEL` | Gemini 模型名 |
+
+### OpenRouter
+
+| 变量 | 说明 |
+|------|------|
+| `OPENROUTER_API_KEY` | OpenRouter API 密钥 |
+| `OPENROUTER_BASE_URL` | OpenRouter API 地址 |
+| `OPENROUTER_MODEL` | OpenRouter 模型名 |
+
+### InfluxDB（交易数据，只读）
+
+| 变量 | 说明 |
+|------|------|
+| `INFLUX_HOST` | InfluxDB 主机 |
+| `INFLUX_PORT` | InfluxDB 端口 |
+| `INFLUX_TOKEN` | InfluxDB 访问令牌 |
+| `INFLUX_DATABASE` | 数据库名 |
+| `INFLUX_TIMEOUT` | 查询超时（秒） |
+
+### Feishu Bot
+
+| 变量 | 说明 |
+|------|------|
+| `FEISHU_MODE` | 连接模式：`ws`（长连接）或 `webhook` |
+| `FEISHU_PORT` | Webhook HTTP 监听端口，默认 `3001` |
+
+### CLI API
+
+| 变量 | 说明 |
+|------|------|
+| `CLI_API_PORT` | CLI API server 监听端口，默认 `3456` |
 
 ## 命令列表
 
-| 命令 | 说明 | 权限 |
-|------|------|------|
-| `/add` | 新增客户 | admin |
-| `/update` | 更新客户信息 | admin |
-| `/delete` | 删除客户 | admin |
-| `/advance` | 推进客户阶段 | admin |
-| `/list` | 查看客户列表 | all |
-| `/view` | 查看客户详情 | all |
-| `/history` | 查看操作历史 | all |
-| `/status` | 状态看板 | all |
-| `/faq` | 查询知识库 | all |
-| `/faq-add` | 添加 FAQ | admin |
-| `/faq-del` | 删除 FAQ | admin |
-| `/plugin` | 插件管理 | all |
-| `/skill` | 自定义技能 | all |
-| `/help` | 帮助信息 | all |
-| `/reset` | 重置会话 | all |
+输入非命令文本时，自动转交 AI 助手以自然语言处理（agentic chat）。
 
-输入非命令文本时，将自动转交 AI 助手以自然语言处理。
+### 所有用户
+
+| 命令 | 说明 |
+|------|------|
+| `/client <list\|view\|add\|update\|delete\|advance\|rollback\|history>` | 客户管理（仅 otcclaw agent） |
+| `/trade` | 交易查询（仅 otcclaw agent） |
+| `/plot` | 交易曲线图（仅 otcclaw agent） |
+| `/faq <关键词>` | 查询知识库 |
+| `/faq-add <内容>` | 添加 FAQ |
+| `/faq-update <id> <内容>` | 修改 FAQ |
+| `/faq-del <id>` | 删除 FAQ |
+| `/skill <list\|save\|run\|del>` | 自定义技能管理 |
+| `/agent <list\|create\|switch\|info\|del\|member\|assign\|...>` | Agent 管理 |
+| `/memory <list\|add\|search\|del>` | Memory 管理 |
+| `/plugin <list\|run>` | 插件管理 |
+| `/wework-qa <群组名>` | 企微 Q&A 提取（仅 alter-ego agent） |
+| `/status` | 系统状态 |
+| `/help` | 显示帮助 |
+| `/reset` | 重置当前会话 |
+
+### 管理员专用
+
+| 命令 | 说明 |
+|------|------|
+| `/watch <start\|stop\|status>` | 企微消息监测 |
+| `/bot <tg\|feishu> <start\|stop\|status>` | Bot 进程管理 |
+| `/model <list\|anthropic\|minimax\|gemini\|openrouter>` | 切换 LLM Provider |
+| `/user <list\|add\|update\|delete>` | 系统用户管理 |
+| `/reload` | 热重载应用 |
 
 ## 项目结构
 
 ```
 src/
-├── index.ts          # 入口，交互式 REPL
-├── auth/             # 权限控制
-├── commands/         # 命令处理器
-├── db/               # 数据库连接与 Schema
-├── llm/              # AI 代理（Claude）
-├── models/           # 数据模型
-├── plugins/          # 插件系统
-├── scripts/          # 数据导入工具
-└── utils/            # 日志、表格渲染
+├── index.ts           # 服务端入口
+├── feishu-entry.ts    # 飞书 Bot 独立入口
+├── telegram-entry.ts  # Telegram Bot 独立入口
+├── wework-entry.ts    # 企微 Bot 入口
+├── auth/              # 认证与 RBAC
+├── cli/               # CLI 客户端（REPL + SSE 解析）
+├── commands/          # 命令处理器（可复用业务函数）
+├── config/
+├── db/                # Schema、migrations、seed
+├── feishu/            # 飞书 Bot
+├── llm/               # AI agent + 多 LLM provider
+├── models/
+├── plugins/           # 插件系统
+├── runtime/           # execution-context（AsyncLocalStorage）
+├── server/            # CLI API server（HTTP/SSE）
+├── services/          # wework-monitor、reminder-scheduler、mcp-manager
+├── shared/            # cli-contract.ts（客户端/服务端共享类型）
+├── telegram/          # Telegram Bot
+├── tools/             # Tool handler 包装��
+├── utils/             # 日志、表格渲染
+└── wework/            # 企微 Bot
 ```
+
+## 技术栈
+
+- TypeScript + Node.js（ESM）
+- SQLite（better-sqlite3，WAL 模式）
+- 多 LLM Provider：Anthropic Claude、MiniMax、Gemini、OpenRouter
+- Bot SDK：@larksuiteoapi/node-sdk（飞书）
+- MCP：@modelcontextprotocol/sdk
+- pino（结构化日志）
+- puppeteer（markdown-to-image）
+- undici（HTTP 客户端）
+- Inquirer.js（交互式命令行）
 
 ## License
 
