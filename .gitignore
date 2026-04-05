@@ -14,3 +14,13 @@ logs/*
 data/yanyu.db
 data/yanyu.db-shm
 data/yanyu.db-wal
+
+# Runtime
+.samata.pid
+
+# Local config (machine-specific)
+config/mcp-servers.json
+config/monitor.json
+
+# Temp test scripts
+scripts/test_*.mjs
