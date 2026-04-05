@@ -22,9 +22,8 @@ import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
-import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser, getOrCreateUser, type User } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, getOrCreateUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
@@ -878,7 +877,7 @@ async function handleClientSubcommand(
       return formatClientHistory(result.name, result.events);
     }
     case 'add': {
-      if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
+      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要��理员权限');
       if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
       const prevUser = getCurrentUser();
       const session = getSessionForInstance(instance, feishuUserId, '');
@@ -892,8 +891,7 @@ async function handleClientSubcommand(
       }
     }
     case 'advance': {
-      if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!rest) return formatError('用法: /client advance <客户名称或ID>');
+      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
       const prevUser = getCurrentUser();
       const session = getSessionForInstance(instance, feishuUserId, '');
       setCurrentUser(session.user);
@@ -1143,7 +1141,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   try {
     // 处理内置命令
     if (text === '/start') {
-      const role = isAdminFeishuUser(senderId) ? '管理员' : '普通用户';
+      const role = isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName) ? 'agent admin' : 'member';
       await sendFeishuReply(instance, chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
@@ -1176,7 +1174,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
-      if (!isAdminFeishuUser(senderId)) {
+      if (!isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName)) {
         await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
@@ -1450,16 +1448,6 @@ export async function startFeishuBot(
     return;
   }
 
-  // 解析管理员飞书用户 ID 列表（全局共享）
-  const adminIdsStr = process.env.FEISHU_ADMIN_IDS || '';
-  const adminIdList = adminIdsStr.split(',').map(s => s.trim()).filter(s => s);
-  setAdminIds(adminIdList);
-
-  if (adminIdList.length === 0) {
-    log.warn(`[飞书:${appConfig.appName}] 未配置 FEISHU_ADMIN_IDS，所有用户将以只读身份使用`);
-  } else {
-    log.info(`[飞书:${appConfig.appName}] 管理员飞书 IDs: ${adminIdList.join(', ')}`);
-  }
 
   // 创建实例
   const instance: FeishuBotInstance = {

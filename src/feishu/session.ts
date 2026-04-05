@@ -18,17 +18,6 @@ export interface FeishuSession {
 
 const sessions = new Map<string, FeishuSession>();
 
-// 飞书 userId → 系统用户映射（从环境变量配置）
-let adminIds: Set<string> = new Set();
-
-export function setAdminIds(ids: string[]): void {
-  adminIds = new Set(ids);
-}
-
-export function isAdminFeishuUser(feishuUserId: string): boolean {
-  return adminIds.has(feishuUserId);
-}
-
 export function getSession(feishuUserId: string, feishuUsername: string): FeishuSession {
   let session = sessions.get(feishuUserId);
   if (!session) {

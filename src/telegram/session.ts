@@ -18,17 +18,6 @@ export interface TelegramSession {
 
 const sessions = new Map<number, TelegramSession>();
 
-// Telegram userId → 系统用户映射（从 .env 配置）
-let adminIds: Set<number> = new Set();
-
-export function setAdminIds(ids: number[]): void {
-  adminIds = new Set(ids);
-}
-
-export function isAdminTelegramUser(telegramUserId: number): boolean {
-  return adminIds.has(telegramUserId);
-}
-
 export function getSession(telegramUserId: number, telegramUsername: string): TelegramSession {
   let session = sessions.get(telegramUserId);
   if (!session) {

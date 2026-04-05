@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
-import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 import { getProviderName, getModelName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
@@ -101,7 +102,13 @@ export function fetchSystemStatus(): SystemStatus {
     ? getAgentTools(agentConfig, getGlobalTools(), userIsAdmin).map(t => t.name)
     : getGlobalTools().map(t => t.name);
 
-  const displayRole = (agentId && isAgentAdmin(agentId)) ? 'admin' : user.role;
+  const channel = getExecutionChannel();
+  let displayRole: string;
+  if (channel === 'cli') {
+    displayRole = isSystemAdmin() ? 'system admin' : 'user';
+  } else {
+    displayRole = (agentId && isAgentAdmin(agentId)) ? 'agent admin' : 'member';
+  }
 
   return {
     name: 'Samata',

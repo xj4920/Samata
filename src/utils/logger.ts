@@ -52,7 +52,8 @@ export const log = {
   file: (msg: string) => { writeToFile('info', msg); },
   /** 仅输出到终端，不写日志文件（用于 CLI 交互显示） */
   print: (...args: any[]) => {
-    if (getExecutionContext()?.outputCapture) {
+    const ctx = getExecutionContext();
+    if (ctx?.outputCapture || ctx?.onOutputLine) {
       captureOutputLine(...args);
       return;
     }

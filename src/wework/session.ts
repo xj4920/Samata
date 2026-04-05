@@ -17,15 +17,6 @@ export interface WeworkSession {
 }
 
 const sessions = new Map<string, WeworkSession>();
-let adminIds: Set<string> = new Set();
-
-export function setAdminIds(ids: string[]): void {
-  adminIds = new Set(ids);
-}
-
-export function isAdminWeworkUser(weworkUserId: string): boolean {
-  return adminIds.has(weworkUserId);
-}
 
 export function getSession(weworkUserId: string, weworkUsername: string): WeworkSession {
   let session = sessions.get(weworkUserId);
