@@ -2,14 +2,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { MarkdownToImageInput } from '../llm/tool-types.js';
+import { getArtifactRoot } from '../commands/artifact.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'markdown_to_image',
-    description: '将 Markdown 文本渲染为 PNG 图片，返回图片文件路径。飞书 bot 会自动上传并展示该图片。适合发送格式复杂的内容（表格、代码、报告等）。',
+    description: '将 Markdown 文本渲染为 PNG 图片，保存到 /tmp/samata 并返回图片路径。此工具只负责生成图片；若要发给用户，请继续调用 send_image。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -255,7 +255,7 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
   }
 
   const html = buildHtml(input.markdown, width, theme);
-  const tmpFile = path.join(os.tmpdir(), `md_${randomUUID()}.png`);
+  const tmpFile = path.join(getArtifactRoot(), `md_${randomUUID()}.png`);
 
   let browser: any;
   try {

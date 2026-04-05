@@ -1,5 +1,6 @@
 import { getDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 
 export type Role = 'admin' | 'user';
 
@@ -25,20 +26,28 @@ export function isAdmin(): boolean {
 }
 
 export function isSystemAdmin(): boolean {
-  return isAdmin();
+  return getExecutionChannel() === 'cli' && isAdmin();
+}
+
+export function getAgentMembershipRole(agentId: string): Role | null {
+  const user = getCurrentUser();
+  const db = getDb();
+  const row = db.prepare('SELECT role FROM agent_members WHERE agent_id = ? AND user_id = ?').get(agentId, user.id) as { role: Role } | undefined;
+  return row?.role ?? null;
 }
 
 export function isAgentAdmin(agentId: string): boolean {
-  const user = getCurrentUser();
-  if (user.role === 'admin') return true;
+  if (isSystemAdmin()) return true;
+  return getAgentMembershipRole(agentId) === 'admin';
+}
 
-  const db = getDb();
-  const row = db.prepare('SELECT role FROM agent_members WHERE agent_id = ? AND user_id = ?').get(agentId, user.id) as { role: string } | undefined;
-  return row?.role === 'admin';
+export function isAgentMember(agentId: string): boolean {
+  if (isSystemAdmin()) return true;
+  return getAgentMembershipRole(agentId) !== null;
 }
 
 export function requireAdmin(): void {
-  if (!isAdmin()) {
+  if (!isSystemAdmin()) {
     throw new Error('权限不足：需要系统管理员权限');
   }
 }
@@ -57,6 +66,21 @@ export function getAllUsers(): User[] {
 export function getUser(id: string): User | undefined {
   const db = getDb();
   return db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(id) as User | undefined;
+}
+
+export function getOrCreateUser(id: string, username: string, role: Role = 'user'): User {
+  const db = getDb();
+  const existing = getUser(id);
+  if (existing) {
+    if (existing.username !== username) {
+      db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
+      return { ...existing, username };
+    }
+    return existing;
+  }
+
+  db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)').run(id, username, role);
+  return { id, username, role };
 }
 
 export function createUser(username: string, role: Role = 'user'): User {

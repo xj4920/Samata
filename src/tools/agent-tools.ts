@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import { getCurrentAgent, setCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, getAgentTools } from '../llm/agents/config.js';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -224,6 +225,10 @@ function handleListAgentMembers(input: { agent_name: string }): string {
 }
 
 export async function handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
+  if (getExecutionChannel() !== 'cli') {
+    return JSON.stringify({ error: '权限不足：Agent 管理工具仅支持 CLI channel' });
+  }
+
   switch (name) {
     case 'list_agents': return handleListAgents(ctx?.globalTools);
     case 'get_agent': return handleGetAgent(input, ctx?.globalTools);

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
-import { isAdmin, isAgentAdmin } from '../auth/rbac.js';
+import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getCurrentAgent } from '../llm/agents/config.js';
 import { markReloadIfSource } from '../llm/reload.js';
 import * as fs from 'fs';
@@ -36,7 +36,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'write_file',
-    description: '写入文件内容（仅限项目目录内，仅管理员可用）。可用于新建文件。修改已有文件请优先使用 edit_file。',
+    description: '写入文件内容（仅限项目目录内，仅管理员可用）。用于项目内源码或数据文件；若要生成待发送给用户的临时附件，请使用 write_artifact。修改已有文件请优先使用 edit_file。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -149,7 +149,7 @@ function handleReadFile(input: { path: string; max_lines?: number }): string {
 }
 
 function handleWriteFile(input: { path: string; content: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
 
   const checked = checkProjectPath(input.path);
   if ('error' in checked) return JSON.stringify({ error: checked.error });
@@ -169,7 +169,7 @@ function handleWriteFile(input: { path: string; content: string }): string {
 }
 
 function handleEditFile(input: { path: string; old_text: string; new_text: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
 
   const checked = checkProjectPath(input.path);
   if ('error' in checked) return JSON.stringify({ error: checked.error });
@@ -211,7 +211,7 @@ function handleExecCmd(input: { cmd: string; timeout_ms?: number }): string {
 }
 
 function handleReloadApp(): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   markReloadIfSource('reload.ts'); // always mark as source to trigger reload
   return JSON.stringify({ success: true, message: '将在当前对话轮次结束后重载应用' });
 }

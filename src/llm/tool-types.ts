@@ -39,6 +39,9 @@ export type ReadFileInput      = { path: string; max_lines?: number };
 export type WriteFileInput     = { path: string; content: string };
 export type EditFileInput      = { path: string; old_text: string; new_text: string };
 export type ExecCmdInput       = { cmd: string; timeout_ms?: number };
+export type WriteArtifactInput = { filename: string; content: string };
+export type SendFileInput      = { path: string };
+export type SendImageInput     = { path: string };
 
 // --- WeworkQA ---
 export type ExtractWeworkQAInput = {

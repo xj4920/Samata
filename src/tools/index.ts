@@ -14,6 +14,8 @@ import * as systemTools from './system-tools.js';
 import * as healthTools from './health-tools.js';
 import * as todoTools from './todo-tools.js';
 import * as markdownTools from './markdown-tools.js';
+import * as artifactTools from './artifact-tools.js';
+import * as deliveryTools from './delivery-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -34,6 +36,8 @@ const modules: ToolModule[] = [
   healthTools,
   todoTools,
   markdownTools,
+  artifactTools,
+  deliveryTools,
 ];
 
 export function getAllNativeTools(): Anthropic.Tool[] {

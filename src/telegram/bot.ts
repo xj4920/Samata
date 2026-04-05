@@ -11,11 +11,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { TelegramAPI, type TgMessage } from './api.js';
-import { getSession, resetSession, setAdminIds, cleanupSessions, isAdminTelegramUser } from './session.js';
+import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, type User } from '../auth/rbac.js';
+import { setCurrentUser, type User, isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, type DeliveryContext } from '../llm/agent.js';
-import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments } from '../llm/agents/config.js';
+import { getAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -154,8 +154,7 @@ function handleClientSubcommand(sub: string, rest: string, telegramUserId: numbe
       return formatClientHistory(result.name, result.events);
     }
     case 'add': {
-      if (!isAdminTelegramUser(telegramUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
+      if (!isAgentAdmin(getSession(telegramUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
       const session = getSession(telegramUserId, '');
       setCurrentUser(session.user);
       const result = addClient(rest);
@@ -163,8 +162,7 @@ function handleClientSubcommand(sub: string, rest: string, telegramUserId: numbe
       return formatError(result.error);
     }
     case 'advance': {
-      if (!isAdminTelegramUser(telegramUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!rest) return formatError('用法: /client advance <客户名称或ID>');
+      if (!isAgentAdmin(getSession(telegramUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
       const session = getSession(telegramUserId, '');
       setCurrentUser(session.user);
       const result = advanceClient(rest);
@@ -187,62 +185,7 @@ function handleAgentCommand(args: string, telegramUserId: number): string {
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
 
-  // /agent list — list all agents
-  if (sub === 'list') {
-    const agents = getAllAgents();
-    const session = getSession(telegramUserId, '');
-    const lines = agents.map(a => {
-      const marker = a.name === session.agentName ? '▶ ' : '  ';
-      return `${marker}${a.name} — ${a.displayName}${a.description ? ` (${a.description})` : ''}`;
-    });
-    return `可用 Agent:\n${lines.join('\n')}`;
-  }
-
-  // /agent assign <name> — assign agent to current user
-  if (sub === 'assign') {
-    const agentName = parts[1];
-    if (!agentName) return '用法: /agent assign <agent_name>';
-
-    const result = saveAssignment(agentName, 'telegram', undefined, String(telegramUserId));
-    if (!result.success) return `❌ ${result.error}`;
-
-    resetSession(telegramUserId);
-    return `✅ 已将 ${agentName} 绑定到你的账号，下次对话生效`;
-  }
-
-  // /agent unassign — remove assignment
-  if (sub === 'unassign') {
-    const result = deleteAssignment('telegram', undefined, String(telegramUserId));
-    if (!result.success) return `❌ ${result.error}`;
-
-    resetSession(telegramUserId);
-    return `✅ 已移除绑定，将使用默认 Agent`;
-  }
-
-  // /agent assignments — list all (admin only)
-  if (sub === 'assignments') {
-    if (!isAdminTelegramUser(telegramUserId)) return '❌ 权限不足：该命令需要管理员权限';
-
-    const assignments = listAssignments();
-    if (assignments.length === 0) return '暂无 Agent 绑定';
-
-    const lines = assignments.map(a => {
-      const target = a.appId || a.targetId || '(渠道默认)';
-      return `${a.channel}/${target} → ${a.agentDisplayName} (${a.agentName})`;
-    });
-    return `Agent 绑定关系:\n${lines.join('\n')}`;
-  }
-
-  // /agent <name> — switch agent
-  const agent = getAgent(sub);
-  if (agent.name !== sub && sub !== 'otcclaw') {
-    return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
-  }
-
-  const session = getSession(telegramUserId, '');
-  session.agentName = agent.name;
-  session.history = [];
-  return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
+  return '❌ `/agent` 的 list/switch/assign 等管理操作仅支持 CLI channel';
 }
 
 /**
@@ -267,7 +210,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
   try {
     // 处理内置命令
     if (text === '/start') {
-      const role = isAdminTelegramUser(userId) ? '管理员' : '普通用户';
+      const role = isAgentAdmin(getSession(userId, '').agentName) ? 'agent admin' : 'member';
       await api.sendMessage(chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
@@ -298,8 +241,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
         `/faq <关键词> - 搜索知识库\n\n` +
         `*Agent 管理：*\n` +
         `/agent - 查看当前 Agent\n` +
-        `/agent list - 列出所有 Agent\n` +
-        `/agent <name> - 切换 Agent\n\n` +
+        `其他 Agent 管理操作仅支持 CLI\n\n` +
         `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
         'Markdown'
       );
@@ -314,7 +256,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
-      if (!isAdminTelegramUser(userId)) {
+      if (!isAgentAdmin(getSession(userId, '').agentName)) {
         await api.sendMessage(chatId, '❌ 仅管理员可切换模型');
         return;
       }
@@ -408,20 +350,6 @@ export async function startTelegramBot(): Promise<void> {
     log.error('[TG] 未配置 botToken，请在 config/monitor.json 中设置 telegram.botToken');
     log.print('[TG] 未配置 botToken，请在 config/monitor.json 中设置 telegram.botToken');
     return;
-  }
-
-  // 解析管理员 Telegram ID 列表
-  const adminIdsStr = process.env.TELEGRAM_ADMIN_IDS || '';
-  const adminIdList = adminIdsStr
-    .split(',')
-    .map(s => parseInt(s.trim(), 10))
-    .filter(n => !isNaN(n));
-  setAdminIds(adminIdList);
-
-  if (adminIdList.length === 0) {
-    log.warn('[TG] 未配置 TELEGRAM_ADMIN_IDS，所有用户将以只读身份使用');
-  } else {
-    log.info(`[TG] 管理员 Telegram IDs: ${adminIdList.join(', ')}`);
   }
 
   // 初始化 Telegram API（带代理）

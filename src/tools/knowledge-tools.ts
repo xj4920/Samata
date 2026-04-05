@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput } from '../llm/tool-types.js';
-import { isAdmin, isAgentAdmin } from '../auth/rbac.js';
+import { isSystemAdmin } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
 import { fetchKnowledge, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
@@ -115,41 +115,30 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
 
 function handleAddKnowledge(input: AddKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id ?? '';
-  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
   return JSON.stringify(addKnowledge(input, agentId));
 }
 
 function handleUpdateKnowledge(input: UpdateKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id ?? '';
-  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
   const db = getDb();
   const rows = db.prepare('SELECT id FROM knowledge WHERE id LIKE ?').all(`${input.id_prefix}%`) as { id: string }[];
   if (rows.length === 0) return JSON.stringify({ success: false, error: `未找到FAQ: ${input.id_prefix}` });
   if (rows.length > 1) return JSON.stringify({ success: false, error: '匹配到多条，请提供���长的ID前缀' });
-  const assoc = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id = ? AND agent_id = ?').get(rows[0].id, agentId);
-  if (!assoc) return JSON.stringify({ success: false, error: '权限不足：该知识条目不属于当前 Agent' });
-  return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields));
+  return JSON.stringify(updateKnowledgeById(input.id_prefix, input.fields, agentId));
 }
 
 function handleDeleteKnowledge(input: { id_prefix: string }): string {
   const agentId = getCurrentAgent()?.id ?? '';
-  if (!isAgentAdmin(agentId)) return JSON.stringify({ error: '权限不足：需要当前 Agent 的管理员权限' });
-  const db = getDb();
-  const rows = db.prepare('SELECT id FROM knowledge WHERE id LIKE ?').all(`${input.id_prefix}%`) as { id: string }[];
-  if (rows.length === 0) return JSON.stringify({ success: false, error: `未找到FAQ: ${input.id_prefix}` });
-  if (rows.length > 1) return JSON.stringify({ success: false, error: '匹配到多条，请提供更长的ID前缀' });
-  const assoc = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id = ? AND agent_id = ?').get(rows[0].id, agentId);
-  if (!assoc) return JSON.stringify({ success: false, error: '权限不足：该知识条目不属于当前 Agent' });
-  return JSON.stringify(deleteKnowledge(input.id_prefix));
+  return JSON.stringify(deleteKnowledge(input.id_prefix, agentId));
 }
 
 function handleAssignKnowledgeAgent(input: AssignKnowledgeAgentInput): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(assignKnowledgeToAgent(input.knowledge_id, input.agent_name));
 }
 
 function handleUnassignKnowledgeAgent(input: { knowledge_id: string; agent_name: string }): string {
-  if (!isAdmin()) return JSON.stringify({ error: '权限不足：需要管理员权限' });
+  if (!isSystemAdmin()) return JSON.stringify({ error: '权限不足：需要系统管理员权限' });
   return JSON.stringify(unassignKnowledgeFromAgent(input.knowledge_id, input.agent_name));
 }
 

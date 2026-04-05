@@ -7,7 +7,6 @@
  *
  * 环境变量：
  * - WEWORK_PORT: HTTP 端口（默认 3002）
- * - WEWORK_ADMIN_IDS: 管理员用户 ID 列表（逗号分隔）
  */
 import 'dotenv/config';
 import { createServer } from 'node:http';
@@ -16,7 +15,6 @@ import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
 import { startWeworkBot, stopWeworkBot, handleWebhookRequest } from './wework/bot.js';
-import { setAdminIds } from './wework/session.js';
 import { log } from './utils/logger.js';
 
 const PORT = parseInt(process.env.WEWORK_PORT || '3002', 10);
@@ -35,13 +33,6 @@ async function main() {
   }
 
   setCurrentUser({ id: 'admin-001', username: 'admin', role: 'admin' });
-
-  // 配置管理员 ID
-  const adminIds = (process.env.WEWORK_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (adminIds.length > 0) {
-    setAdminIds(adminIds);
-    log.info(`[企微] 管理员 ID: ${adminIds.join(', ')}`);
-  }
 
   await startWeworkBot();
 

@@ -15,16 +15,17 @@
  */
 import { createServer } from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
-import { setAdminIds, isAdminFeishuUser } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser, type User } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, getOrCreateUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
-import { getAgent, getAllAgents, saveAssignment, deleteAssignment, listAssignments, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
+import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
@@ -71,6 +72,57 @@ interface FeishuBotInstance {
 }
 
 const botInstances = new Map<string, FeishuBotInstance>();
+
+type FeishuReplyOptions = {
+  messageId?: string;
+  isGroup?: boolean;
+  updateMessageId?: string;
+  traceId?: string;
+};
+
+type InteractionToolTrace = {
+  round: number;
+  name: string;
+  inputPreview: string;
+  resultPreview?: string;
+  durationMs?: number;
+};
+
+type InteractionTrace = {
+  id: string;
+  startedAt: number;
+  thoughts: string[];
+  tools: InteractionToolTrace[];
+};
+
+function createTraceId(): string {
+  return `${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
+}
+
+function compactTextForLog(text: string, maxLen = 200): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}...` : oneLine;
+}
+
+function formatValueForLog(value: unknown, maxLen = 220): string {
+  try {
+    return compactTextForLog(typeof value === 'string' ? value : JSON.stringify(value), maxLen);
+  } catch {
+    return compactTextForLog(String(value), maxLen);
+  }
+}
+
+function logTraceBlock(
+  instance: FeishuBotInstance,
+  traceId: string,
+  title: string,
+  lines: Array<string | undefined>,
+  level: 'info' | 'warn' | 'error' | 'dim' = 'dim',
+): void {
+  const details = lines.filter((line): line is string => !!line && line.trim().length > 0);
+  const message = [`[飞书:${instance.appName}][${traceId}] ${title}`, ...details.map(line => `  ${line}`)].join('\n');
+  log[level](message);
+}
 
 function loadFeishuConfig(appId: string): FeishuAppConfig | undefined {
   const row = getDb().prepare('SELECT * FROM feishu_apps WHERE app_id = ?').get(appId) as FeishuAppRow | undefined;
@@ -148,19 +200,11 @@ function getSessionForInstance(
 ): FeishuSession {
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
-    const isAdmin = isAdminFeishuUser(feishuUserId);
     const agent = resolveAgent('feishu', instance.appId);
-    let user: User;
-
-    if (isAdmin) {
-      user = { id: 'admin-001', username: feishuUsername || `feishu_${feishuUserId}`, role: 'admin' };
-    } else {
-      const db = getDb();
-      const userId = `feishu_${feishuUserId}`;
-      const username = feishuUsername || userId;
-      db.prepare('INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)').run(userId, username, 'user');
-      user = { id: userId, username, role: 'user' };
-    }
+    const userId = `feishu_${feishuUserId}`;
+    const username = feishuUsername || userId;
+    getOrCreateUser(userId, username, 'user');
+    const user: User = { id: userId, username, role: 'user' };
 
     session = {
       feishuUserId,
@@ -216,10 +260,17 @@ async function handleAIChat(
   feishuUserId: string,
   feishuUsername: string,
   images?: ImageInput[],
-  replyOpts?: { messageId?: string; isGroup?: boolean },
+  replyOpts?: FeishuReplyOptions,
 ): Promise<{ text: string; mediaPaths?: string[] }> {
   const session = getSessionForInstance(instance, feishuUserId, feishuUsername);
   const showThinkingEnabled = instance.config.showThinking !== false;
+  const traceId = replyOpts?.traceId ?? createTraceId();
+  const interactionTrace: InteractionTrace = {
+    id: traceId,
+    startedAt: Date.now(),
+    thoughts: [],
+    tools: [],
+  };
 
   // 发送过程卡片的辅助函数
   let progressMessageId: string | undefined;
@@ -261,27 +312,53 @@ async function handleAIChat(
   try {
     // 解析当前 session 使用的 Agent
     const agentConfig = getAgent(session.agentName);
+    logTraceBlock(instance, traceId, 'AI 对话开始', [
+      `user=${session.user.username} (${session.user.role})`,
+      `agent=${agentConfig.displayName} (${agentConfig.name})`,
+      `history=${session.history.length} 条`,
+      `input=${compactTextForLog(userInput, 240)}`,
+      images?.length ? `images=${images.length}` : undefined,
+    ], 'info');
 
     // 渐进发送过程卡片（节流 1.5s）
     let lastUpdateTime = 0;
     const THROTTLE_MS = 1500;
-    const onProgress = showThinkingEnabled
-      ? (event: import('../llm/agent.js').ProgressEvent) => {
-          const now = Date.now();
-          if (now - lastUpdateTime < THROTTLE_MS) return;
-          lastUpdateTime = now;
-          let hint = '';
-          if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
-          else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
-          if (hint) {
-            sendProgressCard(hint);
-          }
+    const onProgress = (event: import('../llm/agent.js').ProgressEvent) => {
+      if (event.type === 'thinking') {
+        const preview = compactTextForLog(event.text, 220);
+        if (preview) interactionTrace.thoughts.push(`r${event.round}: ${preview}`);
+      } else if (event.type === 'tool_start') {
+        interactionTrace.tools.push({
+          round: event.round,
+          name: event.name,
+          inputPreview: formatValueForLog(event.input),
+        });
+      } else if (event.type === 'tool_end') {
+        const toolTrace = [...interactionTrace.tools].reverse().find(
+          item => item.name === event.name && item.round === event.round && item.resultPreview === undefined,
+        );
+        if (toolTrace) {
+          toolTrace.resultPreview = formatValueForLog(event.result, 260);
+          toolTrace.durationMs = event.durationMs;
         }
-      : undefined;
+      }
+
+      if (!showThinkingEnabled) return;
+
+      const now = Date.now();
+      if (now - lastUpdateTime < THROTTLE_MS) return;
+      lastUpdateTime = now;
+      let hint = '';
+      if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
+      else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
+      if (hint) {
+        void sendProgressCard(hint);
+      }
+    };
 
     let textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
-      logPrefix: `[飞书:${feishuUsername}] `,
+      logPrefix: `[飞书:${instance.appName}][${traceId}][${feishuUsername}] `,
       showThinking: true,
       agentConfig,
       images,
@@ -303,6 +380,23 @@ async function handleAIChat(
 
     // 对剩余文本中的 markdown 图片语法做上传替换（嵌入 Card）
     let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
+
+    const elapsedMs = Date.now() - interactionTrace.startedAt;
+    const toolLines = interactionTrace.tools.slice(0, 8).map((tool, index) =>
+      `tool${index + 1}=r${tool.round} ${tool.name}${tool.durationMs !== undefined ? ` (${tool.durationMs}ms)` : ''} | input=${tool.inputPreview}${tool.resultPreview ? ` | result=${tool.resultPreview}` : ''}`
+    );
+    const thoughtLines = interactionTrace.thoughts.slice(0, 6).map((thought, index) => `thought${index + 1}=${thought}`);
+    logTraceBlock(instance, traceId, 'AI 对话完成', [
+      `elapsed=${elapsedMs}ms`,
+      `reply=${compactTextForLog(processedText || '（无回复内容）', 320)}`,
+      mediaPaths.length > 0 ? `media=${mediaPaths.map(p => path.basename(p)).join(', ')}` : undefined,
+      `tools=${interactionTrace.tools.length}`,
+      ...toolLines,
+      interactionTrace.tools.length > toolLines.length ? `tools_more=${interactionTrace.tools.length - toolLines.length}` : undefined,
+      `thoughts=${interactionTrace.thoughts.length}`,
+      ...thoughtLines,
+      interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
+    ], 'info');
 
     // 最终回复前，如果进度卡片还在，尝试直接用它进行回复（通过 updateCard）
     if (processedText && progressMessageId) {
@@ -334,30 +428,102 @@ async function handleAIChat(
  * 从 LLM 回复中提取独立的媒体文件路径（图片和文件）
  * 返回清理后的文本和提取的媒体路径列表
  */
-const MEDIA_EXTS = /\.(?:png|jpe?g|gif|webp|bmp|ico|tiff|pdf|docx?|xlsx?|csv|pptx?|mp4|mov|avi|opus|ogg)$/i;
+const PROJECT_ROOT = process.cwd();
+const MEDIA_EXT_PATTERN = '(?:png|jpe?g|gif|webp|bmp|ico|tiff|pdf|docx?|xlsx?|csv|pptx?|mp4|mov|avi|opus|ogg|txt|md|json|ya?ml|log)';
+const MEDIA_EXTS = new RegExp(`\\.${MEDIA_EXT_PATTERN}$`, 'i');
+const BARE_MEDIA_PATH_RE = new RegExp(`(?:^|\\s)((?:\\/|\\.\\/|~\\/)[^\\s"'()\\]\\{\\}]+?\\.${MEDIA_EXT_PATTERN})\\b`, 'giu');
+const RELATIVE_MEDIA_SEGMENT_PATTERN = String.raw`[^\s"'()\[\]\{\}/\\]+`;
+const RELATIVE_MEDIA_PATH_RE = new RegExp(`(?:^|[\\s"'(\`])((?:${RELATIVE_MEDIA_SEGMENT_PATTERN}\\/)*${RELATIVE_MEDIA_SEGMENT_PATTERN}\\.${MEDIA_EXT_PATTERN})\\b`, 'giu');
+const LABELED_MEDIA_PATH_RE = new RegExp(`(?:^|[\\s{,(])(?:"|')?(?:path|file|filepath|file_path|文件)(?:"|')?\\s*[:=]\\s*(?:"|')([^"'\\n]+?\\.${MEDIA_EXT_PATTERN})(?:"|')`, 'giu');
+
+type MediaMatch = {
+  rawPath: string;
+  start: number;
+  end: number;
+};
+
+function resolveMediaPath(rawPath: string): string {
+  if (rawPath.startsWith('~/')) {
+    return path.join(process.env.HOME || '', rawPath.slice(2));
+  }
+  if (path.isAbsolute(rawPath)) {
+    return path.normalize(rawPath);
+  }
+  return path.resolve(PROJECT_ROOT, rawPath);
+}
+
+function isMarkdownImagePath(text: string, start: number): boolean {
+  const before = text.slice(Math.max(0, start - 4), start);
+  return before.includes('](');
+}
+
+function addMediaMatches(matches: MediaMatch[], text: string, regex: RegExp): void {
+  regex.lastIndex = 0;
+  for (const match of text.matchAll(regex)) {
+    const rawPath = match[1];
+    if (!rawPath) continue;
+    const fullMatch = match[0] || '';
+    const offsetInFull = fullMatch.lastIndexOf(rawPath);
+    const start = (match.index ?? 0) + Math.max(offsetInFull, 0);
+    matches.push({ rawPath, start, end: start + rawPath.length });
+  }
+}
+
+function removeRanges(text: string, ranges: Array<{ start: number; end: number }>): string {
+  if (ranges.length === 0) return text.trim();
+
+  const merged = ranges
+    .sort((a, b) => a.start - b.start)
+    .reduce<Array<{ start: number; end: number }>>((acc, range) => {
+      const prev = acc[acc.length - 1];
+      if (!prev || range.start > prev.end) {
+        acc.push({ ...range });
+      } else {
+        prev.end = Math.max(prev.end, range.end);
+      }
+      return acc;
+    }, []);
+
+  let result = '';
+  let cursor = 0;
+  for (const range of merged) {
+    result += text.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  result += text.slice(cursor);
+
+  return result
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 function extractMediaFromText(text: string): { cleanText: string; mediaPaths: string[] } {
   if (!text) return { cleanText: text, mediaPaths: [] };
 
+  const matches: MediaMatch[] = [];
+  addMediaMatches(matches, text, LABELED_MEDIA_PATH_RE);
+  addMediaMatches(matches, text, BARE_MEDIA_PATH_RE);
+  addMediaMatches(matches, text, RELATIVE_MEDIA_PATH_RE);
+
   const mediaPaths: string[] = [];
-  let cleanText = text;
+  const removalRanges: Array<{ start: number; end: number }> = [];
+  const seenResolved = new Set<string>();
 
-  // Match bare file paths: /absolute/path.ext, ~/path.ext, ./path.ext
-  const BARE_PATH_RE = /(?:^|\s)((?:\/|\.\/|~\/)[^\s]+?\.(?:png|jpe?g|gif|webp|bmp|ico|tiff|pdf|docx?|xlsx?|csv|pptx?|mp4|mov|avi|opus|ogg))\b/gi;
-  const matches = [...text.matchAll(BARE_PATH_RE)];
+  for (const match of matches) {
+    if (!MEDIA_EXTS.test(match.rawPath)) continue;
+    if (isImageFile(match.rawPath) && isMarkdownImagePath(text, match.start)) continue;
 
-  for (const m of matches) {
-    const filePath = m[1];
-    // Skip image paths already in markdown image syntax — those are handled by processImagesInText
-    const idx = m.index!;
-    const before = text.slice(Math.max(0, idx - 4), idx);
-    if (before.includes('](')) continue;
+    const resolved = resolveMediaPath(match.rawPath);
+    if (!fs.existsSync(resolved)) continue;
+    if (seenResolved.has(resolved)) continue;
 
-    mediaPaths.push(filePath);
-    cleanText = cleanText.replace(filePath, '').replace(/\n{3,}/g, '\n\n');
+    seenResolved.add(resolved);
+    mediaPaths.push(resolved);
+    removalRanges.push({ start: match.start, end: match.end });
   }
 
-  return { cleanText: cleanText.trim(), mediaPaths };
+  return { cleanText: removeRanges(text, removalRanges), mediaPaths };
 }
 
 /**
@@ -367,19 +533,16 @@ async function sendMediaMessages(
   instance: FeishuBotInstance,
   chatId: string,
   mediaPaths: string[],
-  replyOpts?: { messageId?: string; isGroup?: boolean },
+  replyOpts?: FeishuReplyOptions,
 ): Promise<void> {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
   const useReply = replyOpts?.isGroup && replyOpts?.messageId;
+  const traceTag = replyOpts?.traceId ? `[${replyOpts.traceId}] ` : '';
 
   for (const rawPath of mediaPaths) {
-    const resolved = rawPath.startsWith('~/')
-      ? path.join(process.env.HOME || '', rawPath.slice(1))
-      : path.resolve(rawPath);
+    const resolved = resolveMediaPath(rawPath);
 
     if (!fs.existsSync(resolved)) {
-      log.warn(`[飞书:${instance.appName}] 媒体文件不存在，跳过: ${resolved}`);
+      log.warn(`[飞书:${instance.appName}] ${traceTag}媒体文件不存在，跳过: ${resolved}`);
       continue;
     }
 
@@ -394,7 +557,7 @@ async function sendMediaMessages(
         } else {
           await instance.api.sendImage(chatId, imageKey);
         }
-        log.dim(`[飞书:${instance.appName}] 已发送图片: ${fileName}`);
+        log.dim(`[飞书:${instance.appName}] ${traceTag}实际已发送图片: ${fileName}`);
       } else {
         const fileType = detectFileType(fileName);
         const fileKey = await instance.api.uploadFile(resolved, fileName, fileType);
@@ -404,10 +567,10 @@ async function sendMediaMessages(
         } else {
           await instance.api.sendFile(chatId, fileKey);
         }
-        log.dim(`[飞书:${instance.appName}] 已发送文件: ${fileName}`);
+        log.dim(`[飞书:${instance.appName}] ${traceTag}实际已发送文件: ${fileName}`);
       }
     } catch (err: any) {
-      log.error(`[飞书:${instance.appName}] 发送媒体失败 (${fileName}): ${err.message}`);
+      log.error(`[飞书:${instance.appName}] ${traceTag}发送媒体失败 (${fileName}): ${err.message}`);
     }
   }
 }
@@ -481,9 +644,12 @@ async function sendFeishuReply(
   instance: FeishuBotInstance,
   chatId: string,
   text: string,
-  options?: { messageId?: string; isGroup?: boolean; updateMessageId?: string }
+  options?: FeishuReplyOptions,
 ): Promise<string> {
   const MAX_LEN = 4000;
+  const traceTag = options?.traceId ? `[${options.traceId}] ` : '';
+  const mode = options?.updateMessageId ? 'update' : (options?.isGroup && options?.messageId ? 'reply' : 'send');
+  log.dim(`[飞书:${instance.appName}] ${traceTag}准备发送回复: mode=${mode}, len=${text?.length ?? 0}, preview=${compactTextForLog(text || '（无回复内容）', 220)}`);
 
   // 更新已有卡片模式
   if (options?.updateMessageId) {
@@ -492,7 +658,7 @@ async function sendFeishuReply(
       await instance.api.updateCard(options.updateMessageId, card);
       return options.updateMessageId;
     } catch (err: any) {
-      log.warn(`[飞书:${instance.appName}] 更新卡片失败，回退到发新消息: ${err.message}`);
+      log.warn(`[飞书:${instance.appName}] ${traceTag}更新卡片失败，回退到发新消息: ${err.message}`);
       // fallthrough 到下面的发新消息逻辑
     }
   }
@@ -592,7 +758,7 @@ async function sendFeishuReply(
       }
     } catch (err: any) {
       const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      log.error(`[飞书:${instance.appName}] Card 分片 ${i + 1}/${chunks.length} 发送失败: ${errorDetail}，回退到纯文本`);
+      log.error(`[飞书:${instance.appName}] ${traceTag}Card 分片 ${i + 1}/${chunks.length} 发送失败: ${errorDetail}，回退到纯文本`);
       try {
         if (useReply) {
           lastMessageId = await instance.api.replyMessage(options.messageId!, 'text', { text: chunkText });
@@ -600,7 +766,7 @@ async function sendFeishuReply(
           lastMessageId = await instance.api.sendText(chatId, chunkText);
         }
       } catch (e: any) {
-         log.error(`[飞书:${instance.appName}] 纯文本降级发送依然失败: ${e.message}`);
+         log.error(`[飞书:${instance.appName}] ${traceTag}纯文本降级发送依然失败: ${e.message}`);
       }
     }
 
@@ -711,7 +877,7 @@ async function handleClientSubcommand(
       return formatClientHistory(result.name, result.events);
     }
     case 'add': {
-      if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
+      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要��理员权限');
       if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
       const prevUser = getCurrentUser();
       const session = getSessionForInstance(instance, feishuUserId, '');
@@ -725,8 +891,7 @@ async function handleClientSubcommand(
       }
     }
     case 'advance': {
-      if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
-      if (!rest) return formatError('用法: /client advance <客户名称或ID>');
+      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
       const prevUser = getCurrentUser();
       const session = getSessionForInstance(instance, feishuUserId, '');
       setCurrentUser(session.user);
@@ -767,17 +932,21 @@ function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUs
   }
 
   if (sub === 'add') {
-    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
     if (!rest) return '用法: /memory add <内容>';
+    const prevUser = getCurrentUser();
+    setCurrentUser(session.user);
     const result = saveMemory({ content: rest, scope: 'agent', agentId, source: 'manual' });
+    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已保存: ${rest}`;
   }
 
   if (sub === 'del' || sub === 'delete') {
-    if (!isAdminFeishuUser(feishuUserId)) return formatError('权限不足：该命令需要管理员权限');
     if (!rest) return '用法: /memory del <id>';
+    const prevUser = getCurrentUser();
+    setCurrentUser(session.user);
     const result = deleteMemory(rest);
+    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已删除: ${rest}`;
   }
@@ -796,64 +965,7 @@ function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUse
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
 
-  // /agent list — list all agents
-  if (sub === 'list') {
-    const agents = getAllAgents();
-    const session = getSessionForInstance(instance, feishuUserId, '');
-    const lines = agents.map(a => {
-      const marker = a.name === session.agentName ? '▶ ' : '  ';
-      const idTag = `[${a.id.slice(0, 8)}]`;
-      return `${marker}${a.displayName} (${a.name}) ${idTag}${a.description ? `  ${a.description}` : ''}`;
-    });
-    return `可用 Agent (实例列表):\n${lines.join('\n')}`;
-  }
-
-  // /agent assign <name> — assign agent to current app
-  if (sub === 'assign') {
-    const agentName = parts[1];
-    if (!agentName) return '用法: /agent assign <agent_name>';
-
-    const result = saveAssignment(agentName, 'feishu', instance.appId);
-    if (!result.success) return `❌ ${result.error}`;
-
-    // 重置所有会话（应用级切换）
-    instance.sessions.clear();
-    return `✅ 已将 ${agentName} 绑定到当前应用，所有用户下次对话生效`;
-  }
-
-  // /agent unassign — remove app assignment
-  if (sub === 'unassign') {
-    const result = deleteAssignment('feishu', instance.appId);
-    if (!result.success) return `❌ ${result.error}`;
-
-    instance.sessions.clear();
-    return `✅ 已移除绑定，将使用默认 Agent`;
-  }
-
-  // /agent assignments — list all (admin only)
-  if (sub === 'assignments') {
-    if (!isAdminFeishuUser(feishuUserId)) return '❌ 权限不足：该命令需要管理员权限';
-
-    const assignments = listAssignments();
-    if (assignments.length === 0) return '暂无 Agent 绑定';
-
-    const lines = assignments.map(a => {
-      const target = a.appId || a.targetId || '(渠道默认)';
-      return `${a.channel}/${target} → ${a.agentDisplayName} (${a.agentName})`;
-    });
-    return `Agent 绑定关系:\n${lines.join('\n')}`;
-  }
-
-  // /agent <name> — switch agent (session-level)
-  const agent = getAgent(sub);
-  if (agent.name !== sub && sub !== 'otcclaw') {
-    return `❌ 未找到 Agent: ${sub}\n使用 /agent list 查看所有可用 Agent`;
-  }
-
-  const session = getSessionForInstance(instance, feishuUserId, '');
-  session.agentName = agent.name;
-  session.history = [];
-  return `✅ 已切换到 Agent: ${agent.displayName} (${agent.name})${agent.description ? `\n${agent.description}` : ''}`;
+  return '❌ `/agent` 的 list/switch/assign 等管理操作仅支持 CLI channel';
 }
 
 /**
@@ -865,8 +977,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   const messageType = event.message.message_type;
   const messageId = event.message.message_id;
   const isGroup = chatType === 'group';
-
-  log.info(`[飞书:${instance.appName}] 收到消息: chat_id=${chatId}, chat_type=${chatType}, type=${messageType}`);
+  const traceId = createTraceId();
 
   // 群聊：只响应 @bot 的消息
   if (isGroup) {
@@ -875,7 +986,11 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       ? mentions.some(m => m.id.open_id === instance.botOpenId)
       : mentions.length > 0;  // 未获取到 botOpenId 时，有 @mention 就响应
     if (!mentionedBot) {
-      log.dim(`[飞书:${instance.appName}] 群聊消息未 @bot，忽略: ${chatId}`);
+      logTraceBlock(instance, traceId, '忽略群聊消息', [
+        `chat=${chatType}:${chatId}`,
+        `message=${messageType}/${messageId}`,
+        'reason=群聊消息未 @bot',
+      ]);
       return;
     }
   }
@@ -986,11 +1101,16 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   // 获取发送者信息
   const senderId = event.sender.sender_id.open_id || event.sender.sender_id.user_id || '';
   const senderName = `user_${senderId.slice(-6)}`;
+  const replyOpts: FeishuReplyOptions = isGroup ? { messageId, isGroup: true, traceId } : { traceId };
 
-  log.dim(`[飞书:${instance.appName}] 解析结果: text="${text.slice(0, 50)}", senderId=${senderId}, group=${isGroup}`);
-
-  // 群聊回复选项：群里以 reply 方式回复原消息
-  const replyOpts = isGroup ? { messageId, isGroup: true } : undefined;
+  logTraceBlock(instance, traceId, '收到消息', [
+    `chat=${chatType}:${chatId}`,
+    `message=${messageType}/${messageId}`,
+    `sender=${senderName} (${senderId})`,
+    `group=${isGroup}`,
+    `text=${compactTextForLog(text || '（空）', 240)}`,
+    images?.length ? `images=${images.length}` : undefined,
+  ], 'info');
 
   // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
   if (text.startsWith('/debug')) {
@@ -1014,16 +1134,14 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   }
 
   if (!text) {
-    log.dim(`[飞书:${instance.appName}] 忽略空消息或不支持的类型: ${messageType}`);
+    logTraceBlock(instance, traceId, '忽略消息', [`reason=空消息或不支持的类型 (${messageType})`]);
     return;
   }
-
-  log.dim(`[飞书:${instance.appName}] ${senderName}: ${text.slice(0, 80)}`);
 
   try {
     // 处理内置命令
     if (text === '/start') {
-      const role = isAdminFeishuUser(senderId) ? '管理员' : '普通用户';
+      const role = isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName) ? 'agent admin' : 'member';
       await sendFeishuReply(instance, chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
@@ -1056,7 +1174,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
-      if (!isAdminFeishuUser(senderId)) {
+      if (!isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName)) {
         await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
@@ -1098,6 +1216,10 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
         setCurrentAgent(prevAgent);
       }
       if (reply !== null) {
+        logTraceBlock(instance, traceId, '命令回复', [
+          `cmd=/${cmd}`,
+          `reply=${compactTextForLog(reply, 260)}`,
+        ]);
         await sendFeishuReply(instance, chatId, reply, replyOpts);
         return;
       }
@@ -1116,7 +1238,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
   } catch (err: any) {
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
-    log.error(`[飞书:${instance.appName}] 处理消息出错: ${err.message}${cause}`);
+    log.error(`[飞书:${instance.appName}][${traceId}] 处理消息出错: ${err.message}${cause}`);
     try {
       await sendFeishuReply(instance, chatId, `❌ 处理出错: ${err.message}`, replyOpts);
     } catch { /* ignore send error */ }
@@ -1326,16 +1448,6 @@ export async function startFeishuBot(
     return;
   }
 
-  // 解析管理员飞书用户 ID 列表（全局共享）
-  const adminIdsStr = process.env.FEISHU_ADMIN_IDS || '';
-  const adminIdList = adminIdsStr.split(',').map(s => s.trim()).filter(s => s);
-  setAdminIds(adminIdList);
-
-  if (adminIdList.length === 0) {
-    log.warn(`[飞书:${appConfig.appName}] 未配置 FEISHU_ADMIN_IDS，所有用户将以只读身份使用`);
-  } else {
-    log.info(`[飞书:${appConfig.appName}] 管理员飞书 IDs: ${adminIdList.join(', ')}`);
-  }
 
   // 创建实例
   const instance: FeishuBotInstance = {

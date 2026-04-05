@@ -7,12 +7,13 @@ import { buildSystemPrompt } from './agents/prompt.js';
 import { isPendingReload, setPendingReload } from './reload.js';
 import { getAllNativeTools, executeNativeTool } from '../tools/index.js';
 import { getMcpTools, callMcpTool } from '../services/mcp-manager.js';
-import { isAgentAdmin } from '../auth/rbac.js';
+import { isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
@@ -86,6 +87,9 @@ export function getTools(): Anthropic.Tool[] {
 
 export function getSystemPrompt(user?: User): string {
   const u = user ?? getCurrentUser();
+  const permissionText = isSystemAdmin()
+    ? `当前接入渠道：${getExecutionChannel()}。当前用户：${u.username}，系统角色：${u.role}。你当前是 CLI 系统管理员，可执行全局与当前 Agent 的写操作。`
+    : `当前接入渠道：${getExecutionChannel()}。当前用户：${u.username}，系统角色：${u.role}。你当前不是系统管理员，不可执行全局写操作。`;
   return `你是 Samata，意为"平等，技术平权"。你可以：
 1. 查询和管理客户信息（客户状态流转：Initial Contact ↔ Requirement Discussion ↔ Solution Design ↔ UAT ↔ PROD，支持 advance 推进和 rollback 回退）
 2. 查询交易成交数据 — 支持按管理人名称(client)查询，会自动展开为其下所有交易对手
@@ -97,7 +101,7 @@ export function getSystemPrompt(user?: User): string {
    - 修改已有文件优先使用 edit_file（搜索替换），新建文件使用 write_file
    - 修改代码前请先用 read_file 了解现有代码结构
 
-当前用户：${u.username}，角色：${u.role}。${u.role === 'user' ? '当前为普通用户，不可执行写操作（添加、更新、删除、推进状态）。' : '当前为管理员，可执行所有操作。'}
+${permissionText}
 
 回答要求：
 - 用简洁专业的中文回答
@@ -111,7 +115,11 @@ export function getSystemPrompt(user?: User): string {
   * 用户问"常速客户" → keyword="常速"
   * 用户问"某某公司" → keyword="某某"
   * 只有用户明确说"所有客户"或"全部客户"时才可以不传keyword
-- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制`;
+- 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制
+- 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
+- 需要发送图片时，可先用 markdown_to_image 生成 PNG，再调用 send_image
+- markdown_to_image 只负责生成图片，不等于已经发送成功
+- 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;
 }
 
 /**
@@ -132,7 +140,7 @@ function stripThinkBlocks(text: string, showThinkingOpt: boolean): string {
  * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
  * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
  */
-async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider, onTextChunk?: (chunk: string) => void): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = providerOverride ?? getProvider();
 
   if (streamText && provider.createMessageStream) {
@@ -152,7 +160,12 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
         if (clean) {
           log.print();
           const rendered = renderMarkdown(clean);
-          process.stdout.write(rendered.trimEnd() + '\n');
+          const line = rendered.trimEnd() + '\n';
+          if (onTextChunk) {
+            onTextChunk(line);
+          } else {
+            process.stdout.write(line);
+          }
         }
       }
       if (!result) throw new Error('Stream ended without done event');
@@ -167,9 +180,9 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
 }
 
 export type ProgressEvent =
-  | { type: 'tool_start'; name: string }
-  | { type: 'tool_end'; name: string }
-  | { type: 'thinking'; text: string };
+  | { type: 'tool_start'; name: string; input: unknown; round: number }
+  | { type: 'tool_end'; name: string; result: string; round: number; durationMs: number }
+  | { type: 'thinking'; text: string; round: number };
 
 /**
  * 通用的 agentic chat 函数，支持 CLI 和飞书bot复用
@@ -190,10 +203,11 @@ export async function runAgenticChat(
     agentConfig?: AgentConfig;
     images?: ImageInput[];
     onProgress?: (event: ProgressEvent) => void;
+    onTextChunk?: (chunk: string) => void;
     deliveryContext?: DeliveryContext;
   } = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, deliveryContext } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
 
   const agent = agentConfig;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
@@ -264,7 +278,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
   } catch (err: any) {
     log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
     history.length = historyLenBefore;
@@ -272,6 +286,7 @@ export async function runAgenticChat(
   }
 
   // Agentic loop: keep processing until no more tool calls
+  let round = 1;
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
     const assistantContent = response.content;
@@ -281,7 +296,7 @@ export async function runAgenticChat(
       for (const block of assistantContent) {
         if (block.type === 'text' && block.text) {
           log.dim(`${logPrefix}💭 ${block.text}`);
-          onProgress?.({ type: 'thinking', text: block.text });
+          onProgress?.({ type: 'thinking', text: block.text, round });
         }
       }
     }
@@ -294,8 +309,9 @@ export async function runAgenticChat(
           log.dim(`${logPrefix}🔧 调用工具: ${block.name}`);
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
-        onProgress?.({ type: 'tool_start', name: block.name });
+        onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
         throwIfAborted();
+        const toolStartedAt = Date.now();
         let result: string;
         if (!activeToolNames.has(block.name)) {
           result = JSON.stringify({ error: `权限不足：工具 "${block.name}" 不在当前用户的允许列表中` });
@@ -306,7 +322,7 @@ export async function runAgenticChat(
             result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
           }
         }
-        onProgress?.({ type: 'tool_end', name: block.name });
+        onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: Date.now() - toolStartedAt });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -318,12 +334,13 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
     } catch (err: any) {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
       throw err;
     }
+    round += 1;
   }
 
   const assistantContent = response.content;
@@ -343,7 +360,12 @@ export async function runAgenticChat(
     if (clean) {
       log.print();
       const rendered = renderMarkdown(clean);
-      process.stdout.write(rendered.trimEnd() + '\n');
+      const line = rendered.trimEnd() + '\n';
+      if (onTextChunk) {
+        onTextChunk(line);
+      } else {
+        process.stdout.write(line);
+      }
     }
   }
 
