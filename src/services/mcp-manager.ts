@@ -13,12 +13,14 @@ interface McpServerStdio {
   args?: string[];
   env?: Record<string, string>;
   description?: string;
+  tools?: string[];
 }
 
 interface McpServerSse {
   transport: 'sse';
   url: string;
   description?: string;
+  tools?: string[];
 }
 
 type McpServerConfig = McpServerStdio | McpServerSse;
@@ -73,7 +75,9 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
   await client.connect(transport);
 
   const { tools } = await client.listTools();
-  const anthropicTools: Anthropic.Tool[] = tools.map(t => ({
+  const allowSet = srv.tools ? new Set(srv.tools) : null;
+  const filtered = allowSet ? tools.filter(t => allowSet.has(t.name)) : tools;
+  const anthropicTools: Anthropic.Tool[] = filtered.map(t => ({
     name: `mcp_${name}_${t.name}`,
     description: t.description ?? '',
     input_schema: (t.inputSchema as Anthropic.Tool['input_schema']) ?? { type: 'object', properties: {}, required: [] },
@@ -81,7 +85,8 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
 
   sessions.set(name, { client, tools: anthropicTools });
   const label = srv.transport === 'sse' ? srv.url : (srv as McpServerStdio).command;
-  log.info(`✅ MCP [${name}] (${label}): 已连接，${anthropicTools.length} 个工具`);
+  const filterNote = allowSet ? ` (已过滤，服务端共 ${tools.length} 个)` : '';
+  log.info(`✅ MCP [${name}] (${label}): 已连接，${anthropicTools.length} 个工具${filterNote}`);
 }
 
 export async function initMcpServers(): Promise<void> {
