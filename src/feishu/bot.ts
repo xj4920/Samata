@@ -28,17 +28,14 @@ import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMedia
 import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
-import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
-import { fetchTrades } from '../commands/trade.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
 import { getAllSkills } from '../commands/skill.js';
 import { fetchMemory, saveMemory, deleteMemory, searchMemory } from '../llm/agents/memory.js';
 import {
-  formatClientList, formatClientDetail,
-  formatClientHistory, formatTrades, formatKnowledge, formatSkillList,
-  formatSuccess, formatError,
+  formatKnowledge, formatSkillList,
+  formatError,
 } from './formatter.js';
 
 type FeishuAppConfig = {
@@ -793,36 +790,6 @@ async function handleCommand(
       const data = fetchSystemStatus();
       return formatSystemStatus(data);
     }
-    case 'client': {
-      const parts = args.trim().split(/\s+/);
-      const sub = (parts[0] || '').toLowerCase();
-      const rest = parts.slice(1).join(' ');
-      return handleClientSubcommand(instance, sub, rest, feishuUserId);
-    }
-    // keep old top-level aliases working
-    case 'list':    return handleClientSubcommand(instance, 'list', args, feishuUserId);
-    case 'view':    return handleClientSubcommand(instance, 'view', args, feishuUserId);
-    case 'history': return handleClientSubcommand(instance, 'history', args, feishuUserId);
-    case 'add':     return handleClientSubcommand(instance, 'add', args, feishuUserId);
-    case 'advance': return handleClientSubcommand(instance, 'advance', args, feishuUserId);
-    case 'trade': {
-      const params: Record<string, string> = {};
-      for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
-        params[m[1].toLowerCase()] = m[2];
-      }
-      try {
-        const trades = await fetchTrades({
-          client: params.client,
-          party: params.party,
-          user: params.user,
-          date: params.date,
-          limit: params.limit ? Number(params.limit) : undefined,
-        });
-        return formatTrades(trades);
-      } catch (err: any) {
-        return formatError(err.message);
-      }
-    }
     case 'faq': {
       const items = fetchKnowledge(args || undefined, getCurrentAgent()?.id);
       return formatKnowledge(items);
@@ -835,7 +802,7 @@ async function handleCommand(
         const skills = getAllSkills(agentId);
         return formatSkillList(skills);
       }
-      return null; // skill save/run/del 需要更复杂的处理，走 AI
+      return null;
     }
     case 'agent': {
       return handleAgentCommand(instance, args, feishuUserId);
@@ -844,67 +811,7 @@ async function handleCommand(
       return handleMemoryCommand(args, instance, feishuUserId);
     }
     default:
-      return null; // 未匹配的命令
-  }
-}
-
-async function handleClientSubcommand(
-  instance: FeishuBotInstance,
-  sub: string,
-  rest: string,
-  feishuUserId: string
-): Promise<string | null> {
-  switch (sub) {
-    case 'list': case '': {
-      const filter: { state?: string; keyword?: string } = {};
-      const stateMatch = rest.match(/state=(\S+)/);
-      if (stateMatch) filter.state = stateMatch[1];
-      const remaining = rest.replace(/state=\S+/, '').trim();
-      if (remaining) filter.keyword = remaining;
-      const clients = fetchClients(Object.keys(filter).length > 0 ? filter : undefined);
-      return await formatClientList(clients);
-    }
-    case 'view': {
-      if (!rest) return formatError('用法: /client view <客户名称或ID>');
-      const client = fetchClient(rest);
-      if (!client) return formatError(`未找到客户: ${rest}`);
-      return formatClientDetail(client);
-    }
-    case 'history': {
-      if (!rest) return formatError('用法: /client history <客户名称或ID>');
-      const result = fetchHistory(rest);
-      if (!result) return formatError(`未找到客户: ${rest}`);
-      return formatClientHistory(result.name, result.events);
-    }
-    case 'add': {
-      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要��理员权限');
-      if (!rest) return formatError('用法: /client add <名称> [contact=xx] [wework_group=xx] [sales=xx]');
-      const prevUser = getCurrentUser();
-      const session = getSessionForInstance(instance, feishuUserId, '');
-      setCurrentUser(session.user);
-      try {
-        const result = addClient(rest);
-        if (result.success) return formatSuccess(`客户已添加: ${result.name} (${result.id})`);
-        return formatError(result.error);
-      } finally {
-        setCurrentUser(prevUser);
-      }
-    }
-    case 'advance': {
-      if (!isAgentAdmin(getSessionForInstance(instance, feishuUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
-      const prevUser = getCurrentUser();
-      const session = getSessionForInstance(instance, feishuUserId, '');
-      setCurrentUser(session.user);
-      try {
-        const result = advanceClient(rest);
-        if (result.success) return formatSuccess(`${result.name}: ${result.from} → ${result.to}`);
-        return formatError(result.error);
-      } finally {
-        setCurrentUser(prevUser);
-      }
-    }
-    default:
-      return formatError('用法: /client <list|view|history|add|advance> [参数]');
+      return null;
   }
 }
 

@@ -1,5 +1,6 @@
 import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
+import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { input, select, confirm } from '@inquirer/prompts';
@@ -15,40 +16,78 @@ export async function handleAgent(args: string): Promise<void> {
   const sub = match[1].toLowerCase();
   const rest = match[2].trim();
 
+  const agentId = getCurrentAgent()?.id;
+  const isSysAdmin = isSystemAdmin();
+  const isAAdmin = agentId ? isAgentAdmin(agentId) : false;
+
   switch (sub) {
     case 'list': return listAgents();
     case 'switch': return switchAgent(rest);
     case 'info': return showInfo();
-    case 'create': return createAgent();
-    case 'member': return manageMembers(rest);
+    case 'member':
+      if (!isAAdmin) { log.print('权限不足：需要 Agent 管理员权限'); return; }
+      return manageMembers(rest);
+    case 'create':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return createAgent();
     case 'del':
-    case 'delete': return delAgent(rest);
-    case 'assign': return assignAgent(rest);
-    case 'unassign': return unassignAgent(rest);
-    case 'assignments': return listAssignmentsCmd();
-    case 'feishu-app': return manageFeishuApp(rest);
+    case 'delete':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return delAgent(rest);
+    case 'assign':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return assignAgent(rest);
+    case 'unassign':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return unassignAgent(rest);
+    case 'assignments':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return listAssignmentsCmd();
+    case 'feishu-app':
+      if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
+      return manageFeishuApp(rest);
     default:
-      // Treat unknown sub as agent name to switch to
       return switchAgent(sub);
   }
 }
 
+/** Returns the visible subcommands for /agent based on current user role */
+export function getAgentSubcommands(): string[] {
+  const subs = ['list', 'switch', 'info'];
+  const agentId = getCurrentAgent()?.id;
+  if (agentId && isAgentAdmin(agentId)) {
+    subs.push('member');
+  }
+  if (isSystemAdmin()) {
+    subs.push('create', 'del', 'assign', 'unassign', 'assignments', 'feishu-app');
+  }
+  return subs;
+}
+
 function showHelp(): void {
+  const agentId = getCurrentAgent()?.id;
+  const isSysAdmin = isSystemAdmin();
+  const isAAdmin = agentId ? isAgentAdmin(agentId) : false;
+
   log.print('Agent 用法：');
   log.print('  agent list                  列出所有 Agent');
-  log.print('  agent create                创建新 Agent（交互向导）');
   log.print('  agent switch <name>         切换当前会话的 Agent');
   log.print('  agent info                  查看当前 Agent 信息');
-  log.print('  agent member <add|del> <agent_name> <username> [role]  管理 Agent 成员 (默认 admin)');
-  log.print('  agent del <name>            删除 Agent');
-  log.print('  agent assign <name> feishu <app_id>        绑定 Agent 到飞书应用');
-  log.print('  agent assign <name> telegram [user_id]     绑定 Agent 到 Telegram 用户');
-  log.print('  agent unassign feishu <app_id>             移除飞书应用绑定');
-  log.print('  agent unassign telegram [user_id]          移除 Telegram 用户绑定');
-  log.print('  agent assignments                          列出所有绑定');
-  log.print('  agent feishu-app list                      列出飞书应用及自动启动状态');
-  log.print('  agent feishu-app enable <app_id>           开���自动启动');
-  log.print('  agent feishu-app disable <app_id>          关闭自动启动');
+  if (isAAdmin) {
+    log.print('  agent member <list|add|del> <agent_name> <username> [role]  管理 Agent 成员');
+  }
+  if (isSysAdmin) {
+    log.print('  agent create                创建新 Agent（交互向导）');
+    log.print('  agent del <name>            删除 Agent');
+    log.print('  agent assign <name> feishu <app_id>        绑定 Agent 到飞书应用');
+    log.print('  agent assign <name> telegram [user_id]     绑定 Agent 到 Telegram 用户');
+    log.print('  agent unassign feishu <app_id>             移除飞书应用绑定');
+    log.print('  agent unassign telegram [user_id]          移除 Telegram 用户绑定');
+    log.print('  agent assignments                          列出所有绑定');
+    log.print('  agent feishu-app list                      列出飞书应用及自动启动状态');
+    log.print('  agent feishu-app enable <app_id>           开启自动启动');
+    log.print('  agent feishu-app disable <app_id>          关闭自动启动');
+  }
 }
 
 async function createAgent(): Promise<void> {

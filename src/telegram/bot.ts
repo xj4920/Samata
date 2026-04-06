@@ -14,18 +14,16 @@ import { TelegramAPI, type TgMessage } from './api.js';
 import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User, isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, type DeliveryContext } from '../llm/agent.js';
+import { runAgenticChat, setCurrentAgent, type DeliveryContext } from '../llm/agent.js';
 import { getAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
-import { fetchClients, fetchClient, fetchHistory, addClient, advanceClient } from '../commands/client.js';
+import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
-import { fetchTrades } from '../commands/trade.js';
 import { fetchKnowledge } from '../commands/knowledge.js';
 import { getAllSkills } from '../commands/skill.js';
 import {
-  formatClientList, formatClientDetail,
-  formatClientHistory, formatTrades, formatKnowledge, formatSkillList,
-  formatSuccess, formatError,
+  formatKnowledge, formatSkillList,
+  formatError,
 } from './formatter.js';
 
 interface TelegramBotConfig {
@@ -80,36 +78,6 @@ async function handleCommand(cmd: string, args: string, telegramUserId: number):
       const data = fetchSystemStatus();
       return formatSystemStatus(data);
     }
-    case 'client': {
-      const parts = args.trim().split(/\s+/);
-      const sub = (parts[0] || '').toLowerCase();
-      const rest = parts.slice(1).join(' ');
-      return handleClientSubcommand(sub, rest, telegramUserId);
-    }
-    // keep old top-level aliases working
-    case 'list':    return handleClientSubcommand('list', args, telegramUserId);
-    case 'view':    return handleClientSubcommand('view', args, telegramUserId);
-    case 'history': return handleClientSubcommand('history', args, telegramUserId);
-    case 'add':     return handleClientSubcommand('add', args, telegramUserId);
-    case 'advance': return handleClientSubcommand('advance', args, telegramUserId);
-    case 'trade': {
-      const params: Record<string, string> = {};
-      for (const m of args.matchAll(/(\w+)=(\S+)/g)) {
-        params[m[1].toLowerCase()] = m[2];
-      }
-      try {
-        const trades = await fetchTrades({
-          client: params.client,
-          party: params.party,
-          user: params.user,
-          date: params.date,
-          limit: params.limit ? Number(params.limit) : undefined,
-        });
-        return formatTrades(trades);
-      } catch (err: any) {
-        return formatError(err.message);
-      }
-    }
     case 'faq': {
       const items = fetchKnowledge(args || undefined);
       return formatKnowledge(items);
@@ -120,57 +88,13 @@ async function handleCommand(cmd: string, args: string, telegramUserId: number):
         const skills = getAllSkills();
         return formatSkillList(skills);
       }
-      return null; // skill save/run/del 需要更复杂的处理，走 AI
+      return null;
     }
     case 'agent': {
       return handleAgentCommand(args, telegramUserId);
     }
     default:
-      return null; // 未匹配的命令
-  }
-}
-
-function handleClientSubcommand(sub: string, rest: string, telegramUserId: number): string | null {
-  switch (sub) {
-    case 'list': case '': {
-      const filter: { state?: string; keyword?: string } = {};
-      const stateMatch = rest.match(/state=(\S+)/);
-      if (stateMatch) filter.state = stateMatch[1];
-      const remaining = rest.replace(/state=\S+/, '').trim();
-      if (remaining) filter.keyword = remaining;
-      const clients = fetchClients(Object.keys(filter).length > 0 ? filter : undefined);
-      return formatClientList(clients);
-    }
-    case 'view': {
-      if (!rest) return formatError('用法: /client view <客户名称或ID>');
-      const client = fetchClient(rest);
-      if (!client) return formatError(`未找到客户: ${rest}`);
-      return formatClientDetail(client);
-    }
-    case 'history': {
-      if (!rest) return formatError('用法: /client history <客户名称或ID>');
-      const result = fetchHistory(rest);
-      if (!result) return formatError(`未找到客户: ${rest}`);
-      return formatClientHistory(result.name, result.events);
-    }
-    case 'add': {
-      if (!isAgentAdmin(getSession(telegramUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
-      const session = getSession(telegramUserId, '');
-      setCurrentUser(session.user);
-      const result = addClient(rest);
-      if (result.success) return formatSuccess(`客户已添加: ${result.name} (${result.id})`);
-      return formatError(result.error);
-    }
-    case 'advance': {
-      if (!isAgentAdmin(getSession(telegramUserId, '').agentName)) return formatError('权限不足：该命令需要管理员权限');
-      const session = getSession(telegramUserId, '');
-      setCurrentUser(session.user);
-      const result = advanceClient(rest);
-      if (result.success) return formatSuccess(`${result.name}: ${result.from} → ${result.to}`);
-      return formatError(result.error);
-    }
-    default:
-      return formatError('用法: /client <list|view|history|add|advance> [参数]');
+      return null;
   }
 }
 
@@ -223,28 +147,18 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     }
 
     if (text === '/help') {
-      await api.sendMessage(chatId,
-        `📋 *衍语 Bot 命令*\n\n` +
-        `*基础命令：*\n` +
-        `/start - 开始使用\n` +
-        `/help - 查看帮助\n` +
-        `/reset - 重置对话上下文\n` +
-        `/status - 系统状态\n\n` +
-        `*客户管理：*\n` +
-        `/client list [state=xx] - 客户列表\n` +
-        `/client view <名称> - 查看客户详情\n` +
-        `/client history <名称> - 操作历史\n` +
-        `/client add <名称> - 添加客户 👑\n` +
-        `/client advance <名称> - 推进状态 👑\n\n` +
-        `*查询命令：*\n` +
-        `/trade <参数> - 交易查询\n` +
-        `/faq <关键词> - 搜索知识库\n\n` +
-        `*Agent 管理：*\n` +
-        `/agent - 查看当前 Agent\n` +
-        `其他 Agent 管理操作仅支持 CLI\n\n` +
-        `💡 也可以直接输入自然语言，AI 助手会帮你处理！`,
-        'Markdown'
-      );
+      const session = getSession(userId, username);
+      const agentConfig = getAgent(session.agentName);
+      setCurrentUser(session.user);
+      setCurrentAgent(agentConfig);
+      const entries = getCommandEntries();
+      const lines = ['📋 可用命令：', ''];
+      for (const e of entries) {
+        lines.push(`${e.name} — ${e.description}`);
+        if (e.usage) lines.push(`  用法: ${e.usage}`);
+      }
+      lines.push('', '💡 也可以直接输入自然语言，AI 助手会帮你处理！');
+      await api.sendMessage(chatId, lines.join('\n'));
       return;
     }
 
@@ -373,8 +287,6 @@ export async function startTelegramBot(): Promise<void> {
       { command: 'help', description: '查看帮助' },
       { command: 'reset', description: '重置对话上下文' },
       { command: 'status', description: '系统状态' },
-      { command: 'client', description: '客户管理' },
-      { command: 'trade', description: '交易查询' },
       { command: 'faq', description: '搜索知识库' },
     ]);
   } catch { /* non-critical */ }

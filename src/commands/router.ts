@@ -1,16 +1,13 @@
-import { isSystemAdmin } from '../auth/rbac.js';
+import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
+import { getExecutionChannel } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
-import * as clientCmd from './client.js';
 import * as knowledgeCmd from './knowledge.js';
 import * as monitorCmd from './monitor.js';
-import * as tradeCmd from './trade.js';
-import * as plotCmd from './plot.js';
-import * as weworkQACmd from './wework-qa.js';
 import { runPlugin, listPlugins } from '../plugins/registry.js';
 import { chat, resetConversation, getCurrentAgent } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
-import { handleAgent } from './agent.js';
+import { handleAgent, getAgentSubcommands } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
 import { handleUser } from './user.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
@@ -26,32 +23,28 @@ export function setLlmEnabled(enabled: boolean): void {
 interface Command {
   description: string;
   usage?: string;
-  adminOnly: boolean;
-  agentId?: string; // 如果设置，仅在该 agent 下可见和可用。如 'alter-ego'
+  cliOnly?: boolean;
+  requiredRole?: 'system_admin' | 'agent_admin';
   handler: (args: string) => Promise<void> | void;
   subcommands?: string[];
 }
 
 const commands: Record<string, Command> = {
-  client:  { description: '客户管理', usage: '/client <list|view|history|add|update|delete|advance|rollback> [参数]', adminOnly: false, agentId: 'otcclaw', handler: clientCmd.handleClient, subcommands: ['list', 'view', 'history', 'add', 'update', 'delete', 'advance', 'rollback'] },
-  status:  { description: '系统状态', usage: '/status', adminOnly: false, handler: monitorCmd.status },
-  trade:   { description: '交易查询', usage: '/trade [client=xx] [party=xx] [date=xx] [limit=xx]', adminOnly: false, agentId: 'otcclaw', handler: tradeCmd.trade },
-  plot:    { description: '交易曲线图', usage: '/plot [client=xx] [date=xx]', adminOnly: false, agentId: 'otcclaw', handler: plotCmd.handlePlot },
-  'wework-qa': { description: '企微Q&A提取', usage: '/wework-qa <群组名>', adminOnly: false, agentId: 'alter-ego', handler: weworkQACmd.weworkQA },
-  faq:       { description: '查询知识库', usage: '/faq <关键词>', adminOnly: false, handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', adminOnly: false, handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
-  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', adminOnly: false, handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', adminOnly: false, handler: knowledgeCmd.remove },
-  plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', adminOnly: false, handler: handlePlugin, subcommands: ['list'] },
-  skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', adminOnly: false, handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
-  agent:   { description: 'Agent', usage: '/agent <list|create|switch|info|del|member|assign|...> [参数]', adminOnly: false, handler: handleAgent, subcommands: ['list', 'create', 'switch', 'info', 'del', 'member', 'assign', 'unassign', 'assignments', 'feishu-app'] },
-  memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', adminOnly: false, handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
-  watch:   { description: '企微监测', usage: '/watch <start|stop|status>', adminOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
-  bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', adminOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
-  model:   { description: '切换模型', usage: '/model <list|anthropic|minimax|gemini|openrouter>', adminOnly: true, handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
-  user:    { description: '系统用户', usage: '/user <list|add|update|delete>', adminOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
+  status:  { description: '系统状态', usage: '/status', handler: monitorCmd.status },
+  faq:       { description: '查询知识库', usage: '/faq <关键词>', handler: knowledgeCmd.search },
+  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
+  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', handler: knowledgeCmd.remove },
+  plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', handler: handlePlugin, subcommands: ['list'] },
+  skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
+  agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
+  memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
+  model:   { description: '切换模型', usage: '/model <list|anthropic|minimax|gemini|openrouter>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
+  watch:   { description: '企微监测', usage: '/watch <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
+  bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
+  user:    { description: '系统用户', usage: '/user <list|add|update|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
 
-  help:    { description: '显示帮助', usage: '/help', adminOnly: false, handler: showHelp },
+  help:    { description: '显示帮助', usage: '/help', handler: showHelp },
 };
 
 function handleWatch(args: string): void {
@@ -136,15 +129,21 @@ async function handlePlugin(args: string): Promise<void> {
   await runPlugin(parts[0], parts.slice(1).join(' '));
 }
 
+function shouldShowCommand(cmd: Command): boolean {
+  if (cmd.cliOnly && getExecutionChannel() !== 'cli') return false;
+  if (cmd.requiredRole === 'system_admin' && !isSystemAdmin()) return false;
+  if (cmd.requiredRole === 'agent_admin') {
+    const agentId = getCurrentAgent()?.id;
+    if (!agentId || !isAgentAdmin(agentId)) return false;
+  }
+  return true;
+}
+
 function showHelp(): void {
-  const currentAgent = getCurrentAgent();
   log.print('可用命令：');
   for (const [name, cmd] of Object.entries(commands)) {
-    if (cmd.agentId && currentAgent?.name !== cmd.agentId) {
-      continue;
-    }
-    const tag = cmd.adminOnly ? ' [管理员]' : '';
-    log.print(`  /${name.padEnd(10)} ${cmd.description}${tag}`);
+    if (!shouldShowCommand(cmd)) continue;
+    log.print(`  /${name.padEnd(10)} ${cmd.description}`);
     if (cmd.usage) log.print(`  ${''.padEnd(10)}   用法: ${cmd.usage}`);
   }
   if (llmEnabled) {
@@ -155,27 +154,28 @@ function showHelp(): void {
 }
 
 export function getCommandNames(): string[] {
-  return Object.keys(commands).map(name => `/${name}`);
+  return Object.entries(commands)
+    .filter(([, cmd]) => shouldShowCommand(cmd))
+    .map(([name]) => `/${name}`);
 }
 
 export function getCommandEntries(): Array<{ name: string; description: string; usage?: string; subcommands?: string[] }> {
-  const currentAgent = getCurrentAgent();
   const entries: Array<{ name: string; description: string; usage?: string; subcommands?: string[] }> = [];
 
   for (const [name, cmd] of Object.entries(commands)) {
-    if (cmd.agentId && currentAgent?.name !== cmd.agentId) {
-      continue;
-    }
+    if (!shouldShowCommand(cmd)) continue;
     entries.push({
       name: `/${name}`,
       description: cmd.description,
       usage: cmd.usage,
-      subcommands: cmd.subcommands,
+      subcommands: name === 'agent' ? getAgentSubcommands() : cmd.subcommands,
     });
   }
 
-  entries.push({ name: '/reload', description: '重载代码（热重启）' });
-  entries.push({ name: '/exit', description: '退出程序' });
+  if (getExecutionChannel() === 'cli') {
+    entries.push({ name: '/reload', description: '重载代码（热重启）' });
+    entries.push({ name: '/exit', description: '退出程序' });
+  }
   entries.push({ name: '/reset', description: '重置 AI 对话上下文' });
   return entries;
 }
@@ -219,19 +219,8 @@ export async function route(input: string): Promise<void> {
 
   const command = commands[cmd.toLowerCase()];
 
-  if (!command) {
+  if (!command || !shouldShowCommand(command)) {
     log.print(`未知命令: ${slashCmd}，输入 /help 查看帮助`);
-    return;
-  }
-
-  const currentAgent = getCurrentAgent();
-  if (command.agentId && currentAgent?.name !== command.agentId) {
-    log.print(`未知命令: ${slashCmd}，输入 /help 查看帮助`);
-    return;
-  }
-
-  if (command.adminOnly && !isSystemAdmin()) {
-    log.print('权限不足：该命令需要系统管理员权限');
     return;
   }
 
