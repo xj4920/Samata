@@ -408,9 +408,9 @@ export function initSchema(): void {
 
   runOnce('add-feishu-admin-users', () => {
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run('feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'tutor-admin');
+      .run('feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'feishu_d26f');
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run('feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'falcon-admin');
+      .run('feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'feishu_b00a');
     db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '8f72afd2-3e8a-435b-8595-3bdbc653cff9', 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'admin')")
       .run(uuid());
     db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '575518a8-1f3d-4754-8815-243ef2ff3ea9', 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'admin')")
@@ -544,7 +544,7 @@ export function initSchema(): void {
   runOnce('add-doctor-admin-user', () => {
     const userId = 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230';
     db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run(userId, 'doctor-admin');
+      .run(userId, 'feishu_3230');
     const doctorAgent = db.prepare("SELECT id FROM agents WHERE name='doctor'").get() as { id: string } | undefined;
     if (doctorAgent) {
       const exists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?").get(doctorAgent.id, userId);
@@ -589,6 +589,18 @@ export function initSchema(): void {
         db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
           .run(JSON.stringify(current), agentName);
       }
+    }
+  });
+
+  runOnce('fix-feishu-hardcoded-usernames', () => {
+    const renames: [string, string][] = [
+      ['feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'feishu_d26f'],
+      ['feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'feishu_b00a'],
+      ['feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', 'feishu_3230'],
+    ];
+    const update = db.prepare("UPDATE users SET username = ? WHERE id = ? AND username NOT LIKE 'feishu_%'");
+    for (const [id, tempName] of renames) {
+      update.run(tempName, id);
     }
   });
 }

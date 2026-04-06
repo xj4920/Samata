@@ -26,6 +26,7 @@ import { getProvider, getModelName, switchProvider, getProviderName, getAvailabl
 import { setCurrentUser, getCurrentUser, getOrCreateUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
+import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
@@ -189,23 +190,32 @@ export function watchFeishuApps(options?: { mode?: FeishuBotMode; httpPort?: num
 
 /**
  * 获取或创建会话（实例级）
+ * 首次创建时通过飞书联系人 API 查询真实姓名
  */
-function getSessionForInstance(
+async function getSessionForInstance(
   instance: FeishuBotInstance,
   feishuUserId: string,
   feishuUsername: string
-): FeishuSession {
+): Promise<FeishuSession> {
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
     const agent = resolveAgent('feishu', instance.appId);
     const userId = `feishu_${feishuUserId}`;
-    const username = feishuUsername || userId;
+
+    let realName = feishuUsername;
+    try {
+      const userInfo = await instance.api.getUserByOpenId(feishuUserId);
+      if (userInfo?.name) realName = userInfo.name;
+    } catch (e: any) {
+      log.warn(`[飞书:${instance.appName}] 查询用户信息失败，使用默认名: ${e.message}`);
+    }
+    const username = realName || userId;
     getOrCreateUser(userId, username, 'user');
     const user: User = { id: userId, username, role: 'user' };
 
     session = {
       feishuUserId,
-      feishuUsername,
+      feishuUsername: username,
       user,
       history: [],
       lastActive: Date.now(),
@@ -259,7 +269,7 @@ async function handleAIChat(
   images?: ImageInput[],
   replyOpts?: FeishuReplyOptions,
 ): Promise<{ text: string; mediaPaths?: string[] }> {
-  const session = getSessionForInstance(instance, feishuUserId, feishuUsername);
+  const session = await getSessionForInstance(instance, feishuUserId, feishuUsername);
   const showThinkingEnabled = instance.config.showThinking !== false;
   const traceId = replyOpts?.traceId ?? createTraceId();
   const interactionTrace: InteractionTrace = {
@@ -797,7 +807,7 @@ async function handleCommand(
     case 'skill': {
       const sub = args.split(/\s+/)[0]?.toLowerCase();
       if (!sub || sub === 'list') {
-        const session = getSessionForInstance(instance, feishuUserId, '');
+        const session = await getSessionForInstance(instance, feishuUserId, '');
         const agentId = getAgent(session.agentName).id;
         const skills = getAllSkills(agentId);
         return formatSkillList(skills);
@@ -815,12 +825,12 @@ async function handleCommand(
   }
 }
 
-function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUserId: string): string {
+async function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUserId: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || 'list').toLowerCase();
   const rest = parts.slice(1).join(' ');
 
-  const session = getSessionForInstance(instance, feishuUserId, '');
+  const session = await getSessionForInstance(instance, feishuUserId, '');
   const agentId = getAgent(session.agentName).id;
 
   if (sub === 'list' || sub === '') {
@@ -861,13 +871,13 @@ function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUs
   return 'Memory 用法：\n/memory list\n/memory add <内容>\n/memory search <关键词>\n/memory del <id>';
 }
 
-function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUserId: string): string {
+async function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUserId: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
 
   // /agent — show current agent
   if (!sub) {
-    const session = getSessionForInstance(instance, feishuUserId, '');
+    const session = await getSessionForInstance(instance, feishuUserId, '');
     const agent = getAgent(session.agentName);
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
@@ -879,6 +889,7 @@ function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUse
  * 处理飞书消息事件（FeishuMessage 已统一为 v2 结构）
  */
 async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): Promise<void> {
+  return runWithExecutionContext({ channel: 'feishu' }, async () => {
   const chatId = event.message.chat_id;
   const chatType = event.message.chat_type;  // "p2p" | "group"
   const messageType = event.message.message_type;
@@ -1048,7 +1059,9 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   try {
     // 处理内置命令
     if (text === '/start') {
-      const role = isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName) ? 'agent admin' : 'member';
+      const startSession = await getSessionForInstance(instance, senderId, '');
+      const startAgentId = getAgent(startSession.agentName).id;
+      const role = isAgentAdmin(startAgentId) ? 'agent admin' : 'member';
       await sendFeishuReply(instance, chatId,
         `👋 欢迎使用 OTC Claw！\n\n` +
         `你的身份：${role}\n\n` +
@@ -1081,7 +1094,8 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
     // /model 命令：查看或切换 LLM provider
     if (text.startsWith('/model')) {
-      if (!isAgentAdmin(getSessionForInstance(instance, senderId, '').agentName)) {
+      const modelSession = await getSessionForInstance(instance, senderId, '');
+      if (!isAgentAdmin(getAgent(modelSession.agentName).id)) {
         await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
@@ -1109,7 +1123,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-      const session = getSessionForInstance(instance, senderId, '');
+      const session = await getSessionForInstance(instance, senderId, '');
       const agentConfig = getAgent(session.agentName);
       const prevUser = getCurrentUser();
       const prevAgent = getCurrentAgent();
@@ -1150,6 +1164,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       await sendFeishuReply(instance, chatId, `❌ 处理出错: ${err.message}`, replyOpts);
     } catch { /* ignore send error */ }
   }
+  }); // end runWithExecutionContext
 }
 
 /**

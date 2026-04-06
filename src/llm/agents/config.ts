@@ -345,18 +345,19 @@ function applyChannelToolRestrictions(tools: Anthropic.Tool[]): Anthropic.Tool[]
  */
 export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[], isAdmin = true): Anthropic.Tool[] {
   if (!isAdmin) {
-    // User-level: check userToolsMode
     const uMode = agent.userToolsMode;
-    if (uMode !== 'inherit') {
-      if (uMode === 'all') return applyChannelToolRestrictions(globalTools);
+    if (uMode === 'all') return applyChannelToolRestrictions(globalTools);
+    if (uMode === 'allowlist') {
       const uSet = new Set(agent.userToolsList);
-      if (uMode === 'allowlist') {
-        return applyChannelToolRestrictions(globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
-      }
-      // blocklist
+      return applyChannelToolRestrictions(globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
+    }
+    if (uMode === 'blocklist') {
+      const uSet = new Set(agent.userToolsList);
       return applyChannelToolRestrictions(globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
     }
-    // inherit: fall through to admin logic
+    // inherit: non-admin defaults to readonly preset
+    const readonlySet = new Set(TOOL_PRESETS.readonly.tools);
+    return applyChannelToolRestrictions(globalTools.filter(t => readonlySet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
   }
 
   // Admin-level (or inherit): existing logic

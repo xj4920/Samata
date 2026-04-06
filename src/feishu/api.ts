@@ -308,28 +308,26 @@ export class FeishuAPI {
   }
 
   /**
-   * 获取用户信息
+   * 通过 open_id 获取用户信息（联系人 API）
+   * 文档：https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/contact-v3/user/get
+   * 需要权限：contact:contact.base:readonly
    */
-  async getUser(userId: string): Promise<FeishuUser | null> {
+  async getUserByOpenId(openId: string): Promise<{ name: string; userId?: string } | null> {
     const token = await this.getTenantAccessToken();
-
-    const url = `https://open.feishu.cn/open-apis/authen/v1/users/${userId}`;
+    const url = `https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`;
 
     const response = await fetch(url, this.fetchOpts({
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: { 'Authorization': `Bearer ${token}` },
     }));
 
     const data = await response.json() as any;
-
     if (data.code !== 0) {
-      log.error(`获取用户信息失败: ${data.msg}`);
+      log.warn(`[飞书] 获取用户信息失败: ${data.msg} (code: ${data.code})`);
       return null;
     }
-
-    return data.data as FeishuUser;
+    const user = data.data?.user;
+    return user ? { name: user.name, userId: user.user_id } : null;
   }
 
   /**

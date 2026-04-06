@@ -68,19 +68,28 @@ export function getUser(id: string): User | undefined {
   return db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(id) as User | undefined;
 }
 
+function resolveUniqueUsername(db: any, username: string, selfId: string): string {
+  const conflict = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, selfId);
+  if (!conflict) return username;
+  const suffix = selfId.slice(-4);
+  return `${username}_${suffix}`;
+}
+
 export function getOrCreateUser(id: string, username: string, role: Role = 'user'): User {
   const db = getDb();
   const existing = getUser(id);
   if (existing) {
     if (existing.username !== username) {
-      db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
-      return { ...existing, username };
+      const unique = resolveUniqueUsername(db, username, id);
+      db.prepare('UPDATE users SET username = ? WHERE id = ?').run(unique, id);
+      return { ...existing, username: unique };
     }
     return existing;
   }
 
-  db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)').run(id, username, role);
-  return { id, username, role };
+  const unique = resolveUniqueUsername(db, username, id);
+  db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)').run(id, unique, role);
+  return { id, username: unique, role };
 }
 
 export function createUser(username: string, role: Role = 'user'): User {

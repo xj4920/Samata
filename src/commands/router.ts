@@ -32,9 +32,9 @@ interface Command {
 const commands: Record<string, Command> = {
   status:  { description: '系统状态', usage: '/status', handler: monitorCmd.status },
   faq:       { description: '查询知识库', usage: '/faq <关键词>', handler: knowledgeCmd.search },
-  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
-  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', handler: knowledgeCmd.update },
-  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', handler: knowledgeCmd.remove },
+  'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', requiredRole: 'agent_admin', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
+  'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', requiredRole: 'agent_admin', handler: knowledgeCmd.update },
+  'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', requiredRole: 'agent_admin', handler: knowledgeCmd.remove },
   plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
