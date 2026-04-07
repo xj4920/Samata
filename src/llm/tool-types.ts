@@ -130,6 +130,7 @@ export type GenerateImageInput = {
   prompt: string;
   aspect_ratio?: string;
   count?: number;
+  reference_image?: string;
 };
 export type GenerateVideoInput = {
   prompt: string;

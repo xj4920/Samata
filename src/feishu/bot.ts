@@ -23,7 +23,7 @@ import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser, getOrCreateUser, isAgentAdmin, type User } from '../auth/rbac.js';
+import { setCurrentUser, getCurrentUser, getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -55,6 +55,8 @@ interface FeishuSession {
   history: Anthropic.MessageParam[];
   lastActive: number;
   agentName: string;
+  pendingNameConfirm?: boolean;
+  nameAsked?: boolean;
 }
 
 interface FeishuBotInstance {
@@ -192,6 +194,24 @@ export function watchFeishuApps(options?: { mode?: FeishuBotMode; httpPort?: num
  * 获取或创建会话（实例级）
  * 首次创建时通过飞书联系人 API 查询真实姓名
  */
+async function resolveFeishuRealName(
+  instance: FeishuBotInstance,
+  feishuUserId: string,
+  fallback: string,
+): Promise<string> {
+  try {
+    const userInfo = await instance.api.getUserByOpenId(feishuUserId);
+    if (userInfo?.name) return userInfo.name;
+  } catch (e: any) {
+    log.warn(`[飞书:${instance.appName}] 查询用户信息失败，使用默认名: ${e.message}`);
+  }
+  return fallback;
+}
+
+function isPlaceholderName(name: string): boolean {
+  return name.startsWith('user_') || name.startsWith('feishu_');
+}
+
 async function getSessionForInstance(
   instance: FeishuBotInstance,
   feishuUserId: string,
@@ -202,17 +222,20 @@ async function getSessionForInstance(
     const agent = resolveAgent('feishu', instance.appId);
     const userId = `feishu_${feishuUserId}`;
 
-    let realName = feishuUsername;
-    try {
-      const userInfo = await instance.api.getUserByOpenId(feishuUserId);
-      if (userInfo?.name) realName = userInfo.name;
-    } catch (e: any) {
-      log.warn(`[飞书:${instance.appName}] 查询用户信息失败，使用默认名: ${e.message}`);
-    }
-    const username = realName || userId;
+    // 1) Check DB for a previously confirmed real name (survives restarts)
+    const existingUser = getUser(userId);
+    const dbName = existingUser?.username;
+    const hasRealDbName = dbName && !isPlaceholderName(dbName);
+
+    // 2) If DB has no real name, try the Feishu contacts API
+    const username = hasRealDbName
+      ? dbName
+      : await resolveFeishuRealName(instance, feishuUserId, feishuUsername) || userId;
+
     getOrCreateUser(userId, username, 'user');
     const user: User = { id: userId, username, role: 'user' };
 
+    const needsConfirm = isPlaceholderName(username);
     session = {
       feishuUserId,
       feishuUsername: username,
@@ -220,11 +243,26 @@ async function getSessionForInstance(
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,
+      pendingNameConfirm: needsConfirm,
+      nameAsked: false,
     };
     instance.sessions.set(feishuUserId, session);
+  } else {
+    // Session exists but username may be stale (e.g. initial API call failed).
+    // Re-resolve via API when the stored name is still a placeholder.
+    const cur = session.user.username;
+    if (isPlaceholderName(cur)) {
+      const realName = await resolveFeishuRealName(instance, feishuUserId, cur);
+      if (realName !== cur) {
+        session.user.username = realName;
+        session.feishuUsername = realName;
+        session.pendingNameConfirm = false;
+        session.nameAsked = false;
+        getOrCreateUser(session.user.id, realName, session.user.role);
+      }
+    }
   }
   session.lastActive = Date.now();
-  session.feishuUsername = feishuUsername || session.feishuUsername;
   return session;
 }
 
@@ -365,7 +403,7 @@ async function handleAIChat(
 
     let textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
-      logPrefix: `[飞书:${instance.appName}][${traceId}][${feishuUsername}] `,
+      logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
       showThinking: true,
       agentConfig,
       images,
@@ -1054,6 +1092,40 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   if (!text) {
     logTraceBlock(instance, traceId, '忽略消息', [`reason=空消息或不支持的类型 (${messageType})`]);
     return;
+  }
+
+  // --- 身份确认流程：API 未能获取用户真实姓名时，友好询问 ---
+  if (!text.startsWith('/')) {
+    const nameSession = await getSessionForInstance(instance, senderId, senderName);
+    if (nameSession.pendingNameConfirm) {
+      if (!nameSession.nameAsked) {
+        // 首次交互：先回答用户问题之前，礼貌地询问身份
+        await sendFeishuReply(instance, chatId,
+          '你好！我还不知道你的名字，请先告诉我你怎么称呼，方便我更好地为你服务。',
+          replyOpts);
+        nameSession.nameAsked = true;
+        return;
+      }
+      // 用户回复了名字
+      const name = text.trim();
+      if (name.length > 0 && name.length <= 30) {
+        nameSession.user.username = name;
+        nameSession.feishuUsername = name;
+        nameSession.pendingNameConfirm = false;
+        nameSession.nameAsked = false;
+        getOrCreateUser(nameSession.user.id, name, nameSession.user.role);
+        log.info(`[飞书:${instance.appName}] 用户 ${senderId} 确认姓名: ${name}`);
+        await sendFeishuReply(instance, chatId,
+          `好的，${name}！有什么我可以帮你的吗？`,
+          replyOpts);
+        return;
+      }
+      // Name too long or empty — re-ask
+      await sendFeishuReply(instance, chatId,
+        '名字似乎不太对，请输入你的真实姓名（30字以内）。',
+        replyOpts);
+      return;
+    }
   }
 
   try {

@@ -6,7 +6,7 @@ import { generateImage, generateVideo } from '../commands/media-gen.js';
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'generate_image',
-    description: '使用 MiniMax 文生图模型根据文字描述生成图片。生成后返回本地路径，需要发送给用户请继续调用 send_image。',
+    description: '使用 MiniMax 文生图模型根据文字描述生成图片。支持图生图：传入 reference_image 参考人物图片可保持人物特征一致。生成后返回本地路径，需要发送给用户请继续调用 send_image。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -17,13 +17,14 @@ export const toolDefinitions: Anthropic.Tool[] = [
           description: '宽高比，默认 1:1',
         },
         count: { type: 'number', description: '生成数量（1-9），默认 1', minimum: 1, maximum: 9 },
+        reference_image: { type: 'string', description: '参考人物图片的本地路径（图生图模式），保持人物外貌一致生成新场景' },
       },
       required: ['prompt'],
     },
   },
   {
     name: 'generate_video',
-    description: '使用 MiniMax 文生视频模型根据文字描述生成 6 秒短视频。生成耗时约 1-3 分钟，返回本地 .mp4 路径，需要发送给用户请继续调用 send_file。注意：如果遇到配额限制或参数错误，不要重试，直接告知用户。',
+    description: '使用 MiniMax-Hailuo-2.3 文生视频模型根据文字描述生成 6 秒短视频（768P）。每天仅 3 次配额，请谨慎使用。生成耗时约 1-3 分钟，返回本地 .mp4 路径，需要发送给用户请继续调用 send_file。如果遇到配额限制或错误，不要重试，直接告知用户。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -39,6 +40,7 @@ async function handleGenerateImage(input: GenerateImageInput): Promise<string> {
     const result = await generateImage(input.prompt, {
       aspectRatio: input.aspect_ratio,
       count: input.count,
+      referenceImage: input.reference_image,
     });
     return JSON.stringify({
       success: true,
