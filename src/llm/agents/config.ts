@@ -413,13 +413,19 @@ interface AssignmentRow {
   created_at: string;
 }
 
+export class AgentUnboundError extends Error {
+  constructor(channel: string, appId?: string, targetId?: string) {
+    const target = appId || targetId || 'unknown';
+    super(`当前应用未绑定 Agent（channel=${channel}, id=${target}），请联系管理员执行 /agent assign 进行绑定。`);
+    this.name = 'AgentUnboundError';
+  }
+}
+
 /**
  * Resolve which agent to use for a given channel + app/target.
- * Priority:
- * - Feishu: app_id match > code fallback
- * - Telegram: target_id match > code fallback
+ * Returns null when no assignment exists — callers must handle the unbound case.
  */
-export function resolveAgent(channel: string, appId?: string, targetId?: string): AgentConfig {
+export function resolveAgent(channel: string, appId?: string, targetId?: string): AgentConfig | null {
   const db = getDb();
 
   // Feishu: query by (channel='feishu', app_id=xxx, target_id IS NULL)
@@ -438,8 +444,7 @@ export function resolveAgent(channel: string, appId?: string, targetId?: string)
     if (row) return rowToConfig(row);
   }
 
-  // Fallback to default
-  return getDefaultAgent();
+  return null;
 }
 
 export interface AssignmentInfo {

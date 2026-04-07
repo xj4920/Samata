@@ -17,7 +17,7 @@ import { WeworkAPI, type WeworkConfig, type WeworkMessage } from './api.js';
 import { getSession, resetSession, cleanupSessions } from './session.js';
 import { setCurrentUser, getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent } from '../llm/agent.js';
-import { getAgent } from '../llm/agents/config.js';
+import { getAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -198,8 +198,13 @@ async function handleEvent(message: WeworkMessage): Promise<string> {
       reply = await handleAIChat(text, userId, username);
     }
   } catch (err: any) {
-    log.error(`[企微] 处理消息出错: ${err.message}`);
-    reply = `处理出错: ${err.message}`;
+    if (err instanceof AgentUnboundError) {
+      log.warn(`[企微] ${err.message}`);
+      reply = `⚠️ ${err.message}`;
+    } else {
+      log.error(`[企微] 处理消息出错: ${err.message}`);
+      reply = `处理出错: ${err.message}`;
+    }
   }
 
   // 截断超长回复（企微文本消息限制 2048 字符）

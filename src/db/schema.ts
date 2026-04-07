@@ -647,50 +647,55 @@ export function initSchema(): void {
 
   runOnce('agents-allow-standard-tools-mode', () => {
     // Recreate agents table with updated CHECK constraint to allow 'standard'.
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS agents_new (
-        id            TEXT PRIMARY KEY,
-        name          TEXT NOT NULL UNIQUE,
-        display_name  TEXT NOT NULL,
-        description   TEXT,
-        system_prompt TEXT,
-        model         TEXT,
-        provider      TEXT,
-        tools_mode    TEXT NOT NULL DEFAULT 'standard'
-                      CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
-        tools_list    TEXT,
-        block_tools   TEXT,
-        preset        TEXT,
-        user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
-                      CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
-        user_tools_list TEXT,
-        max_history   INTEGER DEFAULT 80,
-        created_by    TEXT NOT NULL,
-        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `);
-    // Copy existing data — use COALESCE for block_tools since old table may not have it yet
-    const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
-    const hasBlockTools = cols.some(c => c.name === 'block_tools');
-    const hasPreset = cols.some(c => c.name === 'preset');
-    const hasUserToolsMode = cols.some(c => c.name === 'user_tools_mode');
-    const hasUserToolsList = cols.some(c => c.name === 'user_tools_list');
+    // Temporarily disable FK to prevent CASCADE deleting agent_assignments/agent_members.
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agents_new (
+          id            TEXT PRIMARY KEY,
+          name          TEXT NOT NULL UNIQUE,
+          display_name  TEXT NOT NULL,
+          description   TEXT,
+          system_prompt TEXT,
+          model         TEXT,
+          provider      TEXT,
+          tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                        CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
+          tools_list    TEXT,
+          block_tools   TEXT,
+          preset        TEXT,
+          user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
+                        CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
+          user_tools_list TEXT,
+          max_history   INTEGER DEFAULT 80,
+          created_by    TEXT NOT NULL,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+      const hasBlockTools = cols.some(c => c.name === 'block_tools');
+      const hasPreset = cols.some(c => c.name === 'preset');
+      const hasUserToolsMode = cols.some(c => c.name === 'user_tools_mode');
+      const hasUserToolsList = cols.some(c => c.name === 'user_tools_list');
 
-    db.exec(`
-      INSERT INTO agents_new (id, name, display_name, description, system_prompt, model, provider,
-        tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by, created_at, updated_at)
-      SELECT id, name, display_name, description, system_prompt, model, provider,
-        tools_mode, tools_list,
-        ${hasBlockTools ? 'block_tools' : 'NULL'},
-        ${hasPreset ? 'preset' : 'NULL'},
-        ${hasUserToolsMode ? 'user_tools_mode' : "'inherit'"},
-        ${hasUserToolsList ? 'user_tools_list' : 'NULL'},
-        max_history, created_by, created_at, updated_at
-      FROM agents;
-    `);
-    db.exec('DROP TABLE agents;');
-    db.exec('ALTER TABLE agents_new RENAME TO agents;');
+      db.exec(`
+        INSERT INTO agents_new (id, name, display_name, description, system_prompt, model, provider,
+          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by, created_at, updated_at)
+        SELECT id, name, display_name, description, system_prompt, model, provider,
+          tools_mode, tools_list,
+          ${hasBlockTools ? 'block_tools' : 'NULL'},
+          ${hasPreset ? 'preset' : 'NULL'},
+          ${hasUserToolsMode ? 'user_tools_mode' : "'inherit'"},
+          ${hasUserToolsList ? 'user_tools_list' : 'NULL'},
+          max_history, created_by, created_at, updated_at
+        FROM agents;
+      `);
+      db.exec('DROP TABLE agents;');
+      db.exec('ALTER TABLE agents_new RENAME TO agents;');
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   });
 
   runOnce('migrate-agents-to-standard-mode', () => {
@@ -774,5 +779,76 @@ export function initSchema(): void {
     // man: common assistant for 黄老师
     ins.run('agent-man', 'man', '黄老师助理', '黄老师的个人助理', 'standard', null, null, 'admin-001');
     insMember.run(uuid(), 'agent-man', 'admin-001', 'admin');
+  });
+
+  // Recovery: the 'agents-allow-standard-tools-mode' migration had foreign_keys ON
+  // when it DROP'd agents table, causing CASCADE deletion of agent_members,
+  // agent_assignments, knowledge_agents, and memory rows.
+  runOnce('recover-cascade-deleted-data', () => {
+    // 1. Re-seed agent_members (creator = admin for each agent)
+    const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string; created_by: string }[];
+    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+    for (const agent of agents) {
+      const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, agent.created_by);
+      if (!exists) {
+        insMember.run(uuid(), agent.id, agent.created_by, 'admin');
+      }
+    }
+
+    // Re-add known feishu user → agent memberships (from prior runOnce seeds)
+    const knownMemberships: Array<{ userId: string; agentNames: string[] }> = [
+      { userId: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', agentNames: ['tutor', 'otcclaw'] },
+      { userId: 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', agentNames: ['otcclaw'] },
+      { userId: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', agentNames: ['doctor'] },
+      { userId: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292', agentNames: ['alter-ego'] },
+    ];
+    for (const m of knownMemberships) {
+      for (const agentName of m.agentNames) {
+        const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
+        if (agent) {
+          const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, m.userId);
+          if (!exists) {
+            insMember.run(uuid(), agent.id, m.userId, 'admin');
+          }
+        }
+      }
+    }
+
+    // 2. Re-seed agent_assignments from feishu_apps by app_name convention
+    const apps = db.prepare('SELECT app_id, app_name FROM feishu_apps').all() as { app_id: string; app_name: string }[];
+    const insAssign = db.prepare(
+      'INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)'
+    );
+    // Map feishu app_name to agent name (convention: xxx-bot → xxx)
+    function inferAgentName(appName: string): string | null {
+      if (appName.endsWith('-bot')) return appName.slice(0, -4);
+      return null;
+    }
+    for (const app of apps) {
+      const agentName = inferAgentName(app.app_name);
+      if (!agentName) {
+        console.warn(`[recover] Cannot infer agent for feishu app "${app.app_name}" (${app.app_id}), run /agent assign manually`);
+        continue;
+      }
+      const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
+      if (!agent) continue;
+      const exists = db.prepare('SELECT 1 FROM agent_assignments WHERE channel=? AND app_id=?').get('feishu', app.app_id);
+      if (!exists) {
+        insAssign.run(uuid(), agent.id, 'feishu', app.app_id);
+      }
+    }
+
+    // 3. Re-link knowledge → otcclaw agent (original seed linked all knowledge to otcclaw)
+    const otcclaw = db.prepare("SELECT id FROM agents WHERE name='otcclaw'").get() as { id: string } | undefined;
+    if (otcclaw) {
+      const allKnowledge = db.prepare('SELECT id FROM knowledge').all() as { id: string }[];
+      const insKA = db.prepare('INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)');
+      for (const k of allKnowledge) {
+        const exists = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id=? AND agent_id=?').get(k.id, otcclaw.id);
+        if (!exists) {
+          insKA.run(uuid(), k.id, otcclaw.id);
+        }
+      }
+    }
   });
 }

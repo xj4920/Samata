@@ -15,7 +15,7 @@ import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, type User, isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, type DeliveryContext } from '../llm/agent.js';
-import { getAgent } from '../llm/agents/config.js';
+import { getAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -214,6 +214,11 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     await api.sendMessage(chatId, reply);
 
   } catch (err: any) {
+    if (err instanceof AgentUnboundError) {
+      log.warn(`[TG] ${err.message}`);
+      try { await api.sendMessage(chatId, `⚠️ ${err.message}`); } catch { /* ignore */ }
+      return;
+    }
     log.error(`[TG] 处理消息出错: ${err.message}`);
     try {
       await api.sendMessage(chatId, `❌ 处理出错: ${err.message}`);

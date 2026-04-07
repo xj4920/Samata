@@ -19,6 +19,7 @@ interface MonitorConfig {
     feishuUserId?: string;
   };
   senders?: string[];
+  contentKeywords?: string[];
   pollingIntervalSec?: number;
 }
 
@@ -121,30 +122,32 @@ async function sendNotification(text: string): Promise<void> {
 
 async function poll(): Promise<void> {
   const cfg = loadConfig();
-  if (!cfg.influx || !cfg.senders) return;
+  if (!cfg.influx) return;
+  if (!cfg.senders?.length && !cfg.contentKeywords?.length) return;
   const { database, measurement } = cfg.influx;
-
-  const senderFilter = cfg.senders
-    .map(s => `"sender" = '${s.replace(/'/g, "\\'")}'`)
-    .join(' OR ');
 
   const CST_OFFSET_MS = 8 * 3600_000;
   const ceiling = new Date(Date.now() + CST_OFFSET_MS - 60_000).toISOString();
   const startTime = !lastSeenTime || lastSeenTime < ceiling ? ceiling : lastSeenTime;
-  const timeFilter = ` AND time > '${startTime}'`;
-  const where = senderFilter ? ` WHERE (${senderFilter})${timeFilter}` : '';
 
-  const q = `SELECT * FROM "${measurement}"${where} ORDER BY time ASC LIMIT 100`;
+  const q = `SELECT * FROM "${measurement}" WHERE time > '${startTime}' ORDER BY time ASC LIMIT 100`;
 
   try {
     const rows = await queryInfluxRaw(database, q);
     if (rows.length === 0) return;
+
+    const senderSet = new Set(cfg.senders ?? []);
+    const keywords = cfg.contentKeywords ?? [];
 
     for (const row of rows) {
       const sender = row.sender ?? 'unknown';
       const session = row.session ?? '';
       const content = row.content ?? row.message ?? '';
       const time = row.time ?? '';
+
+      const matchesSender = senderSet.has(sender);
+      const matchesKeyword = keywords.some(kw => content.includes(kw));
+      if (!matchesSender && !matchesKeyword) continue;
 
       const msg = `<b>[企微监测]</b>\n<b>群聊:</b> ${escapeHtml(session)}\n<b>发送人:</b> ${escapeHtml(sender)}\n<b>时间:</b> ${escapeHtml(time)}\n<b>内容:</b>\n${escapeHtml(content)}`;
       await sendNotification(msg);
@@ -171,8 +174,10 @@ export function startMonitor(options?: { auto?: boolean }): void {
 
   const cfg = loadConfig();
 
+  const hasFilters = !!(cfg.senders?.length || cfg.contentKeywords?.length);
+
   // 自动启动时检查 enabled 配置（未配置关键字段也视为未启用）
-  if (options?.auto && (cfg.enabled === false || !cfg.senders?.length || !cfg.influx)) {
+  if (options?.auto && (cfg.enabled === false || !hasFilters || !cfg.influx)) {
     log.file('[monitor] 未配置或 enabled=false，跳过自动启动');
     return;
   }
@@ -209,8 +214,8 @@ export function startMonitor(options?: { auto?: boolean }): void {
     log.print('[monitor] 请在 config/monitor.json 的 notification.channels 中配置至少一个通知渠道');
     return;
   }
-  if (!cfg.senders || cfg.senders.length === 0) {
-    log.print('[monitor] 请先在 config/monitor.json 中配置 senders 列表');
+  if (!hasFilters) {
+    log.print('[monitor] 请先在 config/monitor.json 中配置 senders 或 contentKeywords');
     return;
   }
   if (!cfg.influx?.database || !cfg.influx?.measurement) {
@@ -230,7 +235,10 @@ export function startMonitor(options?: { auto?: boolean }): void {
     }
   }
   
-  log.file(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，监控发送人: ${cfg.senders.join(', ')}`);
+  const parts: string[] = [];
+  if (cfg.senders?.length) parts.push(`发送人: ${cfg.senders.join(', ')}`);
+  if (cfg.contentKeywords?.length) parts.push(`关键词: ${cfg.contentKeywords.join(', ')}`);
+  log.file(`[monitor] 开始监控，轮询间隔 ${cfg.pollingIntervalSec}s，${parts.join('，')}`);
   if (notifyTarget) {
     log.print(`[monitor] 通知目标: ${notifyTarget}`);
   }

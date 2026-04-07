@@ -25,7 +25,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser, getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
-import { getAgent, resolveAgent, type FeishuAppRow } from '../llm/agents/config.js';
+import { getAgent, resolveAgent, AgentUnboundError, type FeishuAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
@@ -220,6 +220,7 @@ async function getSessionForInstance(
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
     const agent = resolveAgent('feishu', instance.appId);
+    if (!agent) throw new AgentUnboundError('feishu', instance.appId);
     const userId = `feishu_${feishuUserId}`;
 
     // 1) Check DB for a previously confirmed real name (survives restarts)
@@ -274,7 +275,7 @@ function resetSessionForInstance(instance: FeishuBotInstance, feishuUserId: stri
   if (session) {
     session.history = [];
     const agent = resolveAgent('feishu', instance.appId);
-    session.agentName = agent.name;
+    if (agent) session.agentName = agent.name;
     return true;
   }
   return false;
@@ -1230,6 +1231,11 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
   } catch (err: any) {
+    if (err instanceof AgentUnboundError) {
+      log.warn(`[飞书:${instance.appName}][${traceId}] ${err.message}`);
+      try { await sendFeishuReply(instance, chatId, `⚠️ ${err.message}`, replyOpts); } catch { /* ignore */ }
+      return;
+    }
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
     log.error(`[飞书:${instance.appName}][${traceId}] 处理消息出错: ${err.message}${cause}`);
     try {
