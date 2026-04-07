@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
-import { getCurrentAgent, setCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, getAgentTools } from '../llm/agents/config.js';
+import { getCurrentAgent, setCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, COMMON_SET, getAgentTools } from '../llm/agents/config.js';
 import { getExecutionChannel } from '../runtime/execution-context.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
@@ -43,7 +43,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'save_agent',
-    description: '创建或更新 Agent（仅管理员）。支持 LLM 自举创建新 Agent。',
+    description: '创建或更新 Agent（仅管理员）。standard 模式下有效工具 = COMMON_SET + tools_list - block_tools。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -53,11 +53,12 @@ export const toolDefinitions: Anthropic.Tool[] = [
         system_prompt: { type: 'string', description: '自定义 system prompt（不传则使用默认）' },
         model: { type: 'string', description: '指定模型（不传则使用全局默认）' },
         provider: { type: 'string', description: '指定 provider（不传则使用全局默认）' },
-        tools_mode: { type: 'string', description: "'all' | 'allowlist' | 'blocklist'" },
-        tools_list: { type: 'array', items: { type: 'string' }, description: '工具名称列表（配合 tools_mode 使用）' },
+        tools_mode: { type: 'string', description: "'all' | 'standard'。standard 模式: COMMON_SET + tools_list - block_tools" },
+        tools_list: { type: 'array', items: { type: 'string' }, description: 'standard 模式下在 COMMON_SET 之外额外允许的工具' },
+        block_tools: { type: 'array', items: { type: 'string' }, description: 'standard 模式下从 COMMON_SET 中排除的工具' },
         max_history: { type: 'number', description: '最大历史消息数，默认 80' },
-        preset: { type: 'string', description: "工具预设名称（'common' | 'alter_ego' | 'readonly'），设置后自动填充 tools_list，tools_mode 为 allowlist" },
-        user_tools_mode: { type: 'string', description: "普通成员工具模式: 'inherit'（继承 admin 配置）| 'all' | 'allowlist' | 'blocklist'" },
+        preset: { type: 'string', description: "工具预设名称（'common' | 'browser'），用于快速填充 tools_list" },
+        user_tools_mode: { type: 'string', description: "普通成员工具模式: 'inherit'（与 admin 一致）| 'allowlist' | 'blocklist'" },
         user_tools_list: { type: 'array', items: { type: 'string' }, description: '普通成员工具名称列表（配合 user_tools_mode 使用）' },
       },
       required: ['name', 'display_name'],
@@ -155,6 +156,7 @@ function handleSaveAgent(input: {
   provider?: string;
   tools_mode?: string;
   tools_list?: string[];
+  block_tools?: string[];
   max_history?: number;
   preset?: string;
   user_tools_mode?: string;
@@ -163,8 +165,9 @@ function handleSaveAgent(input: {
   if (input.preset) {
     const preset = TOOL_PRESETS[input.preset];
     if (!preset) return JSON.stringify({ error: `未知 preset: ${input.preset}，可用: ${Object.keys(TOOL_PRESETS).join(', ')}` });
-    input.tools_mode = input.tools_mode || 'allowlist';
-    input.tools_list = preset.tools;
+    input.tools_mode = input.tools_mode || 'standard';
+    // For preset, set tools_list to non-COMMON_SET tools from the preset
+    input.tools_list = preset.tools.filter(t => !COMMON_SET.has(t));
   }
   const result = saveAgent({
     name: input.name,
@@ -175,6 +178,7 @@ function handleSaveAgent(input: {
     provider: input.provider,
     toolsMode: input.tools_mode as any,
     toolsList: input.tools_list,
+    blockTools: input.block_tools,
     preset: input.preset,
     userToolsMode: input.user_tools_mode as any,
     userToolsList: input.user_tools_list,

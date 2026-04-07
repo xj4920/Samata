@@ -1,6 +1,6 @@
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
-import { TOOL_PRESETS } from '../llm/agents/config.js';
+import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 export function initSchema(): void {
   const db = getDb();
@@ -72,9 +72,11 @@ export function initSchema(): void {
       system_prompt TEXT,
       model         TEXT,
       provider      TEXT,
-      tools_mode    TEXT NOT NULL DEFAULT 'all'
-                    CHECK(tools_mode IN ('all', 'allowlist', 'blocklist')),
+      tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                    CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
       tools_list    TEXT,
+      block_tools   TEXT,
+      preset        TEXT,
       user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
                     CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
       user_tools_list TEXT,
@@ -635,5 +637,142 @@ export function initSchema(): void {
     for (const [id, tempName] of renames) {
       update.run(tempName, id);
     }
+  });
+
+  // --- Agent Tools Matrix Refactor ---
+
+  runOnce('agents-add-block-tools-column', () => {
+    try { db.exec("ALTER TABLE agents ADD COLUMN block_tools TEXT"); } catch (e) {}
+  });
+
+  runOnce('agents-allow-standard-tools-mode', () => {
+    // Recreate agents table with updated CHECK constraint to allow 'standard'.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agents_new (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL UNIQUE,
+        display_name  TEXT NOT NULL,
+        description   TEXT,
+        system_prompt TEXT,
+        model         TEXT,
+        provider      TEXT,
+        tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                      CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
+        tools_list    TEXT,
+        block_tools   TEXT,
+        preset        TEXT,
+        user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
+                      CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
+        user_tools_list TEXT,
+        max_history   INTEGER DEFAULT 80,
+        created_by    TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    // Copy existing data — use COALESCE for block_tools since old table may not have it yet
+    const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+    const hasBlockTools = cols.some(c => c.name === 'block_tools');
+    const hasPreset = cols.some(c => c.name === 'preset');
+    const hasUserToolsMode = cols.some(c => c.name === 'user_tools_mode');
+    const hasUserToolsList = cols.some(c => c.name === 'user_tools_list');
+
+    db.exec(`
+      INSERT INTO agents_new (id, name, display_name, description, system_prompt, model, provider,
+        tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by, created_at, updated_at)
+      SELECT id, name, display_name, description, system_prompt, model, provider,
+        tools_mode, tools_list,
+        ${hasBlockTools ? 'block_tools' : 'NULL'},
+        ${hasPreset ? 'preset' : 'NULL'},
+        ${hasUserToolsMode ? 'user_tools_mode' : "'inherit'"},
+        ${hasUserToolsList ? 'user_tools_list' : 'NULL'},
+        max_history, created_by, created_at, updated_at
+      FROM agents;
+    `);
+    db.exec('DROP TABLE agents;');
+    db.exec('ALTER TABLE agents_new RENAME TO agents;');
+  });
+
+  runOnce('migrate-agents-to-standard-mode', () => {
+    // Migrate all agents from legacy allowlist/blocklist/all to the new standard model.
+    // tools_list is cleaned to only contain tools NOT in COMMON_SET.
+    const commonArr = [...COMMON_SET];
+
+    const agents = db.prepare("SELECT id, name, tools_mode, tools_list, preset FROM agents").all() as
+      { id: string; name: string; tools_mode: string; tools_list: string | null; preset: string | null }[];
+
+    for (const agent of agents) {
+      if (agent.tools_mode === 'standard') continue;
+
+      let allowTools: string[] = [];
+      let blockTools: string[] = [];
+
+      if (agent.name === 'otcclaw') {
+        // otcclaw: standard mode, allow = Client + Trade + knowledge agent mgmt + wework + markdown + update_memory
+        allowTools = [
+          'query_clients', 'view_client', 'get_client_history', 'add_client', 'update_client',
+          'advance_client', 'rollback_client', 'delete_client',
+          'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
+          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+          'extract_wework_qa', 'markdown_to_image', 'update_memory',
+        ];
+      } else if (agent.name === 'alter-ego') {
+        // alter-ego: standard mode, allow = File + Agent mgmt + knowledge agent mgmt + wework + markdown + update_memory
+        allowTools = [
+          'read_file', 'write_file', 'edit_file', 'list_directory', 'exec_cmd', 'reload_app',
+          'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+          'assign_agent', 'unassign_agent', 'list_agent_assignments',
+          'manage_agent_member', 'list_agent_members',
+          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+          'extract_wework_qa', 'markdown_to_image', 'update_memory',
+        ];
+      } else if (agent.name === 'doctor') {
+        // doctor: standard mode, allow = Health + update_memory
+        allowTools = [
+          'add_health_record', 'query_health_records', 'health_summary',
+          'archive_health_file', 'list_health_files', 'view_health_file',
+          'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
+          'update_memory',
+        ];
+      } else if (agent.name === 'tutor') {
+        // tutor: pure COMMON_SET, no extra allow/block
+        allowTools = [];
+      } else if (agent.name === 'browser') {
+        // browser: keep its special MCP tools as allow, no COMMON_SET overlap
+        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
+        allowTools = current.filter(t => !COMMON_SET.has(t));
+      } else {
+        // Other agents: keep their tools_list minus COMMON_SET as allow
+        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
+        allowTools = current.filter(t => !COMMON_SET.has(t));
+      }
+
+      db.prepare(`UPDATE agents SET tools_mode='standard', tools_list=?, block_tools=?, updated_at=datetime('now') WHERE id=?`)
+        .run(
+          allowTools.length > 0 ? JSON.stringify(allowTools) : null,
+          blockTools.length > 0 ? JSON.stringify(blockTools) : null,
+          agent.id,
+        );
+    }
+  });
+
+  runOnce('seed-falcon-potato-man-agents', () => {
+    const ins = db.prepare(
+      'INSERT OR IGNORE INTO agents (id, name, display_name, description, tools_mode, tools_list, block_tools, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+
+    // falcon: monitoring agent, block heavy tools from COMMON_SET
+    const falconBlock = JSON.stringify(['generate_image', 'generate_video', 'save_skill']);
+    ins.run('agent-falcon', 'falcon', '消息监控', '监控推送、消息提醒', 'standard', null, falconBlock, 'admin-001');
+    insMember.run(uuid(), 'agent-falcon', 'admin-001', 'admin');
+
+    // potato: common assistant for 丁丁
+    ins.run('agent-potato', 'potato', '丁丁助理', '丁丁的个人助理', 'standard', null, null, 'admin-001');
+    insMember.run(uuid(), 'agent-potato', 'admin-001', 'admin');
+
+    // man: common assistant for 黄老师
+    ins.run('agent-man', 'man', '黄老师助理', '黄老师的个人助理', 'standard', null, null, 'admin-001');
+    insMember.run(uuid(), 'agent-man', 'admin-001', 'admin');
   });
 }
