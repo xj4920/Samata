@@ -25,6 +25,7 @@ function getMinimaxBaseUrl(): string {
 export interface GenerateImageOptions {
   aspectRatio?: string;
   count?: number;
+  referenceImage?: string;
 }
 
 export interface GenerateImageResult {
@@ -51,6 +52,22 @@ export async function generateImage(prompt: string, opts: GenerateImageOptions =
     n: count,
     aspect_ratio: aspectRatio,
   };
+
+  // 图生图：读取参考图片并添加 subject_reference
+  if (opts.referenceImage) {
+    const refPath = opts.referenceImage.startsWith('~/')
+      ? path.join(process.env.HOME || '', opts.referenceImage.slice(1))
+      : path.resolve(opts.referenceImage);
+    if (!fs.existsSync(refPath)) {
+      throw new Error(`参考图片不存在: ${refPath}`);
+    }
+    const buf = fs.readFileSync(refPath);
+    const ext = path.extname(refPath).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+    body.subject_reference = [{ type: 'character', image_file: dataUrl }];
+    log.dim(`🎨 图生图模式：参考图片 ${path.basename(refPath)} (${(buf.length / 1024).toFixed(0)} KB)`);
+  }
 
   log.dim(`🎨 调用 MiniMax 图片生成 (${DEFAULT_IMAGE_MODEL}, ${aspectRatio}, ×${count})...`);
 
@@ -133,38 +150,26 @@ type MinimaxFileRetrieveResponse = {
 export async function generateVideo(prompt: string, opts: GenerateVideoOptions = {}): Promise<GenerateVideoResult> {
   const apiKey = getMinimaxApiKey();
   const baseUrl = getMinimaxBaseUrl();
-  const duration = 6;
-  const resolution = '768P';
+  const usedModel = DEFAULT_VIDEO_MODEL;
 
-  // Step 1: submit task
-  log.dim(`🎬 提交 MiniMax 视频生成任务 (${DEFAULT_VIDEO_MODEL}, ${resolution}, ${duration}s)...`);
-
-  const submitBody: Record<string, unknown> = {
-    model: DEFAULT_VIDEO_MODEL,
-    prompt,
-  };
-
-  const submitResp = await fetch(`${baseUrl}/video_generation`, {
+  log.dim(`🎬 提交 MiniMax 视频生成任务 (${usedModel})...`);
+  const resp = await fetch(`${baseUrl}/video_generation`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(submitBody),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: usedModel, prompt }),
   });
 
-  if (!submitResp.ok) {
-    const text = await submitResp.text().catch(() => '');
-    throw new Error(`MiniMax 视频生成提交失败 (${submitResp.status}): ${text || submitResp.statusText}`);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`MiniMax 视频生成提交失败 (${resp.status}): ${text || resp.statusText}`);
   }
 
-  const submitData = await submitResp.json() as MinimaxVideoSubmitResponse;
-  if (submitData.base_resp?.status_code && submitData.base_resp.status_code !== 0) {
-    throw new Error(`MiniMax 视频生成 API 错误 (${submitData.base_resp.status_code}): ${submitData.base_resp.status_msg ?? ''}`);
+  const data = await resp.json() as MinimaxVideoSubmitResponse;
+  if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
+    throw new Error(`MiniMax 视频生成 API 错误 (${data.base_resp.status_code}): ${data.base_resp.status_msg ?? ''}`);
   }
-
-  const taskId = submitData.task_id;
-  if (!taskId) throw new Error('MiniMax 视频生成未返回 task_id');
+  if (!data.task_id) throw new Error('MiniMax 视频生成未返回 task_id');
+  const taskId = data.task_id;
 
   log.dim(`📋 任务已提交: ${taskId}，开始轮询状态...`);
 
@@ -257,7 +262,7 @@ export async function generateVideo(prompt: string, opts: GenerateVideoOptions =
 
   log.dim(`✅ 视频已保存: ${filePath} (${(videoBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
 
-  return { path: filePath, model: DEFAULT_VIDEO_MODEL, taskId, width: videoWidth, height: videoHeight };
+  return { path: filePath, model: usedModel, taskId, width: videoWidth, height: videoHeight };
 }
 
 function sleep(ms: number): Promise<void> {

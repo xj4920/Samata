@@ -5,37 +5,34 @@ import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 
+/**
+ * Base tool set shared by all agents in 'standard' mode.
+ * Agent effective tools = (COMMON_SET ∪ allow_tools) \ block_tools
+ */
+export const COMMON_SET = new Set([
+  // Knowledge
+  'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge',
+  // Skill
+  'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
+  // System
+  'get_status_summary',
+  // Memory
+  'save_memory', 'search_memory', 'delete_memory',
+  // Delivery
+  'write_artifact', 'send_file', 'send_image',
+  // Reminder
+  'set_reminder', 'list_reminders', 'cancel_reminder',
+  // Todo
+  'create_todo', 'list_todos', 'update_todo', 'delete_todo',
+  // Media
+  'generate_image', 'generate_video',
+]);
+
+/** @deprecated Kept for backward compatibility with list_tool_presets and CLI create wizard. Use COMMON_SET + allow/block instead. */
 export const TOOL_PRESETS: Record<string, { description: string; tools: string[] }> = {
   common: {
-    description: '通用助手：知识库、技能、记忆、Agent管理、文件读写',
-    tools: [
-      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
-      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-      'assign_agent', 'unassign_agent', 'list_agent_assignments',
-      'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
-      'set_reminder', 'list_reminders', 'cancel_reminder',
-      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
-      'generate_image', 'generate_video',
-    ],
-  },
-  alter_ego: {
-    description: '个人分身：包含 common 基础上额外支持知识库写入和企微 QA 提取',
-    tools: [
-      'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'extract_wework_qa',
-      'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
-      'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-      'assign_agent', 'unassign_agent', 'list_agent_assignments',
-      'save_memory', 'search_memory', 'delete_memory',
-      'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
-      'markdown_to_image',
-      'create_todo', 'list_todos', 'update_todo', 'delete_todo',
-      'generate_image', 'generate_video',
-    ],
-  },
-  readonly: {
-    description: '只读助手：知识库查询、状态查看，无写入权限',
-    tools: ['search_knowledge', 'get_status_summary', 'list_skills', 'get_skill', 'run_skill', 'search_memory'],
+    description: '通用基础工具集（COMMON_SET）',
+    tools: [...COMMON_SET],
   },
   browser: {
     description: '浏览器助手：通过 Playwright MCP 进行网页浏览、截图、内容提取',
@@ -68,11 +65,12 @@ export interface AgentConfig {
   systemPrompt?: string;
   model?: string;
   provider?: string;
-  toolsMode: 'all' | 'allowlist' | 'blocklist';
+  toolsMode: 'all' | 'standard' | 'allowlist' | 'blocklist';
+  /** In 'standard' mode: extra tools beyond COMMON_SET. In legacy 'allowlist'/'blocklist': the tool list. */
   toolsList: string[];
-  /** Preset name (e.g. 'common', 'alter_ego'). Tools are resolved dynamically from TOOL_PRESETS[preset] at runtime. */
+  blockTools: string[];
+  /** @deprecated Preset no longer participates in tool computation. Kept for backward compat. */
   preset?: string;
-  /** Tools config for non-admin members. 'inherit' means same as admin config. */
   userToolsMode: 'inherit' | 'all' | 'allowlist' | 'blocklist';
   userToolsList: string[];
   maxHistory: number;
@@ -84,8 +82,9 @@ const DEFAULT_AGENT: AgentConfig = {
   name: 'otcclaw',
   displayName: '衍语助手',
   description: 'OTC 业务专家',
-  toolsMode: 'all',
+  toolsMode: 'standard',
   toolsList: [],
+  blockTools: [],
   userToolsMode: 'inherit',
   userToolsList: [],
   maxHistory: 80,
@@ -101,6 +100,7 @@ interface AgentRow {
   provider: string | null;
   tools_mode: string;
   tools_list: string | null;
+  block_tools: string | null;
   preset: string | null;
   user_tools_mode: string;
   user_tools_list: string | null;
@@ -121,6 +121,7 @@ function rowToConfig(row: AgentRow): AgentConfig {
     provider: row.provider ?? undefined,
     toolsMode: row.tools_mode as AgentConfig['toolsMode'],
     toolsList: row.tools_list ? JSON.parse(row.tools_list) : [],
+    blockTools: row.block_tools ? JSON.parse(row.block_tools) : [],
     preset: row.preset ?? undefined,
     userToolsMode: (row.user_tools_mode ?? 'inherit') as AgentConfig['userToolsMode'],
     userToolsList: row.user_tools_list ? JSON.parse(row.user_tools_list) : [],
@@ -160,8 +161,9 @@ export interface SaveAgentInput {
   systemPrompt?: string;
   model?: string;
   provider?: string;
-  toolsMode?: 'all' | 'allowlist' | 'blocklist';
+  toolsMode?: 'all' | 'standard' | 'allowlist' | 'blocklist';
   toolsList?: string[];
+  blockTools?: string[];
   preset?: string;
   userToolsMode?: 'inherit' | 'all' | 'allowlist' | 'blocklist';
   userToolsList?: string[];
@@ -180,12 +182,13 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
 
     db.prepare(`UPDATE agents SET
       display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
-      tools_mode = ?, tools_list = ?, preset = ?, user_tools_mode = ?, user_tools_list = ?,
+      tools_mode = ?, tools_list = ?, block_tools = ?, preset = ?, user_tools_mode = ?, user_tools_list = ?,
       max_history = ?, updated_at = datetime('now')
       WHERE name = ?`).run(
       input.displayName, input.description ?? null, input.systemPrompt ?? null,
       input.model ?? null, input.provider ?? null,
       input.toolsMode ?? existing.tools_mode, input.toolsList ? JSON.stringify(input.toolsList) : existing.tools_list,
+      input.blockTools ? JSON.stringify(input.blockTools) : (existing as any).block_tools ?? null,
       input.preset !== undefined ? (input.preset || null) : existing.preset,
       input.userToolsMode ?? existing.user_tools_mode,
       input.userToolsList ? JSON.stringify(input.userToolsList) : existing.user_tools_list,
@@ -200,11 +203,12 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
   }
 
   const id = uuid();
-  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, preset, user_tools_mode, user_tools_list, max_history, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, input.name, input.displayName, input.description ?? null, input.systemPrompt ?? null,
     input.model ?? null, input.provider ?? null,
-    input.toolsMode ?? 'allowlist', input.toolsList ? JSON.stringify(input.toolsList) : null,
+    input.toolsMode ?? 'standard', input.toolsList ? JSON.stringify(input.toolsList) : null,
+    input.blockTools ? JSON.stringify(input.blockTools) : null,
     input.preset ?? null,
     input.userToolsMode ?? 'inherit', input.userToolsList ? JSON.stringify(input.userToolsList) : null,
     input.maxHistory ?? 80, user.id,
@@ -341,39 +345,61 @@ function applyChannelToolRestrictions(tools: Anthropic.Tool[]): Anthropic.Tool[]
   return tools.filter(tool => !CLI_ONLY_TOOLS.has(tool.name));
 }
 
-/** Filter global tools based on agent's tools_mode, preset, and tools_list.
- * @param isAdmin - whether the current user is an admin of this agent.
- *                  Admins get the full agent tool set; non-admins get the user-restricted set.
+/**
+ * Filter global tools based on agent config and user role.
+ *
+ * Layer 1 — Agent effective set:
+ *   'all'      → all global tools
+ *   'standard' → (COMMON_SET ∪ toolsList) \ blockTools
+ *   legacy 'allowlist'/'blocklist' → preset ∪ toolsList (kept for backward compat)
+ *
+ * Layer 2 — User filtering (non-admin only):
+ *   'inherit'   → same as admin (no extra filtering)
+ *   'allowlist'  → intersect with userToolsList
+ *   'blocklist'  → subtract userToolsList
+ *   'all'        → all global tools (bypass agent layer)
+ *
+ * Layer 3 — UNIVERSAL_TOOLS always added, CLI_ONLY_TOOLS filtered on non-CLI channels.
  */
 export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[], isAdmin = true): Anthropic.Tool[] {
+  // Step 1: compute agent effective tool names
+  let effectiveNames: Set<string>;
+
+  if (agent.toolsMode === 'all') {
+    effectiveNames = new Set(globalTools.map(t => t.name));
+  } else if (agent.toolsMode === 'standard') {
+    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList]);
+    for (const b of agent.blockTools) effectiveNames.delete(b);
+  } else {
+    // Legacy allowlist/blocklist (backward compat for un-migrated agents)
+    const presetTools = agent.preset ? (TOOL_PRESETS[agent.preset]?.tools ?? []) : [];
+    const legacySet = new Set([...presetTools, ...agent.toolsList]);
+    if (agent.toolsMode === 'allowlist') {
+      effectiveNames = legacySet;
+    } else {
+      effectiveNames = new Set(globalTools.map(t => t.name));
+      for (const b of legacySet) effectiveNames.delete(b);
+    }
+  }
+
+  // Step 2: user-level filtering (non-admin)
   if (!isAdmin) {
     const uMode = agent.userToolsMode;
-    if (uMode === 'all') return applyChannelToolRestrictions(globalTools);
-    if (uMode === 'allowlist') {
+    if (uMode === 'all') {
+      effectiveNames = new Set(globalTools.map(t => t.name));
+    } else if (uMode === 'allowlist') {
       const uSet = new Set(agent.userToolsList);
-      return applyChannelToolRestrictions(globalTools.filter(t => uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
+      effectiveNames = new Set([...effectiveNames].filter(n => uSet.has(n)));
+    } else if (uMode === 'blocklist') {
+      for (const b of agent.userToolsList) effectiveNames.delete(b);
     }
-    if (uMode === 'blocklist') {
-      const uSet = new Set(agent.userToolsList);
-      return applyChannelToolRestrictions(globalTools.filter(t => !uSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
-    }
-    // inherit: non-admin defaults to readonly preset
-    const readonlySet = new Set(TOOL_PRESETS.readonly.tools);
-    return applyChannelToolRestrictions(globalTools.filter(t => readonlySet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
+    // 'inherit': no extra filtering
   }
 
-  // Admin-level (or inherit): existing logic
-  if (agent.toolsMode === 'all') return applyChannelToolRestrictions(globalTools);
-
-  // Effective list = preset tools (resolved dynamically from code) + tools_list (extensions/overrides)
-  const presetTools = agent.preset ? (TOOL_PRESETS[agent.preset]?.tools ?? []) : [];
-  const effectiveSet = new Set([...presetTools, ...agent.toolsList]);
-
-  if (agent.toolsMode === 'allowlist') {
-    return applyChannelToolRestrictions(globalTools.filter(t => effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
-  }
-  // blocklist
-  return applyChannelToolRestrictions(globalTools.filter(t => !effectiveSet.has(t.name) || UNIVERSAL_TOOLS.has(t.name)));
+  // Step 3: universal tools always available + channel restrictions
+  for (const u of UNIVERSAL_TOOLS) effectiveNames.add(u);
+  const filtered = globalTools.filter(t => effectiveNames.has(t.name));
+  return applyChannelToolRestrictions(filtered);
 }
 
 // --- Agent Assignment (channel/target → agent) ---
@@ -387,13 +413,19 @@ interface AssignmentRow {
   created_at: string;
 }
 
+export class AgentUnboundError extends Error {
+  constructor(channel: string, appId?: string, targetId?: string) {
+    const target = appId || targetId || 'unknown';
+    super(`当前应用未绑定 Agent（channel=${channel}, id=${target}），请联系管理员执行 /agent assign 进行绑定。`);
+    this.name = 'AgentUnboundError';
+  }
+}
+
 /**
  * Resolve which agent to use for a given channel + app/target.
- * Priority:
- * - Feishu: app_id match > code fallback
- * - Telegram: target_id match > code fallback
+ * Returns null when no assignment exists — callers must handle the unbound case.
  */
-export function resolveAgent(channel: string, appId?: string, targetId?: string): AgentConfig {
+export function resolveAgent(channel: string, appId?: string, targetId?: string): AgentConfig | null {
   const db = getDb();
 
   // Feishu: query by (channel='feishu', app_id=xxx, target_id IS NULL)
@@ -412,8 +444,7 @@ export function resolveAgent(channel: string, appId?: string, targetId?: string)
     if (row) return rowToConfig(row);
   }
 
-  // Fallback to default
-  return getDefaultAgent();
+  return null;
 }
 
 export interface AssignmentInfo {

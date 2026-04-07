@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
-import { resolveAgent } from '../llm/agents/config.js';
+import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 
 export interface TelegramSession {
   telegramUserId: number;
@@ -22,6 +22,7 @@ export function getSession(telegramUserId: number, telegramUsername: string): Te
   let session = sessions.get(telegramUserId);
   if (!session) {
     const agent = resolveAgent('telegram', undefined, String(telegramUserId));
+    if (!agent) throw new AgentUnboundError('telegram', undefined, String(telegramUserId));
     const userId = `telegram_${telegramUserId}`;
     const username = telegramUsername || `tg_${telegramUserId}`;
     getOrCreateUser(userId, username, 'user');
@@ -45,7 +46,7 @@ export function resetSession(telegramUserId: number): boolean {
   if (session) {
     session.history = [];
     const agent = resolveAgent('telegram', undefined, String(telegramUserId));
-    session.agentName = agent.name;
+    if (agent) session.agentName = agent.name;
     return true;
   }
   return false;

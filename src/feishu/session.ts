@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
-import { resolveAgent } from '../llm/agents/config.js';
+import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -26,6 +26,7 @@ export function getSession(feishuUserId: string, feishuUsername: string): Feishu
     getOrCreateUser(userId, username, 'user');
     const user: User = { id: userId, username, role: 'user' };
     const agent = resolveAgent('feishu', feishuUserId);
+    if (!agent) throw new AgentUnboundError('feishu', feishuUserId);
     session = {
       feishuUserId,
       feishuUsername,
@@ -46,7 +47,7 @@ export function resetSession(feishuUserId: string): boolean {
   if (session) {
     session.history = [];
     const agent = resolveAgent('feishu', feishuUserId);
-    session.agentName = agent.name;
+    if (agent) session.agentName = agent.name;
     return true;
   }
   return false;

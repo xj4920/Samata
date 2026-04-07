@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
-import { resolveAgent } from '../llm/agents/config.js';
+import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 
 export interface WeworkSession {
   weworkUserId: string;
@@ -22,6 +22,7 @@ export function getSession(weworkUserId: string, weworkUsername: string): Wework
   let session = sessions.get(weworkUserId);
   if (!session) {
     const agent = resolveAgent('wework', weworkUserId);
+    if (!agent) throw new AgentUnboundError('wework', weworkUserId);
     const userId = `wework_${weworkUserId}`;
     const username = weworkUsername || `wework_${weworkUserId}`;
     getOrCreateUser(userId, username, 'user');
@@ -45,7 +46,7 @@ export function resetSession(weworkUserId: string): boolean {
   if (session) {
     session.history = [];
     const agent = resolveAgent('wework', weworkUserId);
-    session.agentName = agent.name;
+    if (agent) session.agentName = agent.name;
     return true;
   }
   return false;

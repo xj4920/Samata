@@ -1,4 +1,4 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS } from '../llm/agents/config.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
@@ -116,40 +116,27 @@ async function createAgent(): Promise<void> {
   const toolsModeChoice = await select({
     message: '工具配置方式:',
     choices: [
+      { name: `标准模式 (COMMON_SET ${COMMON_SET.size} 个基础工具)`, value: 'standard' },
+      { name: '标准 + 额外允许工具', value: 'standard-allow' },
       { name: '全部工具（all）', value: 'all' },
-      { name: '使用预设（preset）', value: 'preset' },
-      { name: '自定义工具列表', value: 'custom' },
-      { name: '黑名单模式（blocklist）', value: 'blocklist' },
     ],
   });
 
-  let toolsMode: 'all' | 'allowlist' | 'blocklist' = 'all';
+  let toolsMode: 'all' | 'standard' = toolsModeChoice === 'all' ? 'all' : 'standard';
   let toolsList: string[] | undefined;
+  let blockTools: string[] | undefined;
 
-  if (toolsModeChoice === 'preset') {
-    const presetChoices = Object.entries(TOOL_PRESETS).map(([key, p]) => ({
-      name: `${key} — ${p.description} (${p.tools.length} 个工具)`,
-      value: key,
-    }));
-    const presetKey = await select({ message: '选择预设:', choices: presetChoices });
-    toolsMode = 'allowlist';
-    toolsList = TOOL_PRESETS[presetKey].tools;
-    log.print(`  已选预设 ${presetKey}，包含 ${toolsList.length} 个工具`);
-  } else if (toolsModeChoice === 'custom') {
+  if (toolsModeChoice === 'standard-allow') {
     const globalTools = getGlobalTools();
-    log.print(`  可用工具: ${globalTools.map(t => t.name).join(', ')}`);
+    const nonCommon = globalTools.map(t => t.name).filter(n => !COMMON_SET.has(n));
+    log.print(`  COMMON_SET 之外的可选工具: ${nonCommon.join(', ')}`);
     const toolsInput = await input({
-      message: '输入工具名称（逗号分隔）:',
-      validate: (v) => v.trim() ? true : '至少输入一个工具名',
+      message: '输入额外允许的工具名称（逗号分隔）:',
     });
-    toolsMode = 'allowlist';
-    toolsList = toolsInput.split(',').map(t => t.trim()).filter(Boolean);
-  } else if (toolsModeChoice === 'blocklist') {
-    const globalTools = getGlobalTools();
-    log.print(`  可用工具: ${globalTools.map(t => t.name).join(', ')}`);
-    const toolsInput = await input({ message: '输入要排除的工具名称（逗号分隔，可留空）:' });
-    toolsMode = 'blocklist';
     toolsList = toolsInput ? toolsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    const blockInput = await input({ message: '输入要从 COMMON_SET 中排除的工具名称（逗号分隔，可留空）:' });
+    blockTools = blockInput ? blockInput.split(',').map(t => t.trim()).filter(Boolean) : [];
   }
 
   // Step 3: System prompt (optional)
@@ -184,6 +171,7 @@ async function createAgent(): Promise<void> {
     provider: provider || undefined,
     toolsMode,
     toolsList,
+    blockTools,
   });
 
   if (!result.success) {
@@ -254,7 +242,7 @@ function listAgents(): void {
       a.name,
       a.displayName,
       a.description ?? '-',
-      a.toolsMode === 'all' ? `全部 (${availableTools.length})` : `${a.toolsMode} (${availableTools.length})`,
+      `${a.toolsMode} (${availableTools.length})`,
     ];
   });
 

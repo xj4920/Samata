@@ -1,6 +1,6 @@
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
-import { TOOL_PRESETS } from '../llm/agents/config.js';
+import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 export function initSchema(): void {
   const db = getDb();
@@ -72,9 +72,11 @@ export function initSchema(): void {
       system_prompt TEXT,
       model         TEXT,
       provider      TEXT,
-      tools_mode    TEXT NOT NULL DEFAULT 'all'
-                    CHECK(tools_mode IN ('all', 'allowlist', 'blocklist')),
+      tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                    CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
       tools_list    TEXT,
+      block_tools   TEXT,
+      preset        TEXT,
       user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
                     CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
       user_tools_list TEXT,
@@ -634,6 +636,219 @@ export function initSchema(): void {
     const update = db.prepare("UPDATE users SET username = ? WHERE id = ? AND username NOT LIKE 'feishu_%'");
     for (const [id, tempName] of renames) {
       update.run(tempName, id);
+    }
+  });
+
+  // --- Agent Tools Matrix Refactor ---
+
+  runOnce('agents-add-block-tools-column', () => {
+    try { db.exec("ALTER TABLE agents ADD COLUMN block_tools TEXT"); } catch (e) {}
+  });
+
+  runOnce('agents-allow-standard-tools-mode', () => {
+    // Recreate agents table with updated CHECK constraint to allow 'standard'.
+    // Temporarily disable FK to prevent CASCADE deleting agent_assignments/agent_members.
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agents_new (
+          id            TEXT PRIMARY KEY,
+          name          TEXT NOT NULL UNIQUE,
+          display_name  TEXT NOT NULL,
+          description   TEXT,
+          system_prompt TEXT,
+          model         TEXT,
+          provider      TEXT,
+          tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                        CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
+          tools_list    TEXT,
+          block_tools   TEXT,
+          preset        TEXT,
+          user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
+                        CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
+          user_tools_list TEXT,
+          max_history   INTEGER DEFAULT 80,
+          created_by    TEXT NOT NULL,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+      const hasBlockTools = cols.some(c => c.name === 'block_tools');
+      const hasPreset = cols.some(c => c.name === 'preset');
+      const hasUserToolsMode = cols.some(c => c.name === 'user_tools_mode');
+      const hasUserToolsList = cols.some(c => c.name === 'user_tools_list');
+
+      db.exec(`
+        INSERT INTO agents_new (id, name, display_name, description, system_prompt, model, provider,
+          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by, created_at, updated_at)
+        SELECT id, name, display_name, description, system_prompt, model, provider,
+          tools_mode, tools_list,
+          ${hasBlockTools ? 'block_tools' : 'NULL'},
+          ${hasPreset ? 'preset' : 'NULL'},
+          ${hasUserToolsMode ? 'user_tools_mode' : "'inherit'"},
+          ${hasUserToolsList ? 'user_tools_list' : 'NULL'},
+          max_history, created_by, created_at, updated_at
+        FROM agents;
+      `);
+      db.exec('DROP TABLE agents;');
+      db.exec('ALTER TABLE agents_new RENAME TO agents;');
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  });
+
+  runOnce('migrate-agents-to-standard-mode', () => {
+    // Migrate all agents from legacy allowlist/blocklist/all to the new standard model.
+    // tools_list is cleaned to only contain tools NOT in COMMON_SET.
+    const commonArr = [...COMMON_SET];
+
+    const agents = db.prepare("SELECT id, name, tools_mode, tools_list, preset FROM agents").all() as
+      { id: string; name: string; tools_mode: string; tools_list: string | null; preset: string | null }[];
+
+    for (const agent of agents) {
+      if (agent.tools_mode === 'standard') continue;
+
+      let allowTools: string[] = [];
+      let blockTools: string[] = [];
+
+      if (agent.name === 'otcclaw') {
+        // otcclaw: standard mode, allow = Client + Trade + knowledge agent mgmt + wework + markdown + update_memory
+        allowTools = [
+          'query_clients', 'view_client', 'get_client_history', 'add_client', 'update_client',
+          'advance_client', 'rollback_client', 'delete_client',
+          'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
+          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+          'extract_wework_qa', 'markdown_to_image', 'update_memory',
+        ];
+      } else if (agent.name === 'alter-ego') {
+        // alter-ego: standard mode, allow = File + Agent mgmt + knowledge agent mgmt + wework + markdown + update_memory
+        allowTools = [
+          'read_file', 'write_file', 'edit_file', 'list_directory', 'exec_cmd', 'reload_app',
+          'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+          'assign_agent', 'unassign_agent', 'list_agent_assignments',
+          'manage_agent_member', 'list_agent_members',
+          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+          'extract_wework_qa', 'markdown_to_image', 'update_memory',
+        ];
+      } else if (agent.name === 'doctor') {
+        // doctor: standard mode, allow = Health + update_memory
+        allowTools = [
+          'add_health_record', 'query_health_records', 'health_summary',
+          'archive_health_file', 'list_health_files', 'view_health_file',
+          'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
+          'update_memory',
+        ];
+      } else if (agent.name === 'tutor') {
+        // tutor: pure COMMON_SET, no extra allow/block
+        allowTools = [];
+      } else if (agent.name === 'browser') {
+        // browser: keep its special MCP tools as allow, no COMMON_SET overlap
+        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
+        allowTools = current.filter(t => !COMMON_SET.has(t));
+      } else {
+        // Other agents: keep their tools_list minus COMMON_SET as allow
+        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
+        allowTools = current.filter(t => !COMMON_SET.has(t));
+      }
+
+      db.prepare(`UPDATE agents SET tools_mode='standard', tools_list=?, block_tools=?, updated_at=datetime('now') WHERE id=?`)
+        .run(
+          allowTools.length > 0 ? JSON.stringify(allowTools) : null,
+          blockTools.length > 0 ? JSON.stringify(blockTools) : null,
+          agent.id,
+        );
+    }
+  });
+
+  runOnce('seed-falcon-potato-man-agents', () => {
+    const ins = db.prepare(
+      'INSERT OR IGNORE INTO agents (id, name, display_name, description, tools_mode, tools_list, block_tools, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+
+    // falcon: monitoring agent, block heavy tools from COMMON_SET
+    const falconBlock = JSON.stringify(['generate_image', 'generate_video', 'save_skill']);
+    ins.run('agent-falcon', 'falcon', '消息监控', '监控推送、消息提醒', 'standard', null, falconBlock, 'admin-001');
+    insMember.run(uuid(), 'agent-falcon', 'admin-001', 'admin');
+
+    // potato: common assistant for 丁丁
+    ins.run('agent-potato', 'potato', '丁丁助理', '丁丁的个人助理', 'standard', null, null, 'admin-001');
+    insMember.run(uuid(), 'agent-potato', 'admin-001', 'admin');
+
+    // man: common assistant for 黄老师
+    ins.run('agent-man', 'man', '黄老师助理', '黄老师的个人助理', 'standard', null, null, 'admin-001');
+    insMember.run(uuid(), 'agent-man', 'admin-001', 'admin');
+  });
+
+  // Recovery: the 'agents-allow-standard-tools-mode' migration had foreign_keys ON
+  // when it DROP'd agents table, causing CASCADE deletion of agent_members,
+  // agent_assignments, knowledge_agents, and memory rows.
+  runOnce('recover-cascade-deleted-data', () => {
+    // 1. Re-seed agent_members (creator = admin for each agent)
+    const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string; created_by: string }[];
+    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
+    for (const agent of agents) {
+      const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, agent.created_by);
+      if (!exists) {
+        insMember.run(uuid(), agent.id, agent.created_by, 'admin');
+      }
+    }
+
+    // Re-add known feishu user → agent memberships (from prior runOnce seeds)
+    const knownMemberships: Array<{ userId: string; agentNames: string[] }> = [
+      { userId: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', agentNames: ['tutor', 'otcclaw'] },
+      { userId: 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', agentNames: ['otcclaw'] },
+      { userId: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', agentNames: ['doctor'] },
+      { userId: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292', agentNames: ['alter-ego'] },
+    ];
+    for (const m of knownMemberships) {
+      for (const agentName of m.agentNames) {
+        const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
+        if (agent) {
+          const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, m.userId);
+          if (!exists) {
+            insMember.run(uuid(), agent.id, m.userId, 'admin');
+          }
+        }
+      }
+    }
+
+    // 2. Re-seed agent_assignments from feishu_apps by app_name convention
+    const apps = db.prepare('SELECT app_id, app_name FROM feishu_apps').all() as { app_id: string; app_name: string }[];
+    const insAssign = db.prepare(
+      'INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)'
+    );
+    // Map feishu app_name to agent name (convention: xxx-bot → xxx)
+    function inferAgentName(appName: string): string | null {
+      if (appName.endsWith('-bot')) return appName.slice(0, -4);
+      return null;
+    }
+    for (const app of apps) {
+      const agentName = inferAgentName(app.app_name);
+      if (!agentName) {
+        console.warn(`[recover] Cannot infer agent for feishu app "${app.app_name}" (${app.app_id}), run /agent assign manually`);
+        continue;
+      }
+      const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
+      if (!agent) continue;
+      const exists = db.prepare('SELECT 1 FROM agent_assignments WHERE channel=? AND app_id=?').get('feishu', app.app_id);
+      if (!exists) {
+        insAssign.run(uuid(), agent.id, 'feishu', app.app_id);
+      }
+    }
+
+    // 3. Re-link knowledge → otcclaw agent (original seed linked all knowledge to otcclaw)
+    const otcclaw = db.prepare("SELECT id FROM agents WHERE name='otcclaw'").get() as { id: string } | undefined;
+    if (otcclaw) {
+      const allKnowledge = db.prepare('SELECT id FROM knowledge').all() as { id: string }[];
+      const insKA = db.prepare('INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)');
+      for (const k of allKnowledge) {
+        const exists = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id=? AND agent_id=?').get(k.id, otcclaw.id);
+        if (!exists) {
+          insKA.run(uuid(), k.id, otcclaw.id);
+        }
+      }
     }
   });
 }
