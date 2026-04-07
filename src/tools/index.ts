@@ -16,6 +16,7 @@ import * as todoTools from './todo-tools.js';
 import * as markdownTools from './markdown-tools.js';
 import * as artifactTools from './artifact-tools.js';
 import * as deliveryTools from './delivery-tools.js';
+import * as mediaGenTools from './media-gen-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -38,6 +39,7 @@ const modules: ToolModule[] = [
   markdownTools,
   artifactTools,
   deliveryTools,
+  mediaGenTools,
 ];
 
 export function getAllNativeTools(): Anthropic.Tool[] {

@@ -96,7 +96,8 @@ export function getSystemPrompt(user?: User): string {
 3. 回答关于客户的问题，提供数据分析
 4. 提供展业建议和话术参考
 5. 搜索知识库回答常见问题
-5. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码，修改源码文件（.ts/.js/.json）后会自动热重载。
+6. 文生图/文生视频：使用 generate_image 根据描述生成图片，使用 generate_video 生成短视频（6~10秒）
+7. 工具自举：你可以根据实际需要创建新的 skill、修改项目源代码，修改源码文件（.ts/.js/.json）后会自动热重载。
    - 使用 save_skill 创建可复用的提示词模板
    - 修改已有文件优先使用 edit_file（搜索替换），新建文件使用 write_file
    - 修改代码前请先用 read_file 了解现有代码结构
@@ -119,7 +120,10 @@ ${permissionText}
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
 - 需要发送图片时，可先用 markdown_to_image 生成 PNG，再调用 send_image
 - markdown_to_image 只负责生成图片，不等于已经发送成功
-- 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;
+- 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image
+- 使用 generate_image 生成图片后，需继续调用 send_image 发送给用户
+- 使用 generate_video 生成视频后（耗时约1-3分钟），需继续调用 send_file 发送给用户
+- generate_image / generate_video 的 prompt 建议用英文描述以获得更好效果`;
 }
 
 /**

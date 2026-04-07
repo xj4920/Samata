@@ -6,8 +6,9 @@
   "scripts": {
     "start": "bash scripts/start.sh",
     "dev": "tsx watch src/index.ts",
-    "server": "tsx src/index.ts --server",
-    "cli": "tsx src/cli/index.ts",
+    "stop": "pkill -f 'tsx src/index.ts' ; pkill -f 'tsx src/cli/index.ts' ; true",
+    "server": "npm run stop && tsx src/index.ts --server",
+    "cli": "pkill -f 'tsx src/cli/index.ts' ; true && tsx src/cli/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts",
     "wework": "npx tsx src/wework-entry.ts",
     "check-readme": "npx tsx scripts/check-readme.ts"

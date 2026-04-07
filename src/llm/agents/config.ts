@@ -16,6 +16,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
       'set_reminder', 'list_reminders', 'cancel_reminder',
       'create_todo', 'list_todos', 'update_todo', 'delete_todo',
+      'generate_image', 'generate_video',
     ],
   },
   alter_ego: {
@@ -29,6 +30,7 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
       'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
       'markdown_to_image',
       'create_todo', 'list_todos', 'update_todo', 'delete_todo',
+      'generate_image', 'generate_video',
     ],
   },
   readonly: {

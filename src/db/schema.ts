@@ -592,6 +592,39 @@ export function initSchema(): void {
     }
   });
 
+  runOnce('agents-add-media-gen-tools', () => {
+    const mediaTools = ['generate_image', 'generate_video'];
+    const agents = db.prepare("SELECT id, name, tools_list FROM agents WHERE tools_list IS NOT NULL").all() as { id: string; name: string; tools_list: string }[];
+    for (const agent of agents) {
+      const current: string[] = JSON.parse(agent.tools_list);
+      let changed = false;
+      for (const tool of mediaTools) {
+        if (!current.includes(tool)) {
+          current.push(tool);
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE id=?")
+          .run(JSON.stringify(current), agent.id);
+      }
+    }
+  });
+
+  runOnce('add-alter-ego-admin-36f292', () => {
+    const userId = 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292';
+    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
+      .run(userId, 'feishu_36f292');
+    const agent = db.prepare("SELECT id FROM agents WHERE name='alter-ego'").get() as { id: string } | undefined;
+    if (agent) {
+      const exists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?").get(agent.id, userId);
+      if (!exists) {
+        db.prepare("INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, 'admin')")
+          .run(uuid(), agent.id, userId);
+      }
+    }
+  });
+
   runOnce('fix-feishu-hardcoded-usernames', () => {
     const renames: [string, string][] = [
       ['feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'feishu_d26f'],

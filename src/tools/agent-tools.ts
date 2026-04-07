@@ -225,6 +225,15 @@ function handleListAgentMembers(input: { agent_name: string }): string {
 }
 
 export async function handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
+  switch (name) {
+    case 'list_agents': case 'get_agent':
+    case 'manage_agent_member': case 'list_agent_members':
+    case 'save_agent': case 'delete_agent': case 'switch_agent':
+    case 'assign_agent': case 'unassign_agent': case 'list_agent_assignments':
+      break;
+    default: return null;
+  }
+
   if (getExecutionChannel() !== 'cli') {
     return JSON.stringify({ error: '权限不足：Agent 管理工具仅支持 CLI channel' });
   }

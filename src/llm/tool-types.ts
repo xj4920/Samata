@@ -124,3 +124,13 @@ export type MarkdownToImageInput = {
   width?: number;
   theme?: 'light' | 'dark';
 };
+
+// --- Media Generation ---
+export type GenerateImageInput = {
+  prompt: string;
+  aspect_ratio?: string;
+  count?: number;
+};
+export type GenerateVideoInput = {
+  prompt: string;
+};
