@@ -5,6 +5,32 @@ import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 export function initSchema(): void {
   const db = getDb();
 
+  /** Client + Trade + Health block list for admin + alter-ego (`tools_mode=all`); keep in sync with ensure-admin-block-tools-v3 / ensure-alter-ego-all-block-v1. */
+  const ADMIN_AGENT_BLOCK_TOOLS: string[] = [
+    'query_clients',
+    'view_client',
+    'get_client_history',
+    'add_client',
+    'update_client',
+    'advance_client',
+    'rollback_client',
+    'delete_client',
+    'query_trades',
+    'trade_summary',
+    'plot_trades',
+    'list_customers',
+    'add_health_record',
+    'query_health_records',
+    'health_summary',
+    'archive_health_file',
+    'list_health_files',
+    'view_health_file',
+    'log_sleep',
+    'log_meal',
+    'log_symptom',
+    'set_medication_reminder',
+  ];
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id         TEXT PRIMARY KEY,
@@ -707,7 +733,10 @@ export function initSchema(): void {
       { id: string; name: string; tools_mode: string; tools_list: string | null; preset: string | null }[];
 
     for (const agent of agents) {
-      if (agent.tools_mode === 'standard') continue;
+      // System admin agent stays tools_mode=all + block_tools (design matrix); do not flatten to standard.
+      if (agent.name === 'admin') continue;
+      // alter-ego may need upgrade from standard → all (aligned with admin); do not skip when standard.
+      if (agent.tools_mode === 'standard' && agent.name !== 'alter-ego') continue;
 
       let allowTools: string[] = [];
       let blockTools: string[] = [];
@@ -722,15 +751,11 @@ export function initSchema(): void {
           'extract_wework_qa', 'markdown_to_image', 'update_memory',
         ];
       } else if (agent.name === 'alter-ego') {
-        // alter-ego: standard mode, allow = File + Agent mgmt + knowledge agent mgmt + wework + markdown + update_memory
-        allowTools = [
-          'read_file', 'write_file', 'edit_file', 'list_directory', 'exec_cmd', 'reload_app',
-          'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-          'assign_agent', 'unassign_agent', 'list_agent_assignments',
-          'manage_agent_member', 'list_agent_members',
-          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
-          'extract_wework_qa', 'markdown_to_image', 'update_memory',
-        ];
+        // alter-ego: same effective tools as admin — all \ (Client + Trade + Health)
+        db.prepare(
+          `UPDATE agents SET tools_mode='all', tools_list=NULL, block_tools=?, updated_at=datetime('now') WHERE id=?`,
+        ).run(JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS), agent.id);
+        continue;
       } else if (agent.name === 'doctor') {
         // doctor: standard mode, allow = Health + update_memory
         allowTools = [
@@ -779,6 +804,82 @@ export function initSchema(): void {
     // man: common assistant for 黄老师
     ins.run('agent-man', 'man', '黄老师助理', '黄老师的个人助理', 'standard', null, null, 'admin-001');
     insMember.run(uuid(), 'agent-man', 'admin-001', 'admin');
+  });
+
+  /** Design: falcon block_tools = generate_image, generate_video, save_skill. INSERT OR IGNORE does not repair existing rows. */
+  runOnce('ensure-falcon-block-tools-v2', () => {
+    const falconBlock = JSON.stringify(['generate_image', 'generate_video', 'save_skill']);
+    db.prepare(`UPDATE agents SET block_tools = ?, updated_at = datetime('now') WHERE name = 'falcon'`).run(falconBlock);
+  });
+
+  runOnce('seed-system-admin-agent', () => {
+    const adminBlock = JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS);
+    const ins = db.prepare(
+      `INSERT OR IGNORE INTO agents (id, name, display_name, description, tools_mode, tools_list, block_tools, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    ins.run(
+      'agent-admin',
+      'admin',
+      '系统管理员',
+      'CLI 系统管理、全量工具减 Client/Trade/Health',
+      'all',
+      null,
+      adminBlock,
+      'admin-001',
+    );
+    db.prepare(
+      `UPDATE agents SET tools_mode = 'all', tools_list = NULL, block_tools = ?, updated_at = datetime('now') WHERE name = 'admin'`,
+    ).run(adminBlock);
+    const insMember = db.prepare(
+      `INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)`,
+    );
+    const row = db.prepare(`SELECT id FROM agents WHERE name = 'admin'`).get() as { id: string } | undefined;
+    if (row) insMember.run(uuid(), row.id, 'admin-001', 'admin');
+  });
+
+  runOnce('ensure-admin-block-tools-v3', () => {
+    db.prepare(`UPDATE agents SET block_tools = ?, updated_at = datetime('now') WHERE name = 'admin'`).run(
+      JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS),
+    );
+  });
+
+  /** Same effective set as admin: all minus Client, Trade, Health. Keeps DB aligned if rows drift. */
+  runOnce('ensure-alter-ego-all-block-v1', () => {
+    const blockJson = JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS);
+    db.prepare(
+      `UPDATE agents SET tools_mode = 'all', tools_list = NULL, block_tools = ?, updated_at = datetime('now') WHERE name = 'alter-ego'`,
+    ).run(blockJson);
+  });
+
+  runOnce('seed-member-default-blocklist', () => {
+    /** Align docs/plan [^member-mutation-block]; doctor gets same row — adjust via save_agent after per-tool review. */
+    const MEMBER_MUTATION_BLOCK = [
+      'exec_cmd',
+      'reload_app',
+      'read_file',
+      'list_directory',
+      'write_file',
+      'edit_file',
+      'add_knowledge',
+      'update_knowledge',
+      'delete_knowledge',
+      'assign_knowledge_agent',
+      'unassign_knowledge_agent',
+      'save_skill',
+      'delete_skill',
+      'save_memory',
+      'update_memory',
+      'delete_memory',
+      'create_todo',
+      'update_todo',
+      'delete_todo',
+      'set_reminder',
+      'cancel_reminder',
+    ];
+    const json = JSON.stringify(MEMBER_MUTATION_BLOCK);
+    db.prepare(
+      `UPDATE agents SET user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now')`
+    ).run(json);
   });
 
   // Recovery: the 'agents-allow-standard-tools-mode' migration had foreign_keys ON

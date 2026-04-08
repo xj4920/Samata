@@ -23,7 +23,7 @@ User  有效工具 = user_tools_mode 决定（inherit → readonly preset）
 
 ```
 Agent 有效工具 = (COMMON_SET ∪ allow_tools) \ block_tools    (standard 模式)
-                 或 全量工具                                   (all 模式)
+                 或 全量 \ block_tools                         (all 模式，如 admin)
 User  有效工具 = user_tools_mode / user_tools_list 独立控制    (每个 agent 各自配置)
 ```
 
@@ -66,7 +66,7 @@ export const COMMON_SET = new Set([
 
 `tools_mode` 取值：
 
-- `'all'` — 拥有全部 70+ 工具（保留用于特殊场景，目前无 agent 使用）
+- `'all'` — 以全部全局工具为基底，再减去 `block_tools`（**admin**、**alter-ego** 使用本模式，排除 Client、Trade、Health，见下表）
 - `'standard'` — 使用 `COMMON_SET ∪ allow_tools \ block_tools` 计算（所有 agent 统一使用）
 
 ### 不在 COMMON_SET 中的工具速查
@@ -89,17 +89,41 @@ export const COMMON_SET = new Set([
 
 > allow_tools 仅列出 COMMON_SET 之外的增量工具，不与 COMMON_SET 重复。
 > agent 有效工具 = COMMON_SET (25) + allow_tools - block_tools + http_request (universal)
+> **表中「有效工具数」为上述 agent 层结果（未扣 Channel 过滤）**；飞书 / Telegram / 企微等见下节。
 
-| Agent | 模式 | allow | block | 有效工具数 |
-|-------|------|-------|-------|-----------|
-| **otcclaw** (工作助理) | standard | Client(8) + Trade(4) + Knowledge扩展(3) + `extract_wework_qa`, `markdown_to_image`, `update_memory` = 18 | 无 | **44** |
-| **alter-ego** (我的助理) | standard | File(6) + Agent管理(10) + Knowledge扩展(3) + `extract_wework_qa`, `markdown_to_image`, `update_memory` = 22 | 无 | **48** |
-| **tutor** (家庭教师) | standard | 无 | 无 | **26** |
-| **falcon** (消息监控) | standard | 无 | `generate_image`, `generate_video`, `save_skill` = 3 | **23** |
-| **potato** (丁丁助理) | standard | 无 | 无 | **26** |
-| **doctor** (家庭医生) | standard | Health(10) + `update_memory` = 11 | 无 | **37** |
-| **man** (黄老师助理) | standard | 无 | 无 | **26** |
-| **admin** (系统管理员) | — | 通过 CLI 使用 otcclaw | — | 同 otcclaw |
+
+| Agent                | 模式       | allow                                                                                                   | block                                                | 有效工具数                 |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------- |
+| **otcclaw** (工作助理)   | standard | Client(8) + Trade(4) + Knowledge扩展(3) + `extract_wework_qa`, `markdown_to_image`, `update_memory` = 18  | 无                                                    | **44**                |
+| **alter-ego** (我的助理) | all      | —                                                                                                       | Client(8) + Trade(4) + Health(10) = 22                 | **≈48**[^admin-tools] |
+| **tutor** (家庭教师)     | standard | 无                                                                                                       | 无                                                    | **26**                |
+| **falcon** (消息监控)    | standard | 无                                                                                                       | `generate_image`, `generate_video`, `save_skill` = 3 | **23**                |
+| **potato** (丁丁助理)    | standard | 无                                                                                                       | 无                                                    | **26**                |
+| **doctor** (家庭医生)    | standard | Health(10) + `update_memory` = 11                                                                       | 无                                                    | **37**                |
+| **man** (黄老师助理)      | standard | 无                                                                                                       | 无                                                    | **26**                |
+| **admin** (系统管理员)    | all      | —                                                                                                       | Client(8) + Trade(4) + Health(10) = 22                 | **≈48**[^admin-tools] |
+
+
+[^admin-tools]: 按全局原生工具约 70 个估算为 70−22；实际数以 `getGlobalTools()` 为准，不含 MCP 动态工具。
+
+### 设计-实现对齐（Falcon / admin / alter-ego）
+
+| 项 | 设计 | 曾有问题 | 当前实现 |
+| --- | --- | --- | --- |
+| **Falcon** `block_tools` | `generate_image`, `generate_video`, `save_skill` | `INSERT OR IGNORE` 不更新已存在行，member `user_tools_list` 不含此三项，仅靠 agent 层 block | [schema.ts](../../src/db/schema.ts) `runOnce('ensure-falcon-block-tools-v2')` 对 `name='falcon'` 强制 `UPDATE block_tools` |
+| **admin** agent | `tools_mode=all`，`block_tools`=Client(8)+Trade(4)+Health(10) | 无 DB 种子；`getAgentTools` 的 `all` 分支曾不应用 `block_tools` | `seed-system-admin-agent` + `ensure-admin-block-tools-v3`；[config.ts](../../src/llm/agents/config.ts) `all` 分支已 `delete` `blockTools` |
+| **alter-ego** agent | 与 admin 相同：`all` + 同上 `block_tools` | 历史为 standard + 大 allowlist | `migrate-agents-to-standard-mode` 中 `alter-ego` 分支 + `ensure-alter-ego-all-block-v1` |
+| **migrate-agents** | admin 保持 `all` | 会把 `name='admin'` 误迁成 `standard` | 循环内 `if (agent.name === 'admin') continue` |
+
+### Channel 层：飞书等非 CLI 下实际可见的工具
+
+与 agent 对话、`/status` 展示可用工具时，均走 [config.ts](../../src/llm/agents/config.ts) 的 `getAgentTools()`，**在最后一步**对结果做 `applyChannelToolRestrictions()`：
+
+- **`getExecutionChannel() === 'cli'`**：不做删减，列表与表中「有效工具数」一致（再受 user 层约束时除外）。
+- **`feishu` / `telegram` / `wework` 等 bot channel**：从当前 agent 有效集中 **移除 `CLI_ONLY_TOOLS`**（共 10 个，均为 Agent 管理类）：
+  - `list_agents`, `get_agent`, `save_agent`, `delete_agent`, `switch_agent`, `assign_agent`, `unassign_agent`, `list_agent_assignments`, `manage_agent_member`, `list_agent_members`
+
+因此：**飞书上看到的工具数 = agent 有效集 −（与 `CLI_ONLY_TOOLS` 的交集）**。例如 **alter-ego** 表列为 48，其中含 Agent 管理 10 个，飞书上约为 **38**；**otcclaw** 的 allow 不含上述 10 个，飞书可见数与表中 **44** 一致（若另有 MCP 动态工具则以运行时为准）。
 
 ---
 
@@ -111,12 +135,45 @@ export const COMMON_SET = new Set([
 - `'allowlist'`：user 只能使用 `user_tools_list` 中的工具
 - `'blocklist'`：user 在 agent 有效集上排除 `user_tools_list` 中的工具
 
-**建议的 user 默认配置**（对于需要限制的 agent）：
+**建议的 user 默认配置（按飞书侧角色）**：
 
-- **otcclaw**: `user_tools_mode='blocklist'`, `user_tools_list` = 增删改类工具（exec_cmd, reload_app, delete_client 等）
-- **tutor / potato / man / falcon**: `user_tools_mode='inherit'`（家庭场景，用户即管理员）
-- **doctor**: `user_tools_mode='inherit'`（用户需要记录健康数据）
-- **alter-ego**: `user_tools_mode='inherit'`（个人助理，信任用户）
+- **agent admin**（`agent_members.role='admin'`，`/status` 显示为 `agent admin`）：`user_tools_mode='inherit'`，`user_tools_list` 为空 — 与 agent 层有效集一致（再叠 Channel 过滤），便于展业/家庭管理员运维。
+- **member**（非 agent admin，显示为 `member`）：**一律** `user_tools_mode='blocklist'`，`user_tools_list` = [^member-mutation-block]（与 agent 已授予工具求交集后剔除）；**doctor** 须在落地前按健康场景对列表内各项 **逐一确认**（是否保留 `save_memory` / 部分 knowledge 等），避免误伤问诊记录流。
+
+### User 配置矩阵（建议默认值）
+
+飞书侧角色对应代码中的 `isAgentAdmin(agentId)`：`true` 为 **agent admin**，`false` 为 **member**（与系统管理员 `isSystemAdmin()` 无关；bot channel 用户永远不会是系统管理员）。
+
+**DB 说明**：每个 agent 仅存 **一份** `user_tools_mode` / `user_tools_list`；该配置 **只对 member 生效**（`isAdmin=false` 时参与计算）。agent admin 在代码侧 **跳过 user 层**，等效于表中「agent admin → inherit」，无需为同一 agent 存两套字段。下表「列表」列用逗号分隔便于阅读；`—` 表示空或未配置。
+
+
+| Agent         | 飞书角色        | user_tools_mode | user_tools_list                                               | remark                                                                      |
+| ------------- | ----------- | --------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **otcclaw**   | agent admin | `inherit`       | —                                                             | 与本 agent 展业能力全集一致                                                           |
+| **otcclaw**   | member      | `blocklist`     | 业务删改 + 高危执行：[^member-otcclaw-block]                           | 成员只读/查询为主，具体名单可按合规再扩                                                        |
+| **alter-ego** | agent admin | `inherit`       | —                                                             | 个人助理管理员，全 agent 能力（+Channel）                                                |
+| **alter-ego** | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | 普通成员禁止改库/改文件/执行命令等                                                          |
+| **tutor**     | agent admin | `inherit`       | —                                                             | 家庭侧管理员                                                                      |
+| **tutor**     | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | 儿童/成员账号不应对 skill/knowledge/文件等做写删                                           |
+| **falcon**    | agent admin | `inherit`       | —                                                             | —                                                                           |
+| **falcon**    | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | 监控群成员默认收紧                                                                   |
+| **potato**    | agent admin | `inherit`       | —                                                             | —                                                                           |
+| **potato**    | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | —                                                                           |
+| **doctor**    | agent admin | `inherit`       | —                                                             | —                                                                           |
+| **doctor**    | member      | `blocklist`     | 默认同[^member-mutation-block]（**须逐项确认**）：[^member-doctor-block] | 成员默认同档收紧；health 写入类 tool 不在默认 block 集中，但 memory/knowledge/todo 等与问诊交叉项需业务确认 |
+| **man**       | agent admin | `inherit`       | —                                                             | —                                                                           |
+| **man**       | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | —                                                                           |
+| **admin**     | agent admin | `inherit`       | —                                                             | 系统管理员 agent 主要在 CLI                                                         |
+| **admin**     | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | 若存在飞书侧 member，默认与助理类同档收紧                                                    |
+
+
+[^member-mutation-block]: 成员默认 block 的「增删改 / 高危 / 读盘」工具（在 agent 已授予的前提下再剔除）：`exec_cmd`, `reload_app`, `read_file`, `list_directory`, `write_file`, `edit_file`, `add_knowledge`, `update_knowledge`, `delete_knowledge`, `assign_knowledge_agent`, `unassign_knowledge_agent`, `save_skill`, `delete_skill`, `save_memory`, `update_memory`, `delete_memory`, `create_todo`, `update_todo`, `delete_todo`, `set_reminder`, `cancel_reminder`。不含 `generate_image` / `generate_video` / `markdown_to_image`（由各 agent 的 **agent 层** `block_tools` 或 allow 范围控制）。按 agent 实际 allow 交集生效；未授予的工具名无影响。
+
+[^member-doctor-block]: 种子迁移对 **doctor** 与非 doctor 使用同一 JSON 列表入库；上线前请逐项核对：是否允许 member 使用 `save_memory` / `update_memory` / `delete_memory`、知识库三件套、`todo` / `reminder` 等；确认后可通过 `save_agent` 调整 `user_tools_list`。
+
+[^member-otcclaw-block]: 在 [^member-mutation-block] 基础上，建议再包含 OTC 业务删改：`delete_client`, `add_client`, `update_client`, `advance_client`, `rollback_client`，以及 `query_clients`, `view_client`, `get_client_history` 是否开放给成员由业务决定（若仅允许查询则 member 用 `allowlist` 更严，此处不展开）。
+
+> **说明**：`user_tools_mode` / `user_tools_list` 在 `getAgentTools(..., isAdmin)` 中 **仅当 `isAdmin === false`（非 agent admin）** 时参与计算；飞书 **agent admin** 等价 `isAdmin=true`，恒为 `inherit` 行为。系统管理员仅在 **CLI** 出现，不走飞书 member 逻辑。
 
 ---
 
@@ -150,6 +207,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
   let effectiveNames: Set<string>;
   if (agent.toolsMode === 'all') {
     effectiveNames = new Set(globalTools.map(t => t.name));
+    for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
     effectiveNames = new Set([...COMMON_SET, ...agent.toolsList]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
@@ -168,17 +226,22 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
 }
 ```
 
+> **已实现**：[config.ts](../../src/llm/agents/config.ts) 中 `toolsMode === 'all'` 时已对 `blockTools` 做 `delete`；admin 与 Falcon 的 DB 对齐见上节「设计-实现对齐」及 `migrate-agents-to-standard-mode` 对 `admin` 的跳过逻辑。
+
 ### 4. 数据迁移
 
-- 所有现有 agent 从 `allowlist`/`all` 模式迁移到 `standard`
+- 除 **admin** 外，其余 agent 从 `allowlist`/`all` 模式迁移到 `standard`；**admin** 行在迁移循环中被 **跳过**，保持 `all` + `block_tools` = Client(8)+Trade(4)+Health(10)（见矩阵）；`seed-system-admin-agent` / `ensure-admin-block-tools-v3` 负责插入/补齐该行
+- **成员默认 blocklist**（[schema.ts](../../src/db/schema.ts) `runOnce('seed-member-default-blocklist')`）：所有 agent 写入 `user_tools_mode='blocklist'`，`user_tools_list` = 与 [^member-mutation-block] 一致的 JSON；**agent admin 仍不受 user 层约束**。**doctor** 与文档 [^member-doctor-block] 一致，上线前逐项确认列表。**otcclaw** 若需再挡客户增删改，在 [^member-otcclaw-block] 基础上用 `save_agent` 扩展 `user_tools_list`。
 - `tools_list` 清理为仅包含 COMMON_SET 之外的增量工具
 - 每个 agent 按矩阵设置正确的 allow/block
 
-### 5. 新增 3 个 agent seed
+### 5. Agent seed 与 block 对齐
 
-- **falcon**: standard, block = [generate_image, generate_video, save_skill]
+- **falcon**: standard, `block_tools` = [generate_image, generate_video, save_skill]；另见 `ensure-falcon-block-tools-v2` 修复已存在行
 - **potato**: standard, 纯 COMMON_SET
 - **man**: standard, 纯 COMMON_SET
+- **admin**: `tools_mode=all`，`block_tools` = Client(8)+Trade(4)+Health(10)（22 个工具名），见 `seed-system-admin-agent` 与 `ensure-admin-block-tools-v3`
+- **alter-ego**: 与 admin 相同（`all` + 同上 `block_tools`），见 `migrate-agents-to-standard-mode` 与 `ensure-alter-ego-all-block-v1`
 
 ---
 
@@ -204,7 +267,7 @@ flowchart TD
     CheckMode -->|all| AllMode
     CheckMode -->|standard| StandardMode
     StandardMode --> ApplyBlock
-    AllMode --> CheckAdmin
+    AllMode --> ApplyBlock
     ApplyBlock --> CheckAdmin
     CheckAdmin -->|Yes| AddUniversal
     CheckAdmin -->|No| CheckUserMode
@@ -218,6 +281,8 @@ flowchart TD
     ChannelFilter --> Result
 ```
 
+
+
 ---
 
 ## 改动文件清单
@@ -227,3 +292,4 @@ flowchart TD
 - [src/tools/agent-tools.ts](../../src/tools/agent-tools.ts) — save_agent tool 新增 blockTools 参数
 - [src/tools/system-tools.ts](../../src/tools/system-tools.ts) — list_tool_presets 返回 COMMON_SET 信息
 - [src/commands/agent.ts](../../src/commands/agent.ts) — CLI 创建向导适配 standard 模式
+
