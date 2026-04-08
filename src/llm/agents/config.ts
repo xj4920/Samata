@@ -349,7 +349,7 @@ function applyChannelToolRestrictions(tools: Anthropic.Tool[]): Anthropic.Tool[]
  * Filter global tools based on agent config and user role.
  *
  * Layer 1 — Agent effective set:
- *   'all'      → all global tools
+ *   'all'      → all global tools \ blockTools
  *   'standard' → (COMMON_SET ∪ toolsList) \ blockTools
  *   legacy 'allowlist'/'blocklist' → preset ∪ toolsList (kept for backward compat)
  *
@@ -367,6 +367,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
 
   if (agent.toolsMode === 'all') {
     effectiveNames = new Set(globalTools.map(t => t.name));
+    for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
     effectiveNames = new Set([...COMMON_SET, ...agent.toolsList]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
