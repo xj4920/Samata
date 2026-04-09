@@ -90,5 +90,20 @@
     "products": [
       { "user_id": "16635", "counter_party": "IF-PM1" }
     ]
+  },
+  {
+    "name": "鸣石",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "17786", "counter_party": "MINGSHIOPTIMA" },
+      { "user_id": "18055", "counter_party": "MINGSHIOPTIMA02" }
+    ]
+  },
+  {
+    "name": "磐松",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "17720", "counter_party": "VALEPINE" }
+    ]
   }
 ]
