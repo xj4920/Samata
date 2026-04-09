@@ -1,12 +1,13 @@
 /**
- * 企业微信 Bot 入口
+ * 企业微信 Bot 独立入口
  *
  * 使用方式：
- * 1. 配置 config/monitor.json 中的 wework 项
- * 2. 启动服务：npx tsx src/wework-entry.ts
+ * 1. 通过 DB bot_apps 表配置 wework 应用（/agent assign + /agent bot-app）
+ * 2. 或配置环境变量 WEWORK_AIBOT_BOT_ID / WEWORK_AIBOT_SECRET（自动 seed 到 bot_apps）
+ * 3. 启动服务：npx tsx src/wework-entry.ts
  *
  * 环境变量：
- * - WEWORK_PORT: HTTP 端口（默认 3002）
+ * - WEWORK_PORT: 健康检查 HTTP 端口（默认 3002）
  */
 import 'dotenv/config';
 import { createServer } from 'node:http';
@@ -14,14 +15,14 @@ import { initSchema } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
-import { startWeworkBot, stopWeworkBot, handleWebhookRequest } from './wework/bot.js';
+import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
 import { log } from './utils/logger.js';
 
 const PORT = parseInt(process.env.WEWORK_PORT || '3002', 10);
 
 async function main() {
   log.print('\n' + '='.repeat(40));
-  log.print('  OTC Claw — 企微 Bot');
+  log.print('  Samata — 企微 Bot（WebSocket 长连接）');
   log.print('='.repeat(40) + '\n');
 
   initSchema();
@@ -34,50 +35,22 @@ async function main() {
 
   setCurrentUser({ id: 'admin-001', username: 'admin', role: 'admin' });
 
-  await startWeworkBot();
+  await startAllWeworkBots();
 
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${req.headers.host}`);
-    const query = Object.fromEntries(url.searchParams.entries());
-    const method = req.method || 'GET';
-
-    // 健康检查
-    if (method === 'GET' && url.pathname === '/health') {
+  const server = createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
-
-    // 企微回调路径匹配（支持任意路径，方便部署在不同环境）
-    // 企微会调用配置的 URL，如 /pubapi/v1/WxWorkAiBots/Callbacks/ByIdent/xxx
-    // 只要不是 /health，都当作企微回调处理
-    let body = '';
-    if (method === 'POST') {
-      for await (const chunk of req) {
-        body += chunk;
-      }
-    }
-
-    try {
-      const result = await handleWebhookRequest(method, query, body);
-      res.writeHead(result.status, { 'Content-Type': result.contentType });
-      res.end(result.body);
-    } catch (err: any) {
-      log.error(`[HTTP] 处理请求出错: ${err.message}`);
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('success');
-    }
+    res.writeHead(404).end();
   });
 
-  server.listen(PORT, () => {
-    log.success(`企微 Bot 服务已启动: http://localhost:${PORT}`);
-    log.info(`回调 URL: https://opsys-api.gf.com.cn/pubapi/v1/WxWorkAiBots/Callbacks/ByIdent/69b375aa0c10bd914452c3b9`);
-    log.dim(`（需要通过 nginx 反代或网关路由到本服务）`);
-  });
+  server.listen(PORT, () => log.success(`企微 Bot 健康检查: http://localhost:${PORT}/health`));
 
   const shutdown = () => {
     log.info('\n正在关闭...');
-    stopWeworkBot();
+    stopAllWeworkBots();
     server.close(() => {
       closeDb();
       process.exit(0);

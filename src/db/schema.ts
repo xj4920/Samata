@@ -162,6 +162,17 @@ export function initSchema(): void {
       created_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS bot_apps (
+      id             TEXT PRIMARY KEY,
+      channel        TEXT NOT NULL,
+      name           TEXT NOT NULL,
+      secret         TEXT NOT NULL,
+      config         TEXT NOT NULL DEFAULT '{}',
+      show_thinking  INTEGER NOT NULL DEFAULT 1,
+      auto_start     INTEGER NOT NULL DEFAULT 1,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS reminders (
       id         TEXT PRIMARY KEY,
       agent_id   TEXT NOT NULL,
@@ -399,6 +410,39 @@ export function initSchema(): void {
     const cols = db.pragma('table_info(feishu_apps)') as Array<{ name: string }>;
     if (!cols.find(c => c.name === 'auto_start')) {
       db.exec("ALTER TABLE feishu_apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 1");
+    }
+  });
+
+  runOnce('migrate-feishu-apps-to-bot-apps', () => {
+    const count = db.prepare('SELECT COUNT(*) as c FROM bot_apps').get() as { c: number };
+    if (count.c === 0) {
+      const rows = db.prepare('SELECT * FROM feishu_apps').all() as Array<{
+        app_id: string; app_name: string; app_secret: string;
+        verification_token: string; encrypt_key: string;
+        show_thinking: number; auto_start: number; created_at: string;
+      }>;
+      const ins = db.prepare(
+        'INSERT OR IGNORE INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const r of rows) {
+        const config = JSON.stringify({
+          verification_token: r.verification_token || '',
+          encrypt_key: r.encrypt_key || '',
+        });
+        ins.run(r.app_id, 'feishu', r.app_name, r.app_secret, config, r.show_thinking, r.auto_start, r.created_at);
+      }
+    }
+
+    // Seed wework bot from env if configured
+    const botId = process.env.WEWORK_AIBOT_BOT_ID;
+    const secret = process.env.WEWORK_AIBOT_SECRET;
+    if (botId && secret) {
+      const exists = db.prepare('SELECT 1 FROM bot_apps WHERE id = ?').get(botId);
+      if (!exists) {
+        db.prepare(
+          'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(botId, 'wework', 'wework-bot', secret, '{}', 1, 1);
+      }
     }
   });
 
@@ -915,27 +959,26 @@ export function initSchema(): void {
       }
     }
 
-    // 2. Re-seed agent_assignments from feishu_apps by app_name convention
-    const apps = db.prepare('SELECT app_id, app_name FROM feishu_apps').all() as { app_id: string; app_name: string }[];
+    // 2. Re-seed agent_assignments from bot_apps by name convention
+    const apps = db.prepare('SELECT id, channel, name FROM bot_apps').all() as { id: string; channel: string; name: string }[];
     const insAssign = db.prepare(
       'INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)'
     );
-    // Map feishu app_name to agent name (convention: xxx-bot → xxx)
     function inferAgentName(appName: string): string | null {
       if (appName.endsWith('-bot')) return appName.slice(0, -4);
       return null;
     }
     for (const app of apps) {
-      const agentName = inferAgentName(app.app_name);
+      const agentName = inferAgentName(app.name);
       if (!agentName) {
-        console.warn(`[recover] Cannot infer agent for feishu app "${app.app_name}" (${app.app_id}), run /agent assign manually`);
+        console.warn(`[recover] Cannot infer agent for ${app.channel} app "${app.name}" (${app.id}), run /agent assign manually`);
         continue;
       }
       const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
       if (!agent) continue;
-      const exists = db.prepare('SELECT 1 FROM agent_assignments WHERE channel=? AND app_id=?').get('feishu', app.app_id);
+      const exists = db.prepare('SELECT 1 FROM agent_assignments WHERE channel=? AND app_id=?').get(app.channel, app.id);
       if (!exists) {
-        insAssign.run(uuid(), agent.id, 'feishu', app.app_id);
+        insAssign.run(uuid(), agent.id, app.channel, app.id);
       }
     }
 
@@ -949,6 +992,34 @@ export function initSchema(): void {
         if (!exists) {
           insKA.run(uuid(), k.id, otcclaw.id);
         }
+      }
+    }
+  });
+
+  runOnce('user-blocklist-add-extract-wework-qa', () => {
+    const rows = db.prepare("SELECT id, user_tools_list FROM agents WHERE user_tools_mode = 'blocklist' AND user_tools_list IS NOT NULL").all() as { id: string; user_tools_list: string }[];
+    for (const row of rows) {
+      const current: string[] = JSON.parse(row.user_tools_list);
+      if (!current.includes('extract_wework_qa')) {
+        current.push('extract_wework_qa');
+        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify(current), row.id);
+      }
+    }
+  });
+
+  runOnce('user-blocklist-otcclaw-add-client-video', () => {
+    const row = db.prepare("SELECT user_tools_list FROM agents WHERE name = 'otcclaw'").get() as { user_tools_list: string | null } | undefined;
+    if (row) {
+      const current: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+      const toAdd = ['add_client', 'update_client', 'advance_client', 'rollback_client', 'generate_video'];
+      let changed = false;
+      for (const tool of toAdd) {
+        if (!current.includes(tool)) { current.push(tool); changed = true; }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+          .run(JSON.stringify(current));
       }
     }
   });

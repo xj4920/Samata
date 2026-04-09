@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { getCurrentUser, setCurrentUser } from '../auth/rbac.js';
 import { route } from '../commands/router.js';
 import { runAgenticChat } from '../llm/agent.js';
 import { getAgent, getCurrentAgent, setCurrentAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { runWithCapturedOutput, runWithExecutionContext } from '../runtime/execution-context.js';
-import { getCliSession, resetCliSession, toCliSessionInfo, updateCliSession } from './cli-session.js';
+import { getCliSession, resetCliSession, toCliSessionInfo, updateCliSession, waitForPromptReply } from './cli-session.js';
 import type { CliExecuteResponse, CliStreamEvent } from '../shared/cli-contract.js';
 
 function trimOutput(lines: string[]): string[] {
@@ -113,9 +114,15 @@ export async function executeCliStream(
       return;
     }
 
+    const promptFn = async (message: string, defaultValue?: string): Promise<string> => {
+      const promptId = randomUUID();
+      emit({ type: 'prompt', promptId, message, defaultValue });
+      return waitForPromptReply(sessionId, promptId);
+    };
+
     if (input.trim().startsWith('/')) {
       await runWithExecutionContext(
-        { channel: 'cli', onOutputLine: line => emit({ type: 'log', line }) },
+        { channel: 'cli', interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
         async () => { await route(input); },
       );
 
@@ -128,7 +135,7 @@ export async function executeCliStream(
 
     const agent = getAgent(session.agentName);
     await runWithExecutionContext(
-      { channel: 'cli', onOutputLine: line => emit({ type: 'log', line }) },
+      { channel: 'cli', interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
       async () => {
         await runAgenticChat(session.history, input, session.user, {
           streamEnabled: true,

@@ -3,7 +3,7 @@ import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { getCurrentAgent } from '../llm/agent.js';
 import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
-import { input } from '@inquirer/prompts';
+import { isInteractive, remoteInput } from '../runtime/execution-context.js';
 import { v4 as uuid } from 'uuid';
 
 export interface KnowledgeItem {
@@ -117,31 +117,39 @@ export function search(args: string): void {
 }
 
 export async function add(args?: string, agentId?: string): Promise<void> {
-  const question = await input({ message: '问题：' });
-  const answer = await input({ message: '回答：' });
-  const tags = await input({ message: '标签（可选，逗号分隔）：' });
-  const relatedUsers = await input({ message: '相关人员（可选，逗号分隔）：' });
+  let question: string, answer: string, tags: string, relatedUsers: string;
 
-  const db = getDb();
-  const user = getCurrentUser();
-  const id = uuid();
-
-  db.prepare(
-    'INSERT INTO knowledge (id, question, answer, tags, related_users, created_by) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, question, answer, tags || null, relatedUsers || null, user.id);
-
-  if (agentId) {
-    try {
-      db.prepare(
-        'INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)'
-      ).run(uuid(), id, agentId);
-    } catch (e) {
-      // ignore
+  if (args?.trim()) {
+    const parts = args.split('|').map(s => s.trim());
+    if (parts.length < 2) {
+      log.print('用法: /faq-add 问题 | 回答 | 标签(可选) | 相关人员(可选)');
+      return;
     }
+    [question, answer, tags, relatedUsers] = [parts[0], parts[1], parts[2] ?? '', parts[3] ?? ''];
+  } else if (isInteractive()) {
+    question = await remoteInput('问题：');
+    answer = await remoteInput('回答：');
+    tags = await remoteInput('标签（可选，逗号分隔）：');
+    relatedUsers = await remoteInput('相关人员（可选，逗号分隔）：');
+  } else {
+    log.print('用法: /faq-add 问题 | 回答 | 标签(可选) | 相关人员(可选)');
+    return;
   }
 
-  recordEvent('knowledge', id, 'create', { question });
-  log.print(`FAQ已添加: ${id.slice(0, 8)}`);
+  if (!question?.trim() || !answer?.trim()) {
+    log.print('问题和回答不能为空');
+    return;
+  }
+
+  const result = addKnowledge(
+    { question: question.trim(), answer: answer.trim(), tags: tags || undefined, related_users: relatedUsers || undefined },
+    agentId,
+  );
+  if (result.success) {
+    log.print(`FAQ已添加: ${result.id}`);
+  } else {
+    log.print(result.error!);
+  }
 }
 
 export function remove(args: string): void {
@@ -248,10 +256,27 @@ export function updateKnowledgeById(idPrefix: string, fields: { question?: strin
   return { success: true, id: item.id };
 }
 
-export async function update(idPrefix: string): Promise<void> {
-  if (!idPrefix) {
-    log.print('用法: faq-update <id>');
+export async function update(args: string): Promise<void> {
+  if (!args?.trim()) {
+    log.print('用法: /faq-update <id> [问题 | 回答 | 标签 | 相关人员]');
     return;
+  }
+
+  const pipeIdx = args.indexOf('|');
+  let idPrefix: string;
+  let inlineFields: string | undefined;
+
+  if (pipeIdx >= 0) {
+    const beforePipe = args.slice(0, pipeIdx).trim();
+    const tokens = beforePipe.split(/\s+/);
+    idPrefix = tokens[0];
+    const rest = tokens.slice(1).join(' ').trim();
+    inlineFields = rest ? rest + ' |' + args.slice(pipeIdx + 1) : args.slice(pipeIdx + 1);
+  } else {
+    const tokens = args.trim().split(/\s+/);
+    idPrefix = tokens[0];
+    const rest = tokens.slice(1).join(' ').trim();
+    if (rest) inlineFields = rest;
   }
 
   const db = getDb();
@@ -267,23 +292,39 @@ export async function update(idPrefix: string): Promise<void> {
   }
 
   const item = rows[0];
-  const perm = ensureKnowledgeWriteAccess(getCurrentAgent()?.id, item.id);
-  if (!perm.success) {
-    log.print(perm.error);
+  let question: string, answer: string, tags: string, relatedUsers: string;
+
+  if (inlineFields) {
+    const parts = inlineFields.split('|').map(s => s.trim());
+    question = parts[0] || item.question;
+    answer = parts[1] ?? item.answer;
+    tags = parts[2] ?? (item.tags || '');
+    relatedUsers = parts[3] ?? (item.related_users || '');
+  } else if (isInteractive()) {
+    const perm = ensureKnowledgeWriteAccess(getCurrentAgent()?.id, item.id);
+    if (!perm.success) {
+      log.print(perm.error);
+      return;
+    }
+    question = await remoteInput(`问题 [${item.question}]：`, item.question);
+    answer = await remoteInput(`回答 [${item.answer}]：`, item.answer);
+    tags = await remoteInput(`标签 [${item.tags || ''}]：`, item.tags || '');
+    relatedUsers = await remoteInput(`相关人员 [${item.related_users || ''}]：`, item.related_users || '');
+  } else {
+    log.print('用法: /faq-update <id> 问题 | 回答 | 标签(可选) | 相关人员(可选)');
     return;
   }
-  const question = await input({ message: `问题 [${item.question}]：`, default: item.question });
-  const answer = await input({ message: `回答 [${item.answer}]：`, default: item.answer });
-  const tags = await input({ message: `标签 [${item.tags || ''}]：`, default: item.tags || '' });
-  const relatedUsers = await input({ message: `相关人员 [${item.related_users || ''}]：`, default: item.related_users || '' });
 
-  const user = getCurrentUser();
-  db.prepare(
-    'UPDATE knowledge SET question = ?, answer = ?, tags = ?, related_users = ?, updated_at = datetime(\'now\') WHERE id = ?'
-  ).run(question, answer, tags || null, relatedUsers || null, item.id);
-
-  recordEvent('knowledge', item.id, 'update', { question, modified_by: user.id });
-  log.print(`FAQ已更新: ${item.id.slice(0, 8)}`);
+  const result = updateKnowledgeById(
+    idPrefix,
+    { question, answer, tags, related_users: relatedUsers },
+    getCurrentAgent()?.id,
+  );
+  if (result.success) {
+    log.print(`FAQ已更新: ${item.id.slice(0, 8)}`);
+  } else {
+    log.print(result.error!);
+  }
 }
 
 /** 关联知识条目到 agent */

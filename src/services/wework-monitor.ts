@@ -4,7 +4,7 @@ import { ProxyAgent } from 'undici';
 import { queryInfluxRaw } from '../db/influxdb.js';
 import { log } from '../utils/logger.js';
 import { FeishuAPI } from '../feishu/api.js';
-import type { FeishuAppRow } from '../llm/agents/config.js';
+import type { BotAppRow } from '../llm/agents/config.js';
 import { getDb } from '../db/connection.js';
 
 type NotificationChannel = 'telegram' | 'feishu';
@@ -60,10 +60,10 @@ async function sendTelegram(text: string): Promise<void> {
 
 let feishuApi: FeishuAPI | null = null;
 
-function getFeishuNotifyApp(): FeishuAppRow | null {
-  const row = getDb().prepare("SELECT * FROM feishu_apps WHERE app_name = 'monitor-bot' LIMIT 1").get() as FeishuAppRow | undefined;
+function getFeishuNotifyApp(): BotAppRow | null {
+  const row = getDb().prepare("SELECT * FROM bot_apps WHERE name = 'monitor-bot' AND channel = 'feishu' LIMIT 1").get() as BotAppRow | undefined;
   if (!row) {
-    log.print('[monitor] feishu_apps 表中未找到 monitor-bot，请先添加');
+    log.print('[monitor] bot_apps 表中未找到 monitor-bot，请先添加');
     return null;
   }
   return row;
@@ -81,7 +81,7 @@ async function sendFeishu(text: string, receiveId: string, receiveIdType: 'chat_
     log.print('[monitor] 未配置飞书 app，无法发送飞书通知');
     return;
   }
-  const { app_id: appId, app_secret: appSecret } = appCfg;
+  const { id: appId, secret: appSecret } = appCfg;
 
   if (!appId || !appSecret || !receiveId) return;
 
@@ -204,7 +204,7 @@ export function startMonitor(options?: { auto?: boolean }): void {
   // 提前建立飞书连接（验证 token 可用性）
   if (hasFeishu) {
     const appCfg = getFeishuNotifyApp()!;
-    feishuApi = new FeishuAPI({ appId: appCfg.app_id, appSecret: appCfg.app_secret, verificationToken: '', encryptKey: '' });
+    feishuApi = new FeishuAPI({ appId: appCfg.id, appSecret: appCfg.secret, verificationToken: '', encryptKey: '' });
     feishuApi.getBotInfo().then(info => {
       log.print(`[monitor] 飞书连接成功: ${info.app_name} (${info.open_id})`);
     }).catch((err: any) => {

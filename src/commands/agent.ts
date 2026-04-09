@@ -1,9 +1,9 @@
-import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getFeishuApp, saveFeishuApp, type AgentConfig, TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
+import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getBotApp, saveBotApp, getBotAppsByChannel, type BotAppRow, type AgentConfig, TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
-import { input, select, confirm } from '@inquirer/prompts';
+import { isInteractive, remoteInput, remoteSelect, remoteConfirm } from '../runtime/execution-context.js';
 import { getDb } from '../db/connection.js';
 
 export async function handleAgent(args: string): Promise<void> {
@@ -43,9 +43,10 @@ export async function handleAgent(args: string): Promise<void> {
     case 'assignments':
       if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
       return listAssignmentsCmd();
+    case 'bot-app':
     case 'feishu-app':
       if (!isSysAdmin) { log.print('权限不足：需要系统管理员权限'); return; }
-      return manageFeishuApp(rest);
+      return manageBotApp(rest);
     default:
       return switchAgent(sub);
   }
@@ -59,7 +60,7 @@ export function getAgentSubcommands(): string[] {
     subs.push('member');
   }
   if (isSystemAdmin()) {
-    subs.push('create', 'del', 'assign', 'unassign', 'assignments', 'feishu-app');
+    subs.push('create', 'del', 'assign', 'unassign', 'assignments', 'bot-app');
   }
   return subs;
 }
@@ -81,46 +82,40 @@ function showHelp(): void {
     log.print('  agent del <name>            删除 Agent');
     log.print('  agent assign <name> feishu <app_id>        绑定 Agent 到飞书应用');
     log.print('  agent assign <name> telegram [user_id]     绑定 Agent 到 Telegram 用户');
+    log.print('  agent assign <name> wework [bot_id]        绑定 Agent 到企微 Bot');
     log.print('  agent unassign feishu <app_id>             移除飞书应用绑定');
     log.print('  agent unassign telegram [user_id]          移除 Telegram 用户绑定');
+    log.print('  agent unassign wework [bot_id]             移除企微 Bot 绑定');
     log.print('  agent assignments                          列出所有绑定');
-    log.print('  agent feishu-app list                      列出飞书应用及自动启动状态');
-    log.print('  agent feishu-app enable <app_id>           开启自动启动');
-    log.print('  agent feishu-app disable <app_id>          关闭自动启动');
+    log.print('  agent bot-app list [channel]               列出 Bot 应用');
+    log.print('  agent bot-app start <id>                   启动 Bot');
+    log.print('  agent bot-app stop <id>                    停止 Bot');
   }
 }
 
 async function createAgent(): Promise<void> {
+  if (!isInteractive()) {
+    log.print('此命令需要交互式终端');
+    return;
+  }
+
   log.print('=== 创建新 Agent ===');
 
-  // Step 1: Basic info
-  const name = await input({
-    message: 'Agent 名称（英文，唯一）:',
-    validate: (v) => {
-      if (!v.trim()) return '名称不能为空';
-      if (!/^[a-z0-9-]+$/.test(v.trim())) return '只允许小写字母、数字和连字符';
-      const existing = getAllAgents().find(a => a.name === v.trim());
-      if (existing) return `名称已存在: ${v.trim()}`;
-      return true;
-    },
-  });
+  const name = await remoteInput('Agent 名称（英文，唯一）:');
+  if (!name.trim()) { log.print('名称不能为空'); return; }
+  if (!/^[a-z0-9-]+$/.test(name.trim())) { log.print('只允许小写字母、数字和连字符'); return; }
+  if (getAllAgents().find(a => a.name === name.trim())) { log.print(`名称已存在: ${name.trim()}`); return; }
 
-  const displayName = await input({
-    message: '显示名称:',
-    validate: (v) => v.trim() ? true : '显示名称不能为空',
-  });
+  const displayName = await remoteInput('显示名称:');
+  if (!displayName.trim()) { log.print('显示名称不能为空'); return; }
 
-  const description = await input({ message: '描述（可选）:' });
+  const description = await remoteInput('描述（可选）:');
 
-  // Step 2: Tools config
-  const toolsModeChoice = await select({
-    message: '工具配置方式:',
-    choices: [
-      { name: `标准模式 (COMMON_SET ${COMMON_SET.size} 个基础工具)`, value: 'standard' },
-      { name: '标准 + 额外允许工具', value: 'standard-allow' },
-      { name: '全部工具（all）', value: 'all' },
-    ],
-  });
+  const toolsModeChoice = await remoteSelect('工具配置方式:', [
+    { name: `标准模式 (COMMON_SET ${COMMON_SET.size} 个基础工具)`, value: 'standard' },
+    { name: '标准 + 额外允许工具', value: 'standard-allow' },
+    { name: '全部工具（all）', value: 'all' },
+  ]);
 
   let toolsMode: 'all' | 'standard' = toolsModeChoice === 'all' ? 'all' : 'standard';
   let toolsList: string[] | undefined;
@@ -130,23 +125,17 @@ async function createAgent(): Promise<void> {
     const globalTools = getGlobalTools();
     const nonCommon = globalTools.map(t => t.name).filter(n => !COMMON_SET.has(n));
     log.print(`  COMMON_SET 之外的可选工具: ${nonCommon.join(', ')}`);
-    const toolsInput = await input({
-      message: '输入额外允许的工具名称（逗号分隔）:',
-    });
-    toolsList = toolsInput ? toolsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const toolsInputStr = await remoteInput('输入额外允许的工具名称（逗号分隔）:');
+    toolsList = toolsInputStr ? toolsInputStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
-    const blockInput = await input({ message: '输入要从 COMMON_SET 中排除的工具名称（逗号分隔，可留空）:' });
+    const blockInput = await remoteInput('输入要从 COMMON_SET 中排除的工具名称（逗号分隔，可留空）:');
     blockTools = blockInput ? blockInput.split(',').map(t => t.trim()).filter(Boolean) : [];
   }
 
-  // Step 3: System prompt (optional)
-  const systemPrompt = await input({ message: '系统提示词（可选，留空使用默认）:' });
+  const systemPrompt = await remoteInput('系统提示词（可选，留空使用默认）:');
+  const model = await remoteInput('模型（可选，留空使用全局默认）:');
+  const provider = await remoteInput('Provider（可选，留空使用全局默认）:');
 
-  // Step 4: Model/Provider (optional)
-  const model = await input({ message: '模型（可选，留空使用全局默认）:' });
-  const provider = await input({ message: 'Provider（可选，留空使用全局默认）:' });
-
-  // Step 5: Confirm
   log.print('\n=== 确认信息 ===');
   log.print(`  名称: ${name}`);
   log.print(`  显示名: ${displayName}`);
@@ -156,7 +145,7 @@ async function createAgent(): Promise<void> {
   if (model) log.print(`  模型: ${model}`);
   if (provider) log.print(`  Provider: ${provider}`);
 
-  const ok = await confirm({ message: '确认创建？', default: true });
+  const ok = await remoteConfirm('确认创建？');
   if (!ok) {
     log.print('已取消');
     return;
@@ -321,6 +310,7 @@ async function assignAgent(args: string): Promise<void> {
     log.print('用法:');
     log.print('  agent assign <agent_name> feishu <app_id>');
     log.print('  agent assign <agent_name> telegram [user_id]');
+    log.print('  agent assign <agent_name> wework [bot_id]');
     return;
   }
 
@@ -329,37 +319,48 @@ async function assignAgent(args: string): Promise<void> {
   let appId: string | undefined;
   let targetId: string | undefined;
 
-  if (channel === 'feishu') {
-    if (!identifier) {
+  if (channel === 'feishu' || channel === 'wework') {
+    if (channel === 'feishu' && !identifier) {
       log.print('❌ 飞书渠道需要指定 app_id');
       return;
     }
     appId = identifier;
 
-    // 若 feishu_apps 中不存在该 app_id，引导填写
-    const existing = getFeishuApp(appId);
-    if (!existing) {
-      log.print(`⚠️  app_id "${appId}" 不在 feishu_apps 中，请填写应用信息：`);
-      const appName = await input({ message: 'App 名称:', validate: (v) => v.trim() ? true : '不能为空' });
-      const appSecret = await input({ message: 'App Secret:', validate: (v) => v.trim() ? true : '不能为空' });
-      const verificationToken = await input({ message: 'Verification Token（可选）:', default: '' });
-      const encryptKey = await input({ message: 'Encrypt Key（可选）:', default: '' });
-      const showThinking = await confirm({ message: '显示思考过程?', default: true });
-      const autoStart = await confirm({ message: '启动时自动启动此 Bot?', default: true });
-      saveFeishuApp({
-        app_id: appId,
-        app_name: appName.trim(),
-        app_secret: appSecret.trim(),
-        verification_token: verificationToken.trim(),
-        encrypt_key: encryptKey.trim(),
-        show_thinking: showThinking ? 1 : 0,
-        auto_start: autoStart ? 1 : 0,
-      });
-      log.print(`✅ 已保存飞书应用: ${appName.trim()}`);
+    if (appId) {
+      const existing = getBotApp(appId);
+      if (!existing) {
+        if (!isInteractive()) {
+          log.print(`"${appId}" 不在 bot_apps 中，请在交互式终端中执行此操作以填写应用信息`);
+          return;
+        }
+        log.print(`⚠️  "${appId}" 不在 bot_apps 中，请填写应用信息：`);
+        const appName = await remoteInput('App 名称:');
+        if (!appName.trim()) { log.print('名称不能为空'); return; }
+        const appSecret = await remoteInput('Secret:');
+        if (!appSecret.trim()) { log.print('Secret 不能为空'); return; }
+        let config = '{}';
+        if (channel === 'feishu') {
+          const verificationToken = await remoteInput('Verification Token（可选）:');
+          const encryptKey = await remoteInput('Encrypt Key（可选）:');
+          config = JSON.stringify({ verification_token: verificationToken.trim(), encrypt_key: encryptKey.trim() });
+        }
+        const showThinking = await remoteConfirm('显示思考过程?');
+        const autoStart = await remoteConfirm('启动时自动启动此 Bot?');
+        saveBotApp({
+          id: appId,
+          channel,
+          name: appName.trim(),
+          secret: appSecret.trim(),
+          config,
+          show_thinking: showThinking ? 1 : 0,
+          auto_start: autoStart ? 1 : 0,
+        });
+        log.print(`✅ 已保存 ${channel} 应用: ${appName.trim()}`);
+      }
     }
   } else if (channel === 'telegram') {
     appId = undefined;
-    targetId = identifier;  // 可选
+    targetId = identifier;
   } else {
     log.print(`❌ 不支持的渠道: ${channel}`);
     return;
@@ -381,6 +382,7 @@ function unassignAgent(args: string): void {
     log.print('用法:');
     log.print('  agent unassign feishu <app_id>');
     log.print('  agent unassign telegram [user_id]');
+    log.print('  agent unassign wework [bot_id]');
     return;
   }
 
@@ -397,6 +399,8 @@ function unassignAgent(args: string): void {
     appId = identifier;
   } else if (channel === 'telegram') {
     targetId = identifier;
+  } else if (channel === 'wework') {
+    appId = identifier;
   }
 
   const result = deleteAssignment(channel, appId, targetId);
@@ -431,32 +435,36 @@ function listAssignmentsCmd(): void {
   log.print(`共 ${assignments.length} 条绑定`);
 }
 
-function manageFeishuApp(args: string): void {
+function manageBotApp(args: string): void {
   const parts = args.trim().split(/\s+/);
   const sub = parts[0];
-  const appId = parts[1];
+  const id = parts[1];
 
   if (sub === 'list' || !sub) {
-    const rows = getDb().prepare('SELECT app_id, app_name, auto_start FROM feishu_apps ORDER BY app_name').all() as { app_id: string; app_name: string; auto_start: number }[];
-    if (rows.length === 0) { log.print('暂无飞书应用'); return; }
-    renderTable(['App ID', '名称', '自动启动'], rows.map(r => [r.app_id, r.app_name, r.auto_start ? '✅' : '❌']));
+    const channelFilter = parts[1];
+    const sql = channelFilter
+      ? 'SELECT id, channel, name, auto_start FROM bot_apps WHERE channel = ? ORDER BY channel, name'
+      : 'SELECT id, channel, name, auto_start FROM bot_apps ORDER BY channel, name';
+    const rows = channelFilter
+      ? getDb().prepare(sql).all(channelFilter) as { id: string; channel: string; name: string; auto_start: number }[]
+      : getDb().prepare(sql).all() as { id: string; channel: string; name: string; auto_start: number }[];
+    if (rows.length === 0) { log.print('暂无 Bot 应用'); return; }
+    renderTable(['ID', '渠道', '名称', '自动启动'], rows.map(r => [r.id, r.channel, r.name, r.auto_start ? '✅' : '❌']));
     return;
   }
 
-  if ((sub === 'enable' || sub === 'disable' || sub === 'start' || sub === 'stop') && appId) {
+  if ((sub === 'enable' || sub === 'disable' || sub === 'start' || sub === 'stop') && id) {
     const isEnable = sub === 'enable' || sub === 'start';
     const val = isEnable ? 1 : 0;
-    const result = getDb().prepare('UPDATE feishu_apps SET auto_start = ? WHERE app_id = ?').run(val, appId);
-    if (result.changes === 0) { log.print(`❌ 未找到 app_id: ${appId}`); return; }
-    log.print(`✅ ${appId} 已${isEnable ? '开启/启动' : '关闭/停止'}`);
-    log.print(`   (飞书服务每 10s 同步一次状态，请稍候)`);
+    const result = getDb().prepare('UPDATE bot_apps SET auto_start = ? WHERE id = ?').run(val, id);
+    if (result.changes === 0) { log.print(`❌ 未找到: ${id}`); return; }
+    log.print(`✅ ${id} 已${isEnable ? '开启' : '关闭'}`);
+    log.print(`   (服务每 10s 同步一次状态，请稍候)`);
     return;
   }
 
   log.print('用法:');
-  log.print('  agent feishu-app list');
-  log.print('  agent feishu-app start <app_id>');
-  log.print('  agent feishu-app stop <app_id>');
-  log.print('  agent feishu-app enable <app_id>');
-  log.print('  agent feishu-app disable <app_id>');
+  log.print('  agent bot-app list [channel]');
+  log.print('  agent bot-app start <id>');
+  log.print('  agent bot-app stop <id>');
 }

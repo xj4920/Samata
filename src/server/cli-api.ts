@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createCliSession, destroyCliSession, listCliUsers, toCliSessionInfo } from './cli-session.js';
+import { createCliSession, destroyCliSession, listCliUsers, toCliSessionInfo, resolvePromptReply } from './cli-session.js';
 import { executeCliInput, executeCliStream } from './cli-executor.js';
 import { log } from '../utils/logger.js';
 import type { CliStreamEvent } from '../shared/cli-contract.js';
@@ -68,6 +68,12 @@ export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3
         }
         res.end();
         return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/cli/prompt-reply') {
+        const body = await readJson(req);
+        const ok = resolvePromptReply(body.sessionId, body.promptId, body.value ?? '');
+        return sendJson(res, ok ? 200 : 404, { ok });
       }
 
       if (req.method === 'DELETE' && url.pathname === '/api/cli/session') {

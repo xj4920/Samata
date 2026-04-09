@@ -18,7 +18,7 @@ export function createReminder(input: {
   message: string;
   remindAt: number;
   channel: string;
-  targetId: string;
+  targetId?: string;
   appId?: string;
 }): { success: true; id: string } | { success: false; error: string } {
   const db = getDb();
@@ -26,7 +26,7 @@ export function createReminder(input: {
   db.prepare(
     `INSERT INTO reminders (id, agent_id, message, remind_at, status, channel, target_id, app_id, created_at)
      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
-  ).run(id, input.agentId, input.message, input.remindAt, input.channel, input.targetId, input.appId ?? null, Date.now());
+  ).run(id, input.agentId, input.message, input.remindAt, input.channel, input.targetId ?? null, input.appId ?? null, Date.now());
   return { success: true, id: id.slice(0, 8) };
 }
 

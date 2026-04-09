@@ -116,8 +116,14 @@ export async function fetchTradeSummary(date?: string): Promise<{
   const actualDate = records[0].trade_dt || date || '-';
   const managerMap = new Map<string, ManagerTradeSummary>();
 
+  // 按 counter_party 去重，只取每个 party 最新的一条（数据已按 time DESC 排序）
+  const seen = new Set<string>();
   for (const r of records) {
-    const manager = partyToManager.get((r.counter_party || '').toUpperCase()) || '其他';
+    const party = (r.counter_party ?? '').toUpperCase();
+    if (seen.has(party)) continue;
+    seen.add(party);
+
+    const manager = partyToManager.get(party) || '其他';
     const summary = managerMap.get(manager) || {
       manager,
       pos_num: 0,

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DeliveryContext } from '../llm/agents/config.js';
-import { getFeishuApp } from '../llm/agents/config.js';
+import { getBotApp } from '../llm/agents/config.js';
 import { getArtifactRoot } from './artifact.js';
 import { FeishuAPI, detectFileType, isImageFile } from '../feishu/api.js';
 import { TelegramAPI } from '../telegram/api.js';
@@ -52,20 +52,24 @@ async function createTelegramApi(): Promise<TelegramAPI> {
 }
 
 async function sendViaFeishu(filePath: string, fileName: string, deliveryContext: DeliveryContext): Promise<DeliveryResult> {
+  if (!deliveryContext.targetId) {
+    return { success: false, error: '飞书发送失败：缺少 targetId 投递上下文' };
+  }
   if (!deliveryContext.appId) {
     return { success: false, error: '飞书发送失败：缺少 appId 投递上下文' };
   }
 
-  const appRow = getFeishuApp(deliveryContext.appId);
+  const appRow = getBotApp(deliveryContext.appId);
   if (!appRow) {
     return { success: false, error: `飞书发送失败：未找到 app ${deliveryContext.appId}` };
   }
+  const cfg = JSON.parse(appRow.config || '{}');
 
   const api = new FeishuAPI({
-    appId: appRow.app_id,
-    appSecret: appRow.app_secret,
-    verificationToken: appRow.verification_token,
-    encryptKey: appRow.encrypt_key,
+    appId: appRow.id,
+    appSecret: appRow.secret,
+    verificationToken: cfg.verification_token || '',
+    encryptKey: cfg.encrypt_key || '',
   });
   const receiveIdType = resolveFeishuReceiveIdType(deliveryContext.targetId);
 
@@ -89,6 +93,9 @@ async function sendViaFeishu(filePath: string, fileName: string, deliveryContext
 }
 
 async function sendViaTelegram(filePath: string, fileName: string, deliveryContext: DeliveryContext): Promise<DeliveryResult> {
+  if (!deliveryContext.targetId) {
+    return { success: false, error: 'Telegram 发送失败：缺少 targetId 投递上下文' };
+  }
   const chatId = Number(deliveryContext.targetId);
   if (!Number.isFinite(chatId)) {
     return { success: false, error: `Telegram 发送失败：无效 chatId ${deliveryContext.targetId}` };

@@ -25,7 +25,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { setCurrentUser, getCurrentUser, getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
-import { getAgent, resolveAgent, AgentUnboundError, type FeishuAppRow } from '../llm/agents/config.js';
+import { getAgent, resolveAgent, AgentUnboundError, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
@@ -124,30 +124,30 @@ function logTraceBlock(
   log[level](message);
 }
 
-function loadFeishuConfig(appId: string): FeishuAppConfig | undefined {
-  const row = getDb().prepare('SELECT * FROM feishu_apps WHERE app_id = ?').get(appId) as FeishuAppRow | undefined;
-  if (!row) return undefined;
+function botAppToFeishuConfig(row: BotAppRow): FeishuAppConfig {
+  const cfg = JSON.parse(row.config || '{}');
   return {
-    appId: row.app_id,
-    appName: row.app_name,
-    appSecret: row.app_secret,
-    verificationToken: row.verification_token,
-    encryptKey: row.encrypt_key,
+    appId: row.id,
+    appName: row.name,
+    appSecret: row.secret,
+    verificationToken: cfg.verification_token || '',
+    encryptKey: cfg.encrypt_key || '',
     showThinking: row.show_thinking === 1,
   };
 }
 
+function loadFeishuConfig(appId: string): FeishuAppConfig | undefined {
+  const row = getDb().prepare("SELECT * FROM bot_apps WHERE id = ? AND channel = 'feishu'").get(appId) as BotAppRow | undefined;
+  if (!row) return undefined;
+  return botAppToFeishuConfig(row);
+}
+
 function loadAllFeishuConfigs(onlyAutoStart = true): FeishuAppConfig[] {
-  const query = onlyAutoStart ? 'SELECT * FROM feishu_apps WHERE auto_start = 1' : 'SELECT * FROM feishu_apps';
-  const rows = getDb().prepare(query).all() as FeishuAppRow[];
-  return rows.map(r => ({
-    appId: r.app_id,
-    appName: r.app_name,
-    appSecret: r.app_secret,
-    verificationToken: r.verification_token,
-    encryptKey: r.encrypt_key,
-    showThinking: r.show_thinking === 1,
-  }));
+  const query = onlyAutoStart
+    ? "SELECT * FROM bot_apps WHERE channel = 'feishu' AND auto_start = 1"
+    : "SELECT * FROM bot_apps WHERE channel = 'feishu'";
+  const rows = getDb().prepare(query).all() as BotAppRow[];
+  return rows.map(botAppToFeishuConfig);
 }
 
 export type FeishuBotMode = 'ws' | 'webhook';
@@ -157,7 +157,7 @@ export type FeishuBotMode = 'ws' | 'webhook';
  */
 export async function syncFeishuBots(options?: { mode?: FeishuBotMode; httpPort?: number }): Promise<void> {
   const mode = options?.mode ?? 'ws';
-  const dbApps = getDb().prepare('SELECT app_id, auto_start FROM feishu_apps').all() as { app_id: string; auto_start: number }[];
+  const dbApps = getDb().prepare("SELECT id as app_id, auto_start FROM bot_apps WHERE channel = 'feishu'").all() as { app_id: string; auto_start: number }[];
   
   for (const row of dbApps) {
     const isRunning = botInstances.has(row.app_id);

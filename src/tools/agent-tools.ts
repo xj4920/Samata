@@ -84,13 +84,13 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'assign_agent',
-    description: '将 Agent 绑定到指定渠道或应用。feishu 渠道用 app_id 标识应用，telegram/cli 渠道用 target_id 标识用户。',
+    description: '将 Agent 绑定到指定渠道或应用。feishu 渠道用 app_id 标识应用，wework 渠道用 app_id 标识企微 bot_id（可选），telegram/cli 渠道用 target_id 标识用户。',
     input_schema: {
       type: 'object' as const,
       properties: {
         agent_name: { type: 'string', description: 'Agent 名称' },
-        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
-        app_id: { type: 'string', description: 'feishu 渠道专用：飞书 app_id（如 cli_xxx）' },
+        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'wework' | 'cli'" },
+        app_id: { type: 'string', description: 'feishu 渠道：飞书 app_id；wework 渠道：企微 bot_id（可选，不填则为渠道默认）' },
         target_id: { type: 'string', description: 'telegram/cli 渠道专用：用户 ID' },
       },
       required: ['agent_name', 'channel'],
@@ -98,12 +98,12 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'unassign_agent',
-    description: '移除 Agent 绑定。feishu 渠道用 app_id，telegram/cli 渠道用 target_id。',
+    description: '移除 Agent 绑定。feishu 渠道用 app_id，wework 渠道用 app_id（企微 bot_id），telegram/cli 渠道用 target_id。',
     input_schema: {
       type: 'object' as const,
       properties: {
-        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'cli'" },
-        app_id: { type: 'string', description: 'feishu 渠道专用：飞书 app_id' },
+        channel: { type: 'string', description: "渠道: 'feishu' | 'telegram' | 'wework' | 'cli'" },
+        app_id: { type: 'string', description: 'feishu 渠道：飞书 app_id；wework 渠道：企微 bot_id' },
         target_id: { type: 'string', description: 'telegram/cli 渠道专用：用户 ID' },
       },
       required: ['channel'],

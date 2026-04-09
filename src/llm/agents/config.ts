@@ -301,8 +301,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 /** Channel-specific context injected by bot layers, used by reminder and health tools */
 export interface DeliveryContext {
-  channel: 'feishu' | 'telegram' | 'cli';
-  targetId: string;
+  channel: 'feishu' | 'telegram' | 'cli' | 'wework';
+  targetId?: string;
   appId?: string;
 }
 
@@ -445,6 +445,21 @@ export function resolveAgent(channel: string, appId?: string, targetId?: string)
     if (row) return rowToConfig(row);
   }
 
+  // WeWork: query by (channel='wework', app_id=botId OR app_id IS NULL)
+  if (channel === 'wework') {
+    if (appId) {
+      const row = db.prepare(
+        'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.app_id = ?'
+      ).get(channel, appId) as AgentRow | undefined;
+      if (row) return rowToConfig(row);
+    }
+    // fallback: channel-level assignment without app_id
+    const row = db.prepare(
+      'SELECT a.* FROM agents a JOIN agent_assignments aa ON a.id = aa.agent_id WHERE aa.channel = ? AND aa.app_id IS NULL AND aa.target_id IS NULL'
+    ).get(channel) as AgentRow | undefined;
+    if (row) return rowToConfig(row);
+  }
+
   return null;
 }
 
@@ -463,10 +478,10 @@ export interface AssignmentInfo {
 export function listAssignments(): AssignmentInfo[] {
   const db = getDb();
   const rows = db.prepare(
-    `SELECT aa.*, a.name as agent_name, a.display_name, fa.app_name, fa.auto_start
+    `SELECT aa.*, a.name as agent_name, a.display_name, ba.name as app_name, ba.auto_start
      FROM agent_assignments aa
      JOIN agents a ON a.id = aa.agent_id
-     LEFT JOIN feishu_apps fa ON fa.app_id = aa.app_id
+     LEFT JOIN bot_apps ba ON ba.id = aa.app_id
      ORDER BY aa.channel, aa.app_id, aa.target_id`
   ).all() as (AssignmentRow & { agent_name: string; display_name: string; app_name: string | null; auto_start: number | null })[];
   return rows.map(r => ({
@@ -482,6 +497,18 @@ export function listAssignments(): AssignmentInfo[] {
   }));
 }
 
+export interface BotAppRow {
+  id: string;
+  channel: string;
+  name: string;
+  secret: string;
+  config: string;
+  show_thinking: number;
+  auto_start: number;
+  created_at: string;
+}
+
+/** @deprecated Use BotAppRow */
 export interface FeishuAppRow {
   app_id: string;
   app_name: string;
@@ -492,15 +519,59 @@ export interface FeishuAppRow {
   auto_start: number;
 }
 
-export function getFeishuAppByAgentName(agentName: string): FeishuAppRow | null {
+export function getBotApp(id: string): BotAppRow | null {
+  return getDb().prepare('SELECT * FROM bot_apps WHERE id = ?').get(id) as BotAppRow | null;
+}
+
+export function getBotAppsByChannel(channel: string, onlyAutoStart = false): BotAppRow[] {
+  const sql = onlyAutoStart
+    ? 'SELECT * FROM bot_apps WHERE channel = ? AND auto_start = 1'
+    : 'SELECT * FROM bot_apps WHERE channel = ?';
+  return getDb().prepare(sql).all(channel) as BotAppRow[];
+}
+
+export function saveBotApp(app: { id: string; channel: string; name: string; secret: string; config?: string; show_thinking?: number; auto_start?: number }): void {
+  getDb().prepare(`
+    INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      channel = excluded.channel,
+      name = excluded.name,
+      secret = excluded.secret,
+      config = excluded.config,
+      show_thinking = excluded.show_thinking,
+      auto_start = excluded.auto_start
+  `).run(app.id, app.channel, app.name, app.secret, app.config ?? '{}', app.show_thinking ?? 1, app.auto_start ?? 1);
+}
+
+export function getBotAppByAgentName(agentName: string, channel?: string): BotAppRow | null {
   const db = getDb();
+  if (channel) {
+    return db.prepare(`
+      SELECT ba.* FROM bot_apps ba
+      JOIN agent_assignments aa ON ba.id = aa.app_id
+      JOIN agents a ON aa.agent_id = a.id
+      WHERE a.name = ? AND aa.channel = ?
+      LIMIT 1
+    `).get(agentName, channel) as BotAppRow | null;
+  }
   return db.prepare(`
-    SELECT fa.* FROM feishu_apps fa
-    JOIN agent_assignments aa ON fa.app_id = aa.app_id
+    SELECT ba.* FROM bot_apps ba
+    JOIN agent_assignments aa ON ba.id = aa.app_id
     JOIN agents a ON aa.agent_id = a.id
-    WHERE a.name = ? AND aa.channel = 'feishu'
+    WHERE a.name = ?
     LIMIT 1
-  `).get(agentName) as FeishuAppRow | null;
+  `).get(agentName) as BotAppRow | null;
+}
+
+/** @deprecated Use getBotApp */
+export function getFeishuApp(appId: string): BotAppRow | null {
+  return getBotApp(appId);
+}
+
+/** @deprecated Use getBotAppByAgentName */
+export function getFeishuAppByAgentName(agentName: string): BotAppRow | null {
+  return getBotAppByAgentName(agentName, 'feishu');
 }
 
 export function saveAssignment(
@@ -526,22 +597,20 @@ export function saveAssignment(
   return { success: true };
 }
 
-export function getFeishuApp(appId: string): FeishuAppRow | null {
-  return getDb().prepare('SELECT * FROM feishu_apps WHERE app_id = ?').get(appId) as FeishuAppRow | null;
-}
-
+/** @deprecated Use saveBotApp */
 export function saveFeishuApp(app: FeishuAppRow): void {
-  getDb().prepare(`
-    INSERT INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking, auto_start)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(app_id) DO UPDATE SET
-      app_name = excluded.app_name,
-      app_secret = excluded.app_secret,
-      verification_token = excluded.verification_token,
-      encrypt_key = excluded.encrypt_key,
-      show_thinking = excluded.show_thinking,
-      auto_start = excluded.auto_start
-  `).run(app.app_id, app.app_name, app.app_secret, app.verification_token, app.encrypt_key, app.show_thinking, app.auto_start);
+  saveBotApp({
+    id: app.app_id,
+    channel: 'feishu',
+    name: app.app_name,
+    secret: app.app_secret,
+    config: JSON.stringify({
+      verification_token: app.verification_token || '',
+      encrypt_key: app.encrypt_key || '',
+    }),
+    show_thinking: app.show_thinking,
+    auto_start: app.auto_start,
+  });
 }
 
 export function deleteAssignment(

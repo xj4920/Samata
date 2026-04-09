@@ -1,17 +1,17 @@
 import { getPendingReminders, markDelivered } from '../commands/reminder.js';
-import { getFeishuApp } from '../llm/agents/config.js';
+import { getBotApp } from '../llm/agents/config.js';
 import { FeishuAPI } from '../feishu/api.js';
 import { log } from '../utils/logger.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
 async function deliverFeishu(appId: string, targetId: string, message: string): Promise<void> {
-  const appRow = getFeishuApp(appId);
+  const appRow = getBotApp(appId);
   if (!appRow) {
     log.error(`[reminder] 未找到飞书 app: ${appId}`);
     return;
   }
-  const api = new FeishuAPI({ appId: appRow.app_id, appSecret: appRow.app_secret, verificationToken: '', encryptKey: '' });
+  const api = new FeishuAPI({ appId: appRow.id, appSecret: appRow.secret, verificationToken: '', encryptKey: '' });
   const idType = targetId.startsWith('oc_') ? 'chat_id' : 'open_id';
   await api.sendMessageTo(targetId, idType, 'text', { text: `⏰ 提醒：${message}` });
 }

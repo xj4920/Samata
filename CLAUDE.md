@@ -8,6 +8,7 @@
 - `scripts/` 目录仅存放脚本，严禁在其中编写业务代码
 - 所有代码统一放到 `src/` 目录，按功能分类管理
 - 所有计划文档必须写入 `docs/plan/` 目录，文件名格式：`YYYY-MM-DD_<topic>.md`
+- 当使用 Cursor Plan Mode 创建计划时，**必须同时**在 `docs/plan/` 中创建对应的 markdown 文件，确保计划进入 git 版本管理
 
 ## 数据注意事项
 - `knowledge_pending` 表的 `auto_quality_score` 字段 99% 为 NULL（仅 5 条有值），不可用作排序或筛选依据

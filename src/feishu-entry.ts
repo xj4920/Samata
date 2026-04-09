@@ -2,14 +2,13 @@
  * 飞书 Bot 入口
  *
  * 使用方式：
- * 1. 配置 config/monitor.json 中的 feishuApps 数组
+ * 1. 通过 DB bot_apps 表配置应用（/agent assign + /agent bot-app）
  * 2. 启动服务：npx tsx src/feishu-entry.ts
  *
  * 环境变量：
  * - FEISHU_MODE: 连接模式 ws(长连接,默认) | webhook(HTTP回调)
  * - FEISHU_APP_ID: 指定启动单个应用（可选，不指定则启动所有）
  * - FEISHU_PORT: HTTP 端口（webhook 模式必需，ws 模式用于健康检查）
- * - FEISHU_ADMIN_IDS: 管理员用户 ID 列表（可选，逗号分隔）
  */
 import 'dotenv/config';
 import { createServer } from 'node:http';

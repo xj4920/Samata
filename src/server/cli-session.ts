@@ -87,3 +87,34 @@ export function toCliSessionInfo(session: CliSession): CliSessionInfo {
     agentDisplayName: agent.displayName,
   };
 }
+
+// --- Prompt reply queue ---
+
+const pendingPrompts = new Map<string, { resolve: (value: string) => void; reject: (err: Error) => void }>();
+
+function promptKey(sessionId: string, promptId: string): string {
+  return `${sessionId}:${promptId}`;
+}
+
+export function waitForPromptReply(sessionId: string, promptId: string, timeoutMs = 120_000): Promise<string> {
+  const key = promptKey(sessionId, promptId);
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingPrompts.delete(key);
+      reject(new Error('交互超时'));
+    }, timeoutMs);
+    pendingPrompts.set(key, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
+  });
+}
+
+export function resolvePromptReply(sessionId: string, promptId: string, value: string): boolean {
+  const key = promptKey(sessionId, promptId);
+  const pending = pendingPrompts.get(key);
+  if (!pending) return false;
+  pendingPrompts.delete(key);
+  pending.resolve(value);
+  return true;
+}

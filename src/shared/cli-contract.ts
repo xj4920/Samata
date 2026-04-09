@@ -24,5 +24,6 @@ export type CliStreamEvent =
   | { type: 'tool_end';   name: string; result: string; round: number; durationMs: number }
   | { type: 'thinking';   text: string; round: number }
   | { type: 'log';        line: string }
+  | { type: 'prompt';     promptId: string; message: string; defaultValue?: string }
   | { type: 'done';       session: CliSessionInfo }
   | { type: 'error';      message: string }

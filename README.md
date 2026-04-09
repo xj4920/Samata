@@ -59,6 +59,7 @@ npm run dev          # 开发模式（tsx watch，单进程 REPL）
 npm run telegram     # 单独启动 Telegram Bot 进程
 npm run wework       # 单独启动企微 Bot 进程
 npm run start        # 通过 scripts/start.sh 启动（含 screen 守护）
+npm run stop         # 停止 screen 守护进程
 npm run check-readme # 检查 README 与实现是否一致
 ```
 
@@ -143,7 +144,7 @@ npm run check-readme # 检查 README 与实现是否一致
 | `/faq-update <id> <内容>` | 修改 FAQ |
 | `/faq-del <id>` | 删除 FAQ |
 | `/skill <list\|save\|run\|del>` | 自定义技能管理 |
-| `/agent <list\|create\|switch\|info\|del\|member\|assign\|...>` | Agent 管理 |
+| `/agent <list\|create\|switch\|info\|del\|member\|assign\|bot-app\|...>` | Agent 管理 |
 | `/memory <list\|add\|search\|del>` | Memory 管理 |
 | `/plugin <list\|run>` | 插件管理 |
 | `/wework-qa <群组名>` | 企微 Q&A 提取（仅 alter-ego agent） |

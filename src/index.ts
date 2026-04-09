@@ -8,9 +8,11 @@ import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './comm
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
+import { startHedgeRatioMonitor, stopHedgeRatioMonitor } from './services/hedge-ratio-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
+import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
 import { getAllSkills } from './commands/skill.js';
@@ -24,8 +26,10 @@ export function gracefulShutdown(): void {
   cliApiServer?.close();
   cliApiServer = null;
   stopMonitor();
+  stopHedgeRatioMonitor();
   stopReminderScheduler();
   stopAllFeishuBots();
+  stopAllWeworkBots();
   stopMcpServers();
   closeDb();
 }
@@ -332,7 +336,7 @@ async function repl(): Promise<void> {
       process.stdin.on('data', onData);
 
       try {
-        await runWithExecutionContext({ channel: 'cli' }, async () => {
+        await runWithExecutionContext({ channel: 'cli', interactive: true }, async () => {
           await route(trimmed);
         });
       } catch (err: any) {
@@ -382,6 +386,12 @@ async function main(): Promise<void> {
 
   // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
   initMcpServers().catch(() => {});
+
+  // 启动企微机器人（长连接模式，多实例）
+  await startAllWeworkBots();
+
+  // 启动套保比例监控（依赖企微长连接，需在 bot 启动之后）
+  startHedgeRatioMonitor({ auto: true });
 
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;

@@ -138,6 +138,23 @@ export async function queryInfluxRaw(db: string, influxQL: string): Promise<Reco
   });
 }
 
+export async function writeInfluxLineProtocol(db: string, lines: string): Promise<void> {
+  const url = `${BASE_URL}/write?db=${encodeURIComponent(db)}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...(INFLUX_TOKEN ? { 'Authorization': `Token ${INFLUX_TOKEN}` } : {}),
+      'Content-Type': 'text/plain',
+    },
+    body: lines,
+    signal: AbortSignal.timeout(INFLUX_TIMEOUT),
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`InfluxDB write failed (${resp.status}): ${body}`);
+  }
+}
+
 export function isInfluxConfigured(): boolean {
   return !!INFLUX_TOKEN;
 }

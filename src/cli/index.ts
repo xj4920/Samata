@@ -1,7 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { select } from '@inquirer/prompts';
-import { createCliSession, destroyCliSession, streamCliInput, listCliUsers } from './api-client.js';
+import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers } from './api-client.js';
 
 async function main(): Promise<void> {
   const users = await listCliUsers();
@@ -38,6 +38,9 @@ async function main(): Promise<void> {
             process.stdout.write(event.chunk);
           } else if (event.type === 'log') {
             console.log(event.line);
+          } else if (event.type === 'prompt') {
+            const answer = await rl.question(`${event.message} `);
+            await sendPromptReply(session.sessionId, event.promptId, answer);
           } else if (event.type === 'tool_start') {
             process.stderr.write(`\r\x1b[2m🔧 ${event.name}...\x1b[0m`);
           } else if (event.type === 'thinking') {

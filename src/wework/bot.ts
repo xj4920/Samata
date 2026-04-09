@@ -1,23 +1,20 @@
 /**
- * 企业微信 Bot
+ * 企业微信 Bot（WebSocket 长连接模式）
  *
- * 支持 HTTP 回调模式（企微只支持 webhook，不支持长连接）
+ * 多实例架构：每个企微 bot 应用独立运行（独立 WSClient、会话、Agent 绑定），
+ * 与飞书 bot 同等地位的 channel。
  *
  * 消息处理流程：
  * 1. /command → 直接调用命令函数，不经过 LLM
  * 2. 自然语言 → runAgenticChat()
- *
- * 回复方式：
- * - 被动回复（5秒内）：XML 加密响应
- * - 主动发送（超时后）：调用企微消息 API（需要 agentSecret）
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { WeworkAPI, type WeworkConfig, type WeworkMessage } from './api.js';
-import { getSession, resetSession, cleanupSessions } from './session.js';
+import type { WSClient, WsFrame, TextMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
+import { createWsClient, generateReqId } from './aibot-ws.js';
+import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { setCurrentUser, getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, setCurrentAgent } from '../llm/agent.js';
-import { getAgent, AgentUnboundError } from '../llm/agents/config.js';
+import { runAgenticChat, setCurrentAgent, type ProgressEvent } from '../llm/agent.js';
+import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
+import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -25,55 +22,188 @@ import { fetchKnowledge } from '../commands/knowledge.js';
 import { getAllSkills } from '../commands/skill.js';
 import {
   formatKnowledge, formatSkillList,
-  formatError,
 } from './formatter.js';
-import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { getProviderName, getModelName, switchProvider, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { getDb } from '../db/connection.js';
 
-let api: WeworkAPI;
-let running = false;
-let cleanupTimer: ReturnType<typeof setInterval> | null = null;
-
-function loadWeworkConfig(): WeworkConfig {
-  const file = resolve(process.cwd(), 'config/monitor.json');
-  const config = JSON.parse(readFileSync(file, 'utf-8'));
-  return config.wework as WeworkConfig;
+interface WeworkBotInstance {
+  botId: string;
+  botName: string;
+  wsClient: WSClient;
+  sessions: Map<string, WeworkSession>;
+  cleanupTimer: ReturnType<typeof setInterval> | null;
 }
 
-/**
- * 处理 AI 对话（复用 runAgenticChat，遵循 CLAUDE.md 规范）
- */
+const botInstances = new Map<string, WeworkBotInstance>();
+
+// --- Message Handling (instance-scoped) ---
+
+function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<TextMessage>): Promise<void> {
+  return runWithExecutionContext({ channel: 'wework' }, async () => {
+    const body = frame.body!;
+    const userId = body.from.userid;
+    const isGroup = body.chattype === 'group';
+    const text = (body.text?.content || '').replace(/@\S+\s?/g, '').trim();
+    if (!text) return;
+
+    const mapKey = isGroup ? `g:${body.chatid}:${userId}` : userId;
+    const username = `wework_${userId.slice(-6)}`;
+
+    log.dim(`[企微:${instance.botName}] ${username}: ${text.slice(0, 80)}`);
+
+    let reply = '';
+
+    try {
+      if (text.startsWith('/')) {
+        const slashReply = await handleSlashCommand(instance, text, mapKey, userId, username);
+        if (slashReply) {
+          const streamId = generateReqId('stream');
+          await instance.wsClient.replyStream(frame, streamId, slashReply, true);
+          return;
+        }
+      }
+
+      reply = await handleAIChat(instance, frame, text, mapKey, userId, username);
+    } catch (err: any) {
+      if (err instanceof AgentUnboundError) {
+        log.warn(`[企微:${instance.botName}] ${err.message}`);
+        reply = `⚠️ ${err.message}`;
+      } else {
+        log.error(`[企微:${instance.botName}] 处理消息出错: ${err.message}`);
+        reply = `处理出错: ${err.message}`;
+      }
+      const streamId = generateReqId('stream');
+      await instance.wsClient.replyStream(frame, streamId, reply, true);
+    }
+  });
+}
+
 async function handleAIChat(
+  instance: WeworkBotInstance,
+  frame: WsFrame<TextMessage>,
   userInput: string,
-  weworkUserId: string,
-  weworkUsername: string,
+  mapKey: string,
+  userId: string,
+  username: string,
 ): Promise<string> {
-  const session = getSession(weworkUserId, weworkUsername);
+  const session = getSession(instance.botId, instance.sessions, mapKey, username);
   const prevUser = getCurrentUser();
   setCurrentUser(session.user);
 
   try {
     const agentConfig = getAgent(session.agentName);
 
-    // 控制历史长度
     const MAX_HISTORY = 20;
     while (session.history.length > MAX_HISTORY * 2) {
       session.history.shift();
     }
 
+    const ws = instance.wsClient;
+    const streamId = generateReqId('stream');
+
+    await ws.replyStream(frame, streamId, '思考中...', false);
+
+    let lastStreamContent = '';
+    const THROTTLE_MS = 800;
+    let lastChunkTime = 0;
+
+    const onProgress = (event: ProgressEvent) => {
+      const now = Date.now();
+      if (now - lastChunkTime < THROTTLE_MS) return;
+      lastChunkTime = now;
+
+      let hint = '';
+      if (event.type === 'tool_start') hint = `正在调用 ${event.name}...`;
+      else if (event.type === 'thinking') hint = event.text.slice(0, 200);
+
+      if (hint && hint !== lastStreamContent) {
+        lastStreamContent = hint;
+        ws.replyStreamNonBlocking(frame, streamId, hint, false).catch(() => {});
+      }
+    };
+
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
-      logPrefix: `[企微:${weworkUsername}] `,
+      logPrefix: `[企微:${instance.botName}:${username}] `,
       showThinking: true,
       agentConfig,
+      onProgress,
+      deliveryContext: { channel: 'wework' } as DeliveryContext,
     });
 
-    return textReply || '（无回复内容）';
+    const finalText = textReply || '（无回复内容）';
+    await ws.replyStream(frame, streamId, finalText, true);
+    return finalText;
   } finally {
     setCurrentUser(prevUser);
   }
 }
 
-async function handleCommand(cmd: string, args: string, weworkUserId: string): Promise<string | null> {
+// --- Slash Commands ---
+
+async function handleSlashCommand(
+  instance: WeworkBotInstance,
+  text: string,
+  mapKey: string,
+  userId: string,
+  username: string,
+): Promise<string | null> {
+  const session = getSession(instance.botId, instance.sessions, mapKey, username);
+  const agentConfig = getAgent(session.agentName);
+  setCurrentUser(session.user);
+  setCurrentAgent(agentConfig);
+
+  if (text === '/start') {
+    const role = isAgentAdmin(session.agentName) ? 'agent admin' : 'member';
+    return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
+  }
+
+  if (text === '/help') {
+    const entries = getCommandEntries();
+    const lines = ['可用命令：', ''];
+    for (const e of entries) {
+      lines.push(`${e.name} — ${e.description}`);
+      if (e.usage) lines.push(`  用法: ${e.usage}`);
+    }
+    lines.push('', '也可以直接输入自然语言，AI 助手会帮你处理！');
+    return lines.join('\n');
+  }
+
+  if (text === '/reset') {
+    resetSession(instance.botId, instance.sessions, mapKey);
+    return '对话上下文已重置';
+  }
+
+  if (text.startsWith('/debug')) {
+    return `你的企微用户 ID: ${userId}\nBot: ${instance.botName} (${instance.botId})`;
+  }
+
+  if (text.startsWith('/model')) {
+    if (!isAgentAdmin(getSession(instance.botId, instance.sessions, mapKey, '').agentName)) {
+      return '仅管理员可切换模型';
+    }
+    const arg = text.replace(/^\/model\s*/, '').trim();
+    if (!arg || arg === 'list') {
+      const available = getAvailableProviders();
+      const current = getProviderName();
+      const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
+      return `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`;
+    }
+    const ok = switchProvider(arg as ProviderName);
+    return ok
+      ? `已切换到 ${getProviderName()} / ${getModelName()}`
+      : `未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`;
+  }
+
+  const cleaned = text.trim();
+  const spaceIdx = cleaned.indexOf(' ');
+  const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
+  const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
+
+  return handleCommand(instance, cmd, args, mapKey);
+}
+
+async function handleCommand(instance: WeworkBotInstance, cmd: string, args: string, mapKey: string): Promise<string | null> {
   switch (cmd) {
     case 'status': {
       const data = fetchSystemStatus();
@@ -92,18 +222,18 @@ async function handleCommand(cmd: string, args: string, weworkUserId: string): P
       return null;
     }
     case 'agent':
-      return handleAgentCommand(args, weworkUserId);
+      return handleAgentCommand(instance, args, mapKey);
     default:
       return null;
   }
 }
 
-function handleAgentCommand(args: string, weworkUserId: string): string {
+function handleAgentCommand(instance: WeworkBotInstance, args: string, mapKey: string): string {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
 
   if (!sub) {
-    const session = getSession(weworkUserId, '');
+    const session = getSession(instance.botId, instance.sessions, mapKey, '');
     const agent = getAgent(session.agentName);
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
@@ -111,174 +241,123 @@ function handleAgentCommand(args: string, weworkUserId: string): string {
   return '`/agent` 的 list/switch 等管理操作仅支持 CLI channel';
 }
 
-/**
- * 处理企微消息事件
- * 返回被动回复 XML（或 'success' 表示无需回复）
- */
-async function handleEvent(message: WeworkMessage): Promise<string> {
-  const userId = message.fromUserName;
-  const corpId = message.toUserName;
+// --- Welcome event ---
 
-  log.info(`[企微] 收到消息: from=${userId}, type=${message.msgType}`);
-
-  // 忽略非文本消息（暂不支持图片、语音等）
-  if (message.msgType !== 'text') {
-    if (message.msgType === 'event') {
-      log.dim(`[企微] 收到事件: ${message.event}`);
-    } else {
-      log.dim(`[企微] 暂不支持消息类型: ${message.msgType}`);
-    }
-    return 'success';
-  }
-
-  const text = (message.content || '').trim();
-  if (!text) return 'success';
-
-  const username = `user_${userId.slice(-6)}`;
-  log.dim(`[企微] ${username}: ${text.slice(0, 80)}`);
-
-  let reply = '';
-
+async function handleEnterChat(instance: WeworkBotInstance, frame: WsFrame<EventMessageWith<EnterChatEvent>>): Promise<void> {
   try {
-    // 内置命令
-    if (text === '/start') {
-      const role = isAgentAdmin(getSession(userId, '').agentName) ? 'agent admin' : 'member';
-      reply = `欢迎使用 OTC Claw！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
-    } else if (text === '/help') {
-      const session = getSession(userId, username);
-      const agentConfig = getAgent(session.agentName);
-      setCurrentUser(session.user);
-      setCurrentAgent(agentConfig);
-      const entries = getCommandEntries();
-      const lines = ['可用命令：', ''];
-      for (const e of entries) {
-        lines.push(`${e.name} — ${e.description}`);
-        if (e.usage) lines.push(`  用法: ${e.usage}`);
-      }
-      lines.push('', '也可以直接输入自然语言，AI 助手会帮你处理！');
-      reply = lines.join('\n');
-    } else if (text === '/reset') {
-      resetSession(userId);
-      reply = '对话上下文已重置';
-    } else if (text.startsWith('/debug')) {
-      reply = `你的企微用户 ID: ${userId}`;
-    } else if (text.startsWith('/model')) {
-      if (!isAgentAdmin(getSession(userId, '').agentName)) {
-        reply = '仅管理员可切换模型';
-      } else {
-        const arg = text.replace(/^\/model\s*/, '').trim();
-        if (!arg || arg === 'list') {
-          const available = getAvailableProviders();
-          const current = getProviderName();
-          const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-          reply = `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`;
-        } else {
-          const ok = switchProvider(arg as ProviderName);
-          reply = ok
-            ? `已切换到 ${getProviderName()} / ${getModelName()}`
-            : `未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`;
-        }
-      }
-    } else if (text.startsWith('/')) {
-      // /command 格式 → 直接调用命令函数
-      const cleaned = text.trim();
-      const spaceIdx = cleaned.indexOf(' ');
-      const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
-      const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
+    const agentConfig = resolveAgent('wework', instance.botId) ?? getDefaultAgent();
+    const welcomeText = `你好！我是${agentConfig.displayName}，有什么可以帮你的？`;
 
-      const cmdReply = await handleCommand(cmd, args, userId);
-      if (cmdReply !== null) {
-        reply = cmdReply;
-      } else {
-        // 未匹配的命令，fallthrough 到 AI Agent
-        reply = await handleAIChat(text, userId, username);
-      }
-    } else {
-      // 自然语言 → AI Agent
-      reply = await handleAIChat(text, userId, username);
-    }
+    await instance.wsClient.replyWelcome(frame, {
+      msgtype: 'text',
+      text: { content: welcomeText },
+    });
   } catch (err: any) {
-    if (err instanceof AgentUnboundError) {
-      log.warn(`[企微] ${err.message}`);
-      reply = `⚠️ ${err.message}`;
-    } else {
-      log.error(`[企微] 处理消息出错: ${err.message}`);
-      reply = `处理出错: ${err.message}`;
-    }
+    log.error(`[企微:${instance.botName}] 发送欢迎语失败: ${err.message}`);
   }
-
-  // 截断超长回复（企微文本消息限制 2048 字符）
-  if (reply.length > 2000) {
-    reply = reply.slice(0, 1997) + '...';
-  }
-
-  return api.buildReply(userId, corpId, reply);
 }
 
-/**
- * 处理 HTTP Webhook 请求
- */
-export async function handleWebhookRequest(
-  method: string,
-  query: Record<string, string>,
-  body: string,
-): Promise<{ status: number; body: string; contentType: string }> {
-  // GET 请求：URL 验证挑战
-  if (method === 'GET' && query.echostr) {
-    try {
-      const echostr = api.replyEchostr(query.echostr, query);
-      log.success('[企微] URL 验证成功');
-      return { status: 200, body: echostr, contentType: 'text/plain' };
-    } catch (err: any) {
-      log.error(`[企微] URL 验证失败: ${err.message}`);
-      return { status: 403, body: 'Forbidden', contentType: 'text/plain' };
-    }
+// --- Lifecycle ---
+
+export async function startWeworkBot(botId: string, botName?: string): Promise<void> {
+  if (botInstances.has(botId)) {
+    log.warn(`[企微:${botId}] Bot 已在运行中`);
+    return;
   }
 
-  // POST 请求：接收消息
-  if (method === 'POST' && body) {
-    try {
-      const message = api.parseCallback(query, body);
-      const replyXml = await handleEvent(message);
-
-      if (replyXml === 'success') {
-        return { status: 200, body: 'success', contentType: 'text/plain' };
-      }
-      return { status: 200, body: replyXml, contentType: 'application/xml' };
-    } catch (err: any) {
-      log.error(`[企微] 处理回调出错: ${err.message}`);
-      return { status: 200, body: 'success', contentType: 'text/plain' };
-    }
+  const row = getDb().prepare("SELECT * FROM bot_apps WHERE id = ? AND channel = 'wework'").get(botId) as BotAppRow | undefined;
+  if (!row) {
+    log.warn(`[企微] 未找到 bot 配置: ${botId}`);
+    return;
   }
 
-  return { status: 200, body: 'success', contentType: 'text/plain' };
-}
+  const ws = createWsClient(row.id, row.secret);
+  const name = botName || row.name;
 
-export async function startWeworkBot(): Promise<void> {
-  if (running) return;
+  const instance: WeworkBotInstance = {
+    botId: row.id,
+    botName: name,
+    wsClient: ws,
+    sessions: new Map(),
+    cleanupTimer: null,
+  };
 
-  const config = loadWeworkConfig();
-  api = new WeworkAPI(config);
-  running = true;
+  ws.on('authenticated', () => log.success(`[企微:${name}] WebSocket 认证成功`));
+  ws.on('disconnected', (reason) => log.warn(`[企微:${name}] WebSocket 断开: ${reason}`));
+  ws.on('reconnecting', (attempt) => log.info(`[企微:${name}] 正在重连 (第 ${attempt} 次)...`));
+  ws.on('error', (err) => log.error(`[企微:${name}] WebSocket 错误: ${err.message}`));
 
-  // 定期清理过期会话
-  cleanupTimer = setInterval(() => {
-    const cleaned = cleanupSessions();
-    if (cleaned > 0) log.dim(`[企微] 清理过期会话: ${cleaned} 个`);
+  ws.on('message.text', (frame) => handleTextMessageForInstance(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理文本消息出错: ${err.message}`)
+  ));
+
+  ws.on('event.enter_chat', (frame) => handleEnterChat(instance, frame));
+
+  ws.connect();
+
+  instance.cleanupTimer = setInterval(() => {
+    const cleaned = cleanupSessions(instance.sessions);
+    if (cleaned > 0) log.dim(`[企微:${name}] 清理过期会话: ${cleaned} 个`);
   }, 30 * 60 * 1000);
 
-  log.success('[企微] Bot 已启动（webhook 模式）');
+  botInstances.set(botId, instance);
+  log.success(`[企微:${name}] Bot 已启动（WebSocket 长连接模式）`);
 }
 
-export function stopWeworkBot(): void {
-  if (cleanupTimer) {
-    clearInterval(cleanupTimer);
-    cleanupTimer = null;
+export function stopWeworkBot(botId: string): void {
+  const instance = botInstances.get(botId);
+  if (!instance) return;
+  instance.wsClient.disconnect();
+  if (instance.cleanupTimer) clearInterval(instance.cleanupTimer);
+  botInstances.delete(botId);
+  log.info(`[企微:${instance.botName}] Bot 已停止`);
+}
+
+export async function startAllWeworkBots(): Promise<void> {
+  const apps = getBotAppsByChannel('wework', true);
+  if (apps.length === 0) {
+    log.dim('[企微] 未配置需自动启动的 Bot，跳过启动');
+    return;
   }
-  running = false;
-  log.info('[企微] Bot 已停止');
+  for (const app of apps) {
+    await startWeworkBot(app.id, app.name);
+  }
 }
 
-export function isWeworkBotRunning(): boolean {
-  return running;
+export function stopAllWeworkBots(): void {
+  for (const botId of [...botInstances.keys()]) {
+    stopWeworkBot(botId);
+  }
+}
+
+export function isWeworkBotRunning(botId?: string): boolean {
+  if (botId) {
+    const inst = botInstances.get(botId);
+    return inst ? (inst.wsClient as any).isConnected ?? true : false;
+  }
+  return botInstances.size > 0;
+}
+
+export function getFirstConnectedWsClient(): WSClient | null {
+  for (const inst of botInstances.values()) {
+    if (inst.wsClient.isConnected) return inst.wsClient;
+  }
+  return null;
+}
+
+export function syncWeworkBots(): void {
+  const dbApps = getDb().prepare("SELECT id, auto_start FROM bot_apps WHERE channel = 'wework'").all() as { id: string; auto_start: number }[];
+
+  for (const row of dbApps) {
+    const isRunning = botInstances.has(row.id);
+    const shouldRun = row.auto_start === 1;
+
+    if (shouldRun && !isRunning) {
+      log.info(`[企微] 检测到新配置，正在启动 Bot: ${row.id}`);
+      startWeworkBot(row.id);
+    } else if (!shouldRun && isRunning) {
+      log.info(`[企微] 配置已关闭，正在停止 Bot: ${row.id}`);
+      stopWeworkBot(row.id);
+    }
+  }
 }

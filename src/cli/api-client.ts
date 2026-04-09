@@ -45,6 +45,13 @@ export async function destroyCliSession(sessionId: string): Promise<void> {
   });
 }
 
+export async function sendPromptReply(sessionId: string, promptId: string, value: string): Promise<void> {
+  await request('/api/cli/prompt-reply', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId, promptId, value }),
+  });
+}
+
 export async function* streamCliInput(
   sessionId: string,
   input: string,
