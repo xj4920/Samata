@@ -14,9 +14,15 @@ if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   fi
 fi
 
+NODE_PID=""
+trap '[ -n "$NODE_PID" ] && kill "$NODE_PID" 2>/dev/null; exit' TERM INT HUP
+
 while true; do
-  node --import tsx/esm src/index.ts "$@"
+  node --import tsx/esm src/index.ts "$@" &
+  NODE_PID=$!
+  wait $NODE_PID
   EXIT_CODE=$?
+  NODE_PID=""
 
   if [ "$EXIT_CODE" -eq 120 ]; then
     echo ""

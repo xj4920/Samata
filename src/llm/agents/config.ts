@@ -304,6 +304,8 @@ export interface DeliveryContext {
   channel: 'feishu' | 'telegram' | 'cli' | 'wework';
   targetId?: string;
   appId?: string;
+  weworkClient?: any;
+  weworkFrame?: any;
 }
 
 /** Context passed to every tool handler */

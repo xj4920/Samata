@@ -124,7 +124,7 @@ function showSkillHelp(): void {
   log.print('  skill list                          列出所有 skill');
   log.print('  skill save <name> "<prompt>" [--scope=global|agent]  保存 skill（支持 {param} 占位符）');
   log.print('  skill run <name> [param=value ...]   执行 skill');
-  log.print('  skill del <name>                     删除 skill');
+  log.print('  skill del <name>[,name2,...]          删除 skill（支持逗号/空格/| 分隔批量删除）');
 }
 
 function listSkills(): void {
@@ -176,17 +176,21 @@ function saveSkillCmd(args: string): void {
 }
 
 function delSkillCmd(args: string): void {
-  const name = args.trim();
-  if (!name) {
-    log.print('用法: skill del <name>');
+  const raw = args.trim();
+  if (!raw) {
+    log.print('用法: skill del <name>[,name2,...]');
     return;
   }
-  const result = deleteSkill(name, getCurrentAgent()?.id);
-  if (!result.success) {
-    log.print(result.error);
-    return;
+  const names = raw.split(/[,|\s]+/).filter(Boolean);
+  const agentId = getCurrentAgent()?.id;
+  const ok: string[] = [];
+  const fail: string[] = [];
+  for (const name of names) {
+    const result = deleteSkill(name, agentId);
+    (result.success ? ok : fail).push(name);
   }
-  log.print(`Skill 已删除: ${name}`);
+  if (ok.length) log.print(`已删除: ${ok.join(', ')}`);
+  if (fail.length) log.print(`删除失败（不存在或无权限）: ${fail.join(', ')}`);
 }
 
 async function runSkill(args: string): Promise<void> {

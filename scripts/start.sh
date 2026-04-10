@@ -17,26 +17,35 @@ if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   fi
 fi
 
-# 停止已有进程
+# 停止已有进程（杀整个进程组，确保 node 子进程也被终止）
 if [ -f "$PID_FILE" ]; then
   OLD_PID=$(cat "$PID_FILE")
   if kill -0 "$OLD_PID" 2>/dev/null; then
     echo "停止已有进程 (PID: $OLD_PID)..."
-    kill "$OLD_PID"
+    kill -- -"$OLD_PID" 2>/dev/null || kill "$OLD_PID" 2>/dev/null
     for i in $(seq 1 10); do
       kill -0 "$OLD_PID" 2>/dev/null || break
       sleep 0.5
     done
     if kill -0 "$OLD_PID" 2>/dev/null; then
       echo "进程未响应，强制终止..."
-      kill -9 "$OLD_PID" 2>/dev/null
+      kill -9 -- -"$OLD_PID" 2>/dev/null || kill -9 "$OLD_PID" 2>/dev/null
       sleep 0.5
     fi
   fi
   rm -f "$PID_FILE"
 fi
 
-nohup bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &
+# 兜底：如果端口仍被占用（孤儿进程），强制清理
+PORT_PID=$(lsof -ti :3456 2>/dev/null)
+if [ -n "$PORT_PID" ]; then
+  echo "清理残留端口占用进程 (PID: $PORT_PID)..."
+  kill "$PORT_PID" 2>/dev/null
+  sleep 1
+  lsof -ti :3456 2>/dev/null | xargs -r kill -9 2>/dev/null
+fi
+
+setsid bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &
 echo $! > "$PID_FILE"
 
 # 等待一下，确认进程没有立即退出

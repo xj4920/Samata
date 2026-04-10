@@ -113,6 +113,22 @@ async function sendViaTelegram(filePath: string, fileName: string, deliveryConte
   return { success: true, channel: 'telegram', filename: fileName, message_id: String(msg.message_id) };
 }
 
+async function sendViaWework(filePath: string, fileName: string, deliveryContext: DeliveryContext): Promise<DeliveryResult> {
+  const ws = deliveryContext.weworkClient;
+  const frame = deliveryContext.weworkFrame;
+  if (!ws || !frame) {
+    return { success: false, error: '企微发送失败：缺少 WebSocket 上下文' };
+  }
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const mediaType: 'image' | 'file' = isImageFile(fileName) ? 'image' : 'file';
+  const uploadResult = await ws.uploadMedia(fileBuffer, { type: mediaType, filename: fileName });
+
+  await ws.replyMedia(frame, mediaType, uploadResult.media_id);
+  log.file(`[delivery] 实际已发送${mediaType === 'image' ? '图片' : '文件'}: ${fileName} -> wework`);
+  return { success: true, channel: 'wework', filename: fileName };
+}
+
 async function sendPathToCurrentChannel(input: { path: string }, deliveryContext: DeliveryContext | undefined, mode: 'file' | 'image'): Promise<DeliveryResult> {
   if (!deliveryContext || deliveryContext.channel === 'cli') {
     return { success: false, error: '缺少可投递的渠道上下文，请通过飞书或 Telegram 使用此工具。' };
@@ -131,6 +147,9 @@ async function sendPathToCurrentChannel(input: { path: string }, deliveryContext
   }
   if (deliveryContext.channel === 'telegram') {
     return sendViaTelegram(checked.path, checked.filename, deliveryContext);
+  }
+  if (deliveryContext.channel === 'wework') {
+    return sendViaWework(checked.path, checked.filename, deliveryContext);
   }
   return { success: false, error: `暂不支持的渠道: ${deliveryContext.channel}` };
 }

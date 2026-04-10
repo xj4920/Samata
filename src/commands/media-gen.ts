@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { getArtifactRoot } from './artifact.js';
 import { log } from '../utils/logger.js';
 
-const DEFAULT_IMAGE_MODEL = 'image-01-live';
+const DEFAULT_IMAGE_MODEL = process.env.MINIMAX_IMAGE_MODEL || 'image-01';
 const DEFAULT_VIDEO_MODEL = process.env.MINIMAX_VIDEO_MODEL || 'MiniMax-Hailuo-2.3';
 const VIDEO_POLL_INTERVAL_MS = 5_000;
 const VIDEO_MAX_POLL_MS = 5 * 60_000;

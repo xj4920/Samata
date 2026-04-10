@@ -128,7 +128,7 @@ async function handleAIChat(
       showThinking: true,
       agentConfig,
       onProgress,
-      deliveryContext: { channel: 'wework' } as DeliveryContext,
+      deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
     });
 
     const finalText = textReply || '（无回复内容）';
