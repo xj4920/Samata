@@ -1,7 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { select } from '@inquirer/prompts';
-import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers } from './api-client.js';
+import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers, isConnectionError, waitForServer } from './api-client.js';
 
 async function main(): Promise<void> {
   const users = await listCliUsers();
@@ -26,6 +26,34 @@ async function main(): Promise<void> {
 
   const rl = readline.createInterface({ input, output });
 
+  async function reconnect(): Promise<void> {
+    console.log('\n\x1b[33m⚠ 与 server 的连接已断开，正在重连...\x1b[0m');
+    await waitForServer();
+    session = await createCliSession(username);
+    console.log(`\r\x1b[32m✔ 已重新连接 server (${session.agentDisplayName})\x1b[0m\n`);
+  }
+
+  async function handleStream(line: string): Promise<void> {
+    for await (const event of streamCliInput(session.sessionId, line)) {
+      if (event.type === 'text') {
+        process.stdout.write(event.chunk);
+      } else if (event.type === 'log') {
+        console.log(event.line);
+      } else if (event.type === 'prompt') {
+        const answer = await rl.question(`${event.message} `);
+        await sendPromptReply(session.sessionId, event.promptId, answer);
+      } else if (event.type === 'tool_start') {
+        process.stderr.write(`\r\x1b[2m🔧 ${event.name}...\x1b[0m`);
+      } else if (event.type === 'thinking') {
+        process.stderr.write(`\r\x1b[2m💭 ${event.text.slice(0, 80)}\x1b[0m`);
+      } else if (event.type === 'done') {
+        session = event.session;
+      } else if (event.type === 'error') {
+        console.error(event.message);
+      }
+    }
+  }
+
   try {
     while (true) {
       const line = (await rl.question('samata> ')).trim();
@@ -33,26 +61,18 @@ async function main(): Promise<void> {
       if (line === '/exit' || line === '/quit') break;
 
       try {
-        for await (const event of streamCliInput(session.sessionId, line)) {
-          if (event.type === 'text') {
-            process.stdout.write(event.chunk);
-          } else if (event.type === 'log') {
-            console.log(event.line);
-          } else if (event.type === 'prompt') {
-            const answer = await rl.question(`${event.message} `);
-            await sendPromptReply(session.sessionId, event.promptId, answer);
-          } else if (event.type === 'tool_start') {
-            process.stderr.write(`\r\x1b[2m🔧 ${event.name}...\x1b[0m`);
-          } else if (event.type === 'thinking') {
-            process.stderr.write(`\r\x1b[2m💭 ${event.text.slice(0, 80)}\x1b[0m`);
-          } else if (event.type === 'done') {
-            session = event.session;
-          } else if (event.type === 'error') {
-            console.error(event.message);
-          }
-        }
+        await handleStream(line);
       } catch (err: any) {
-        console.error(err.message ?? String(err));
+        if (isConnectionError(err)) {
+          try {
+            await reconnect();
+            await handleStream(line);
+          } catch (retryErr: any) {
+            console.error(retryErr.message ?? String(retryErr));
+          }
+        } else {
+          console.error(err.message ?? String(err));
+        }
       }
     }
   } finally {

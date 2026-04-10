@@ -2,6 +2,34 @@ import type { CliExecuteResponse, CliSessionInfo, CliUserInfo, CliStreamEvent } 
 
 const BASE_URL = process.env.CLI_SERVER_URL || `http://127.0.0.1:${process.env.CLI_API_PORT || '3456'}`;
 
+export function isConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return msg.includes('ECONNREFUSED')
+    || msg.includes('ECONNRESET')
+    || msg.includes('fetch failed')
+    || msg.includes('会话不存在')
+    || msg.includes('会话已过期');
+}
+
+export async function waitForServer(signal?: { aborted: boolean }): Promise<void> {
+  const MAX_WAIT = 60_000;
+  let waited = 0;
+  let delay = 1000;
+  while (waited < MAX_WAIT) {
+    if (signal?.aborted) throw new Error('用户取消等待');
+    try {
+      const resp = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) return;
+    } catch {}
+    process.stderr.write(`\r\x1b[33m⏳ 等待 server 启动... (${Math.round(waited / 1000)}s)\x1b[0m`);
+    await new Promise(r => setTimeout(r, delay));
+    waited += delay;
+    delay = Math.min(delay * 1.5, 5000);
+  }
+  throw new Error('server 在 60s 内未恢复，请检查 server 状态');
+}
+
 async function request<T>(pathname: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE_URL}${pathname}`, {
     ...init,

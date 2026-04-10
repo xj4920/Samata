@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "stop": "pkill -f 'tsx src/index.ts' ; pkill -f 'tsx src/cli/index.ts' ; true",
     "server": "npm run stop && tsx src/index.ts --server",
-    "cli": "pkill -f 'tsx src/cli/index.ts' ; true && tsx src/cli/index.ts",
+    "cli": "tsx src/cli/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts",
     "wework": "npx tsx src/wework-entry.ts",
     "check-readme": "npx tsx scripts/check-readme.ts"

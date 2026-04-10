@@ -7,13 +7,31 @@ LOG_FILE="$SCRIPT_DIR/logs/samata.log"
 
 mkdir -p "$SCRIPT_DIR/logs"
 
+# 如果 node_modules 不存在，先安装依赖
+if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+  echo "node_modules 不存在，正在安装依赖..."
+  cd "$SCRIPT_DIR" && npm install
+  if [ $? -ne 0 ]; then
+    echo "npm install 失败！"
+    exit 1
+  fi
+fi
+
 # 停止已有进程
 if [ -f "$PID_FILE" ]; then
   OLD_PID=$(cat "$PID_FILE")
   if kill -0 "$OLD_PID" 2>/dev/null; then
     echo "停止已有进程 (PID: $OLD_PID)..."
     kill "$OLD_PID"
-    sleep 1
+    for i in $(seq 1 10); do
+      kill -0 "$OLD_PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "进程未响应，强制终止..."
+      kill -9 "$OLD_PID" 2>/dev/null
+      sleep 0.5
+    fi
   fi
   rm -f "$PID_FILE"
 fi
