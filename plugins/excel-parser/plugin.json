@@ -1,0 +1,6 @@
+{
+  "name": "excel-parser",
+  "description": "解析 Excel/CSV 文件，提取数据和结构信息",
+  "version": "1.0.0",
+  "dependencies": ["xlsx"]
+}

@@ -7,6 +7,7 @@ import { buildSystemPrompt } from './agents/prompt.js';
 import { isPendingReload, setPendingReload } from './reload.js';
 import { getAllNativeTools, executeNativeTool } from '../tools/index.js';
 import { getMcpTools, callMcpTool } from '../services/mcp-manager.js';
+import { getPluginTools, executePluginTool } from '../plugins/registry.js';
 import { isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
@@ -43,6 +44,8 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
   if (name.startsWith('mcp_')) {
     return callMcpTool(name, input);
   }
+  const pluginResult = await executePluginTool(name, input, ctx);
+  if (pluginResult !== null) return pluginResult;
   return executeNativeTool(name, input, ctx);
 }
 
@@ -75,9 +78,9 @@ function trimHistory(history: Anthropic.MessageParam[], maxLen: number = MAX_HIS
 // --- Conversation state ---
 let conversationHistory: Anthropic.MessageParam[] = [];
 
-/** All globally registered tools (native + connected MCP servers) */
+/** All globally registered tools (native + plugins + MCP servers) */
 export function getGlobalTools(): Anthropic.Tool[] {
-  return [...getAllNativeTools(), ...getMcpTools()];
+  return [...getAllNativeTools(), ...getPluginTools(), ...getMcpTools()];
 }
 
 /** @deprecated Use getGlobalTools() + getAgentTools() instead */

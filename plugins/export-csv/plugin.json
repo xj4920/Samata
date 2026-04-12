@@ -1,0 +1,6 @@
+{
+  "name": "export-csv",
+  "description": "导出客户数据为 CSV 文件",
+  "version": "1.0.0",
+  "dependencies": ["better-sqlite3"]
+}

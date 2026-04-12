@@ -11,6 +11,7 @@ import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startHedgeRatioMonitor, stopHedgeRatioMonitor } from './services/hedge-ratio-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
+import { initPlugins, stopPluginWatcher } from './plugins/registry.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
 import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
 import { log } from './utils/logger.js';
@@ -25,6 +26,7 @@ let cliApiServer: Server | null = null;
 export function gracefulShutdown(): void {
   cliApiServer?.close();
   cliApiServer = null;
+  stopPluginWatcher();
   stopMonitor();
   stopHedgeRatioMonitor();
   stopReminderScheduler();
@@ -386,6 +388,9 @@ async function main(): Promise<void> {
 
   // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
   initMcpServers().catch(() => {});
+
+  // 加载 plugins/ 目录下的插件（热加载 + 文件监听）
+  await initPlugins();
 
   // 启动企微机器人（长连接模式，多实例）
   await startAllWeworkBots();

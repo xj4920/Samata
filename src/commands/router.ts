@@ -3,7 +3,7 @@ import { getExecutionChannel } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import * as knowledgeCmd from './knowledge.js';
 import * as monitorCmd from './monitor.js';
-import { runPlugin, listPlugins } from '../plugins/registry.js';
+import { getLoadedPlugins } from '../plugins/registry.js';
 import { chat, resetConversation, getCurrentAgent } from '../llm/agent.js';
 import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { handleSkill } from './skill.js';
@@ -35,7 +35,7 @@ const commands: Record<string, Command> = {
   'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', requiredRole: 'agent_admin', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
   'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', requiredRole: 'agent_admin', handler: knowledgeCmd.update },
   'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', requiredRole: 'agent_admin', handler: knowledgeCmd.remove },
-  plugin:  { description: '插件', usage: '/plugin <list|run> [名称]', handler: handlePlugin, subcommands: ['list'] },
+  plugin:  { description: '插件', usage: '/plugin [list]', handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
   memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
@@ -120,13 +120,22 @@ function handleModel(args: string): void {
   }
 }
 
-async function handlePlugin(args: string): Promise<void> {
-  const parts = args.trim().split(/\s+/);
-  if (!parts[0] || parts[0] === 'list') {
-    listPlugins();
+function handlePlugin(args: string): void {
+  const sub = args.trim().toLowerCase();
+  if (!sub || sub === 'list') {
+    const plugins = getLoadedPlugins();
+    if (plugins.length === 0) {
+      log.print('暂无已加载插件（将 plugin 放入 plugins/ 目录即可自动加载）');
+      return;
+    }
+    log.print('已加载插件：');
+    for (const p of plugins) {
+      log.print(`  ${p.name.padEnd(24)} ${p.description}`);
+      log.print(`  ${''.padEnd(24)} tools: ${p.tools.join(', ')}${p.hasSkill ? ' | SKILL.md ✓' : ''}`);
+    }
     return;
   }
-  await runPlugin(parts[0], parts.slice(1).join(' '));
+  log.print('用法: /plugin list');
 }
 
 function shouldShowCommand(cmd: Command): boolean {

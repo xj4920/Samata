@@ -3,6 +3,7 @@ import { getCurrentUser, isAgentAdmin, isAgentMember, isSystemAdmin } from '../.
 import type { AgentConfig } from './config.js';
 import { buildMemoryBlock } from './memory.js';
 import { getAllSkills } from '../../commands/skill.js';
+import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
@@ -101,13 +102,21 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     base += `\n\n${ATTACHMENT_GUIDANCE}`;
   }
 
-  // Inject available skills (name + description only, full content loaded via get_skill/run_skill)
-  const skills = getAllSkills(agentId);
-  if (skills.length > 0) {
-    const skillList = skills.map(s =>
-      `- 「${s.name}」: ${s.description ?? s.prompt.slice(0, 60).replace(/\n/g, ' ')}`
-    ).join('\n');
-    base += `\n\n🛠️ **可用技能 (Skills)：**\n${skillList}\n\n当场景匹配某个技能时，使用 run_skill 执行，使用 get_skill 获取完整内容。`;
+  // Inject available skills (DB skills + plugin skills, name + description only)
+  const dbSkills = getAllSkills(agentId);
+  const pluginSkillEntries = getPluginSkills();
+
+  const skillLines: string[] = [];
+  for (const s of dbSkills) {
+    skillLines.push(`- 「${s.name}」: ${s.description ?? s.prompt.slice(0, 60).replace(/\n/g, ' ')}`);
+  }
+  for (const ps of pluginSkillEntries) {
+    if (!dbSkills.some(s => s.name === ps.name)) {
+      skillLines.push(`- 「${ps.name}」: ${ps.description}`);
+    }
+  }
+  if (skillLines.length > 0) {
+    base += `\n\n🛠️ **可用技能 (Skills)：**\n${skillLines.join('\n')}\n\n当场景匹配某个技能时，使用 run_skill 执行，使用 get_skill 获取完整内容。`;
   }
 
   // Inject persistent memory

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import { getCurrentAgent } from '../llm/agents/config.js';
 import { getAllSkills, getSkillByName, saveSkill, deleteSkill } from '../commands/skill.js';
+import { getPluginSkills, getPluginSkillByName } from '../plugins/registry.js';
 import { recordEvent } from '../models/event.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
@@ -70,26 +71,49 @@ export const toolDefinitions: Anthropic.Tool[] = [
 
 function handleListSkills(): string {
   const agentId = getCurrentAgent()?.id;
-  const skills = getAllSkills(agentId);
-  return JSON.stringify(skills.map(s => ({
+  const dbSkills = getAllSkills(agentId);
+  const dbNames = new Set(dbSkills.map(s => s.name));
+
+  const items: any[] = dbSkills.map(s => ({
     name: s.name,
     description: s.description,
     params: [...s.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]),
     agent_id: s.agent_id,
-  })));
+  }));
+
+  for (const ps of getPluginSkills()) {
+    if (!dbNames.has(ps.name)) {
+      items.push({ name: ps.name, description: ps.description, source: 'plugin' });
+    }
+  }
+
+  return JSON.stringify(items);
 }
 
 function handleGetSkill(input: { name: string }): string {
   const agentId = getCurrentAgent()?.id;
   const skill = getSkillByName(input.name, agentId);
-  if (!skill) return JSON.stringify({ error: `未找到 skill: ${input.name}` });
-  return JSON.stringify({
-    name: skill.name,
-    description: skill.description,
-    prompt: skill.prompt,
-    params: [...skill.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]),
-    agent_id: skill.agent_id,
-  });
+  if (skill) {
+    return JSON.stringify({
+      name: skill.name,
+      description: skill.description,
+      prompt: skill.prompt,
+      params: [...skill.prompt.matchAll(/\{(\w+)\}/g)].map(m => m[1]),
+      agent_id: skill.agent_id,
+    });
+  }
+
+  const pluginSkill = getPluginSkillByName(input.name);
+  if (pluginSkill) {
+    return JSON.stringify({
+      name: pluginSkill.name,
+      description: pluginSkill.description,
+      prompt: pluginSkill.content,
+      source: 'plugin',
+    });
+  }
+
+  return JSON.stringify({ error: `未找到 skill: ${input.name}` });
 }
 
 function handleSaveSkill(input: { name: string; prompt: string; description?: string; scope?: string }): string {
@@ -105,17 +129,30 @@ function handleDeleteSkill(input: { name: string }): string {
 function handleRunSkill(input: { name: string; params?: Record<string, string> }): string {
   const agentId = getCurrentAgent()?.id;
   const skill = getSkillByName(input.name, agentId);
-  if (!skill) return JSON.stringify({ error: `未找到 skill: ${input.name}` });
+
+  let template: string;
+  let skillId: string | undefined;
+
+  if (skill) {
+    template = skill.prompt;
+    skillId = skill.id;
+  } else {
+    const pluginSkill = getPluginSkillByName(input.name);
+    if (!pluginSkill) return JSON.stringify({ error: `未找到 skill: ${input.name}` });
+    template = pluginSkill.content;
+  }
 
   const params = input.params ?? {};
-  const resolved = skill.prompt.replace(/\{(\w+)\}/g, (_, key) => params[key] ?? `{${key}}`);
+  const resolved = template.replace(/\{(\w+)\}/g, (_, key) => params[key] ?? `{${key}}`);
 
   const unresolved = [...resolved.matchAll(/\{(\w+)\}/g)].map(m => m[1]);
   if (unresolved.length > 0) {
     return JSON.stringify({ error: `缺少参数: ${unresolved.join(', ')}` });
   }
 
-  recordEvent('skill', skill.id, 'run', { name: input.name, params });
+  if (skillId) {
+    recordEvent('skill', skillId, 'run', { name: input.name, params });
+  }
   return JSON.stringify({ resolved_prompt: resolved, skill: input.name });
 }
 

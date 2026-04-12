@@ -24,3 +24,6 @@ config/monitor.json
 
 # Temp test scripts
 scripts/test_*.mjs
+
+data*
+.puppeteerrc.cjs
