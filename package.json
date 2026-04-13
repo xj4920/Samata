@@ -11,8 +11,13 @@
     "cli": "tsx src/cli/index.ts",
     "telegram": "npx tsx src/telegram-entry.ts",
     "wework": "npx tsx src/wework-entry.ts",
-    "check-readme": "npx tsx scripts/check-readme.ts"
+    "check-readme": "npx tsx scripts/check-readme.ts",
+    "analyze-log": "npx tsx scripts/analyze-log.ts"
   },
+  "workspaces": [
+    "packages/*",
+    "plugins/*"
+  ],
   "keywords": [],
   "author": "",
   "license": "ISC",

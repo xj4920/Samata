@@ -17,6 +17,7 @@ import * as markdownTools from './markdown-tools.js';
 import * as artifactTools from './artifact-tools.js';
 import * as deliveryTools from './delivery-tools.js';
 import * as mediaGenTools from './media-gen-tools.js';
+import * as hedgeRatioTools from './hedge-ratio-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -40,6 +41,7 @@ const modules: ToolModule[] = [
   artifactTools,
   deliveryTools,
   mediaGenTools,
+  hedgeRatioTools,
 ];
 
 export function getAllNativeTools(): Anthropic.Tool[] {

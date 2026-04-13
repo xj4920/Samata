@@ -28,7 +28,12 @@ function mdToHtml(md: string): string {
 
   // Fenced code blocks
   const codeBlocks: string[] = [];
-  html = html.replace(/```([\w]*)\n?([\s\S]*?)```/g, (_: string, _lang: string, code: string) => {
+  html = html.replace(/```([\w]*)\n?([\s\S]*?)```/g, (_: string, lang: string, code: string) => {
+    if (lang === 'mermaid') {
+      const idx = codeBlocks.length;
+      codeBlocks.push(`<pre class="mermaid">${code.trimEnd()}</pre>`);
+      return `\x00CODE${idx}\x00`;
+    }
     const escaped = code
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -129,7 +134,7 @@ function mdToHtml(md: string): string {
   return html;
 }
 
-function buildHtml(markdown: string, width: number, theme: 'light' | 'dark'): string {
+function buildHtml(markdown: string, width: number, theme: 'light' | 'dark'): { html: string; hasMermaid: boolean } {
   const isDark = theme === 'dark';
   const bg = isDark ? '#1e1e2e' : '#ffffff';
   const fg = isDark ? '#cdd6f4' : '#24292f';
@@ -144,11 +149,18 @@ function buildHtml(markdown: string, width: number, theme: 'light' | 'dark'): st
   const blockquoteFg = isDark ? '#a6adc8' : '#57606a';
 
   const bodyHtml = mdToHtml(markdown);
+  const hasMermaid = bodyHtml.includes('class="mermaid"');
 
-  return `<!DOCTYPE html>
+  const mermaidScript = hasMermaid
+    ? `<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: '${isDark ? 'dark' : 'default'}' });</script>`
+    : '';
+
+  const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+${mermaidScript}
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -241,6 +253,8 @@ del { text-decoration: line-through; opacity: 0.7; }
 </head>
 <body>${bodyHtml}</body>
 </html>`;
+
+  return { html, hasMermaid };
 }
 
 async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<string> {
@@ -254,7 +268,7 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
     return JSON.stringify({ error: 'puppeteer 未安装，请执行 npm install puppeteer' });
   }
 
-  const html = buildHtml(input.markdown, width, theme);
+  const { html, hasMermaid } = buildHtml(input.markdown, width, theme);
   const tmpFile = path.join(getArtifactRoot(), `md_${randomUUID()}.png`);
 
   let browser: any;
@@ -265,9 +279,15 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
     });
     const page = await browser.newPage();
     await page.setViewport({ width, height: 800, deviceScaleFactor: 2 });
-    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    await page.setContent(html, { waitUntil: hasMermaid ? 'networkidle0' : 'domcontentloaded' });
 
-    // Auto-height: measure content after DOM is ready
+    if (hasMermaid) {
+      await page.waitForFunction(
+        () => document.querySelector('.mermaid svg') !== null,
+        { timeout: 15000 },
+      );
+    }
+
     const contentHeight: number = await page.evaluate(() => document.body.scrollHeight);
     await page.setViewport({ width, height: Math.max(contentHeight, 1), deviceScaleFactor: 2 });
 

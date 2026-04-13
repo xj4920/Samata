@@ -1,0 +1,9 @@
+{
+  "name": "@samata/plugin-excel-parser",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@samata/plugin-sdk": "*",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,4 +1,6 @@
 node_modules/
+plugins/*/node_modules/
+packages/*/node_modules/
 venv/
 .env
 data/

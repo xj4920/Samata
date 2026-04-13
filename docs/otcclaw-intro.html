@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTCClaw 衍语 — 产品介绍</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: #0a0e1a;
+    color: #e0e6f0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+
+  .slide {
+    width: 1280px;
+    min-height: 720px;
+    background: linear-gradient(135deg, #0f1629 0%, #162040 40%, #1a2a52 100%);
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(100,140,255,0.08);
+  }
+
+  /* ===== TOP: Positioning ===== */
+  .top {
+    padding: 40px 48px 32px;
+    border-bottom: 1px solid rgba(100,160,255,0.1);
+    background: linear-gradient(180deg, rgba(30,60,120,0.25) 0%, transparent 100%);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .brand-name {
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .brand-cn {
+    font-size: 18px;
+    color: rgba(160,180,220,0.7);
+    font-weight: 400;
+  }
+
+  .tagline {
+    font-size: 26px;
+    font-weight: 600;
+    color: #f0f4ff;
+    margin-bottom: 12px;
+  }
+
+  .tagline em {
+    font-style: normal;
+    color: #93bbff;
+    border-bottom: 2px solid rgba(100,160,255,0.4);
+    padding-bottom: 1px;
+  }
+
+  .subtitle {
+    font-size: 15px;
+    color: rgba(180,200,240,0.65);
+    margin-bottom: 18px;
+  }
+
+  .caps {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .cap-tag {
+    padding: 6px 18px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    background: rgba(96,165,250,0.12);
+    border: 1px solid rgba(96,165,250,0.25);
+    color: #93bbff;
+  }
+
+  /* ===== BOTTOM: Two columns ===== */
+  .bottom {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* --- Left: Principles --- */
+  .left {
+    width: 44%;
+    padding: 28px 32px 28px 48px;
+    border-right: 1px solid rgba(100,160,255,0.08);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #7db4f8;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+  }
+
+  .flow {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .flow-step {
+    position: relative;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .flow-step.node {
+    background: rgba(96,165,250,0.08);
+    border: 1px solid rgba(96,165,250,0.2);
+  }
+
+  .flow-step .step-label {
+    font-weight: 600;
+    color: #a0c4ff;
+    font-size: 13px;
+    margin-bottom: 3px;
+  }
+
+  .flow-step .step-detail {
+    color: rgba(200,215,245,0.7);
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+
+  .flow-arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 22px;
+    color: rgba(96,165,250,0.4);
+    font-size: 16px;
+    user-select: none;
+  }
+
+  .legend {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 14px;
+  }
+
+  .legend-item {
+    font-size: 10.5px;
+    color: rgba(180,200,240,0.55);
+    line-height: 1.5;
+  }
+
+  .legend-item strong {
+    color: #7db4f8;
+    font-weight: 600;
+  }
+
+  /* --- Right: Tools --- */
+  .right {
+    flex: 1;
+    padding: 28px 40px 28px 32px;
+    overflow-y: auto;
+  }
+
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .tool-card {
+    background: rgba(96,165,250,0.05);
+    border: 1px solid rgba(96,165,250,0.12);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .tool-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #93bbff;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tool-card-title .icon {
+    font-size: 13px;
+    opacity: 0.7;
+  }
+
+  .tool-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tool-tag {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(100,160,255,0.08);
+    color: rgba(200,215,245,0.7);
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    white-space: nowrap;
+  }
+
+  .tool-card.wide {
+    grid-column: 1 / -1;
+  }
+</style>
+</head>
+<body>
+
+<div class="slide">
+
+  <!-- ===== TOP: Positioning ===== -->
+  <div class="top">
+    <div class="brand">
+      <span class="brand-name">OTCClaw</span>
+      <span class="brand-cn">衍语</span>
+    </div>
+    <div class="tagline">有事<em>【衍语】</em>一下</div>
+    <div class="subtitle">基于大语言模型的 OTC 衍生品智能助手 — 解决展业各类问题</div>
+    <div class="caps">
+      <span class="cap-tag">业务知识问答</span>
+      <span class="cap-tag">客户管理</span>
+      <span class="cap-tag">交易查询</span>
+      <span class="cap-tag">信息提醒</span>
+      <span class="cap-tag">内容生成</span>
+    </div>
+  </div>
+
+  <!-- ===== BOTTOM ===== -->
+  <div class="bottom">
+
+    <!-- LEFT: Principles -->
+    <div class="left">
+      <div class="section-title">&#9654; 工作原理</div>
+      <div class="flow">
+
+        <div class="flow-step node">
+          <div class="step-label">&#10102; 用户自然语言输入</div>
+          <div class="step-detail">企微 / 飞书 / CLI — 统一入口</div>
+        </div>
+        <div class="flow-arrow">&#8595;</div>
+
+        <div class="flow-step node">
+          <div class="step-label">&#10103; 构建 System Prompt</div>
+          <div class="step-detail">
+            角色指令 &amp; 权限<br>
+            <strong>Memory</strong> 自动注入（全局 50 + Agent 30 条）<br>
+            <strong>Skills</strong> 目录（名称 + 简介，按需获取全文）
+          </div>
+        </div>
+        <div class="flow-arrow">&#8595;</div>
+
+        <div class="flow-step node">
+          <div class="step-label">&#10104; LLM 推理 + 工具决策</div>
+          <div class="step-detail">
+            MiniMax / DeepSeek 等模型<br>
+            基于 JSON Schema 自主选择调用 Tools
+          </div>
+        </div>
+        <div class="flow-arrow">&#8595;</div>
+
+        <div class="flow-step node">
+          <div class="step-label">&#10105; 工具执行循环</div>
+          <div class="step-detail">
+            调用 Tools 获取数据 / 执行操作<br>
+            <strong>Knowledge</strong> 按需检索（关键词匹配 + 评分）<br>
+            <strong>run_skill</strong> 执行提示词模板
+          </div>
+        </div>
+        <div class="flow-arrow">&#8595;</div>
+
+        <div class="flow-step node">
+          <div class="step-label">&#10106; 综合生成回复</div>
+          <div class="step-detail">LLM 结合工具结果，输出结构化自然语言回答</div>
+        </div>
+
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><strong>Memory</strong> 常驻上下文，自动注入</div>
+        <div class="legend-item"><strong>Knowledge</strong> 按需检索 FAQ</div>
+        <div class="legend-item"><strong>Skills</strong> 可复用提示词模板</div>
+        <div class="legend-item"><strong>Tools</strong> LLM 自主选择调用</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Tool Catalog -->
+    <div class="right">
+      <div class="section-title">&#9654; 工具全景（OTCClaw Agent Admin）</div>
+      <div class="tool-grid">
+
+        <!-- CRM -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#128101;</span>客户管理</div>
+          <div class="tool-list">
+            <span class="tool-tag">query_clients</span>
+            <span class="tool-tag">view_client</span>
+            <span class="tool-tag">get_client_history</span>
+            <span class="tool-tag">add_client</span>
+            <span class="tool-tag">update_client</span>
+            <span class="tool-tag">advance_client</span>
+            <span class="tool-tag">rollback_client</span>
+          </div>
+        </div>
+
+        <!-- Trade -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#128200;</span>交易查询</div>
+          <div class="tool-list">
+            <span class="tool-tag">query_trades</span>
+            <span class="tool-tag">trade_summary</span>
+            <span class="tool-tag">plot_trades</span>
+            <span class="tool-tag">list_customers</span>
+            <span class="tool-tag">query_hedge_short</span>
+          </div>
+        </div>
+
+        <!-- Knowledge -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#128218;</span>知识库</div>
+          <div class="tool-list">
+            <span class="tool-tag">search_knowledge</span>
+            <span class="tool-tag">add_knowledge</span>
+            <span class="tool-tag">update_knowledge</span>
+            <span class="tool-tag">delete_knowledge</span>
+            <span class="tool-tag">list_knowledge_recent</span>
+            <span class="tool-tag">assign_knowledge_agent</span>
+            <span class="tool-tag">unassign_knowledge_agent</span>
+            <span class="tool-tag">get_knowledge_agents</span>
+          </div>
+        </div>
+
+        <!-- Skills -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#9881;</span>技能管理</div>
+          <div class="tool-list">
+            <span class="tool-tag">list_skills</span>
+            <span class="tool-tag">get_skill</span>
+            <span class="tool-tag">save_skill</span>
+            <span class="tool-tag">delete_skill</span>
+            <span class="tool-tag">run_skill</span>
+          </div>
+        </div>
+
+        <!-- Memory -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#129504;</span>记忆系统</div>
+          <div class="tool-list">
+            <span class="tool-tag">save_memory</span>
+            <span class="tool-tag">search_memory</span>
+            <span class="tool-tag">update_memory</span>
+            <span class="tool-tag">delete_memory</span>
+          </div>
+        </div>
+
+        <!-- Reminder & Todo -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#9200;</span>提醒与待办</div>
+          <div class="tool-list">
+            <span class="tool-tag">set_reminder</span>
+            <span class="tool-tag">list_reminders</span>
+            <span class="tool-tag">cancel_reminder</span>
+            <span class="tool-tag">create_todo</span>
+            <span class="tool-tag">list_todos</span>
+            <span class="tool-tag">update_todo</span>
+            <span class="tool-tag">delete_todo</span>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#127912;</span>内容生成</div>
+          <div class="tool-list">
+            <span class="tool-tag">generate_image</span>
+            <span class="tool-tag">markdown_to_image</span>
+            <span class="tool-tag">write_artifact</span>
+            <span class="tool-tag">send_file</span>
+            <span class="tool-tag">send_image</span>
+          </div>
+        </div>
+
+        <!-- WeWork + System -->
+        <div class="tool-card">
+          <div class="tool-card-title"><span class="icon">&#128736;</span>企微 &amp; 系统</div>
+          <div class="tool-list">
+            <span class="tool-tag">get_status_sumgenerate_videoary</span>
+            <span class="tool-tag">http_request</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /bottom -->
+
+</div><!-- /slide -->
+
+</body>
+</html>

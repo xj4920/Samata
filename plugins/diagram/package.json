@@ -1,0 +1,8 @@
+{
+  "name": "@samata/plugin-diagram",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@samata/plugin-sdk": "*"
+  }
+}

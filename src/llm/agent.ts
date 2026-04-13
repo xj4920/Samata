@@ -44,7 +44,7 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
   if (name.startsWith('mcp_')) {
     return callMcpTool(name, input);
   }
-  const pluginResult = await executePluginTool(name, input, ctx);
+  const pluginResult = await executePluginTool(name, input);
   if (pluginResult !== null) return pluginResult;
   return executeNativeTool(name, input, ctx);
 }
@@ -52,10 +52,17 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
 // --- History management ---
 
 const MAX_HISTORY_MESSAGES = 80;
+const MAX_TOOL_ROUNDS = 10;
+const MAX_TOOL_RESULT_LENGTH = 4000;
 
 function isToolResultMessage(msg: Anthropic.MessageParam): boolean {
   if (!Array.isArray(msg.content)) return false;
   return (msg.content as any[]).some(b => b.type === 'tool_result');
+}
+
+function isContextOverflowError(err: any): boolean {
+  const msg = err?.message ?? '';
+  return /context.window.exceeds.limit|token.*limit.*exceeded|maximum.*context.*length/i.test(msg);
 }
 
 /**
@@ -296,6 +303,12 @@ export async function runAgenticChat(
   let round = 1;
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
+
+    if (round > MAX_TOOL_ROUNDS) {
+      log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
+      break;
+    }
+
     const assistantContent = response.content;
     history.push({ role: 'assistant', content: assistantContent });
 
@@ -329,6 +342,9 @@ export async function runAgenticChat(
             result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
           }
         }
+        if (result.length > MAX_TOOL_RESULT_LENGTH) {
+          result = result.slice(0, MAX_TOOL_RESULT_LENGTH) + `\n...(truncated, ${result.length} chars total)`;
+        }
         onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: Date.now() - toolStartedAt });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
@@ -343,6 +359,21 @@ export async function runAgenticChat(
     try {
       ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
     } catch (err: any) {
+      if (isContextOverflowError(err) && history.length > historyLenBefore + 4) {
+        log.warn(`${logPrefix}上下文溢出，截断历史后重试...`);
+        // Keep the original user message + last 2 tool rounds (4 messages: assistant+toolResult x2)
+        const keepFromTurn = Math.max(historyLenBefore + 1, history.length - 4);
+        history.splice(historyLenBefore + 1, keepFromTurn - historyLenBefore - 1);
+        try {
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+          round += 1;
+          continue;
+        } catch (retryErr: any) {
+          log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
+          history.length = historyLenBefore;
+          throw retryErr;
+        }
+      }
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
       throw err;

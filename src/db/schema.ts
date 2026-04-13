@@ -1008,6 +1008,18 @@ export function initSchema(): void {
     }
   });
 
+  runOnce('otcclaw-add-query-hedge-short', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
+    if (row) {
+      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      if (!current.includes('query_hedge_short')) {
+        current.push('query_hedge_short');
+        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+          .run(JSON.stringify(current));
+      }
+    }
+  });
+
   runOnce('user-blocklist-otcclaw-add-client-video', () => {
     const row = db.prepare("SELECT user_tools_list FROM agents WHERE name = 'otcclaw'").get() as { user_tools_list: string | null } | undefined;
     if (row) {

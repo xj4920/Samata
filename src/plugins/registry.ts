@@ -1,10 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import type { PluginModule, PluginSkill, LoadedPlugin } from './types.js';
-import type { ToolContext } from '../llm/agents/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -152,12 +151,12 @@ export function stopPluginWatcher(): void {
 }
 
 export function getPluginTools(): Anthropic.Tool[] {
-  return [...loadedPlugins.values()].flatMap(p => p.module.toolDefinitions);
+  return [...loadedPlugins.values()].flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
 }
 
-export async function executePluginTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
+export async function executePluginTool(name: string, input: any): Promise<string | null> {
   for (const loaded of loadedPlugins.values()) {
-    const result = await loaded.module.handleTool(name, input, ctx);
+    const result = await loaded.module.handleTool(name, input);
     if (result !== null) return result;
   }
   return null;
