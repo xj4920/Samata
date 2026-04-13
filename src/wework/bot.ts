@@ -8,11 +8,11 @@
  * 1. /command → 直接调用命令函数，不经过 LLM
  * 2. 自然语言 → runAgenticChat()
  */
-import type { WSClient, WsFrame, TextMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
+import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { setCurrentUser, getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, setCurrentAgent, type ProgressEvent } from '../llm/agent.js';
+import { runAgenticChat, setCurrentAgent, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
@@ -35,6 +35,21 @@ interface WeworkBotInstance {
 }
 
 const botInstances = new Map<string, WeworkBotInstance>();
+
+// --- Image download helper ---
+
+async function downloadWeworkImage(
+  ws: WSClient, url: string, aeskey?: string, logTag?: string,
+): Promise<ImageInput | null> {
+  try {
+    const { buffer } = await ws.downloadFile(url, aeskey);
+    log.dim(`${logTag} 下载图片成功 (${buffer.length} bytes)`);
+    return { data: buffer.toString('base64'), mediaType: detectImageMediaType(buffer) };
+  } catch (err: any) {
+    log.error(`${logTag} 下载图片失败: ${err.message}`);
+    return null;
+  }
+}
 
 // --- Message Handling (instance-scoped) ---
 
@@ -80,11 +95,12 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
 
 async function handleAIChat(
   instance: WeworkBotInstance,
-  frame: WsFrame<TextMessage>,
+  frame: WsFrameHeaders,
   userInput: string,
   mapKey: string,
   userId: string,
   username: string,
+  images?: ImageInput[],
 ): Promise<string> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
   const prevUser = getCurrentUser();
@@ -127,6 +143,7 @@ async function handleAIChat(
       logPrefix: `[企微:${instance.botName}:${username}] `,
       showThinking: true,
       agentConfig,
+      images,
       onProgress,
       deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
     });
@@ -137,6 +154,69 @@ async function handleAIChat(
   } finally {
     setCurrentUser(prevUser);
   }
+}
+
+function handleImageMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<ImageMessage>): Promise<void> {
+  return runWithExecutionContext({ channel: 'wework' }, async () => {
+    const body = frame.body!;
+    const userId = body.from.userid;
+    const isGroup = body.chattype === 'group';
+    const mapKey = isGroup ? `g:${body.chatid}:${userId}` : userId;
+    const username = `wework_${userId.slice(-6)}`;
+    const logTag = `[企微:${instance.botName}]`;
+
+    log.dim(`${logTag} ${username}: [图片消息]`);
+
+    try {
+      const img = await downloadWeworkImage(instance.wsClient, body.image.url, body.image.aeskey, logTag);
+      if (!img) {
+        const streamId = generateReqId('stream');
+        await instance.wsClient.replyStream(frame, streamId, '图片下载失败，请重试', true);
+        return;
+      }
+      await handleAIChat(instance, frame, '请描述这张图片', mapKey, userId, username, [img]);
+    } catch (err: any) {
+      log.error(`${logTag} 处理图片消息出错: ${err.message}`);
+      const streamId = generateReqId('stream');
+      await instance.wsClient.replyStream(frame, streamId, `处理出错: ${err.message}`, true);
+    }
+  });
+}
+
+function handleMixedMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<MixedMessage>): Promise<void> {
+  return runWithExecutionContext({ channel: 'wework' }, async () => {
+    const body = frame.body!;
+    const userId = body.from.userid;
+    const isGroup = body.chattype === 'group';
+    const mapKey = isGroup ? `g:${body.chatid}:${userId}` : userId;
+    const username = `wework_${userId.slice(-6)}`;
+    const logTag = `[企微:${instance.botName}]`;
+
+    const textParts: string[] = [];
+    const images: ImageInput[] = [];
+
+    for (const item of body.mixed.msg_item) {
+      if (item.msgtype === 'text' && item.text?.content) {
+        textParts.push(item.text.content.replace(/@\S+\s?/g, '').trim());
+      } else if (item.msgtype === 'image' && item.image?.url) {
+        const img = await downloadWeworkImage(instance.wsClient, item.image.url, item.image.aeskey, logTag);
+        if (img) images.push(img);
+      }
+    }
+
+    const text = textParts.filter(Boolean).join('\n') || (images.length > 0 ? '请描述这张图片' : '');
+    if (!text && images.length === 0) return;
+
+    log.dim(`${logTag} ${username}: [图文混排] text=${text.slice(0, 80)} images=${images.length}`);
+
+    try {
+      await handleAIChat(instance, frame, text, mapKey, userId, username, images.length > 0 ? images : undefined);
+    } catch (err: any) {
+      log.error(`${logTag} 处理图文混排消息出错: ${err.message}`);
+      const streamId = generateReqId('stream');
+      await instance.wsClient.replyStream(frame, streamId, `处理出错: ${err.message}`, true);
+    }
+  });
 }
 
 // --- Slash Commands ---
@@ -289,6 +369,12 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
 
   ws.on('message.text', (frame) => handleTextMessageForInstance(instance, frame).catch(err =>
     log.error(`[企微:${name}] 处理文本消息出错: ${err.message}`)
+  ));
+  ws.on('message.image', (frame) => handleImageMessageForInstance(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理图片消息出错: ${err.message}`)
+  ));
+  ws.on('message.mixed', (frame) => handleMixedMessageForInstance(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理图文混排消息出错: ${err.message}`)
   ));
 
   ws.on('event.enter_chat', (frame) => handleEnterChat(instance, frame));

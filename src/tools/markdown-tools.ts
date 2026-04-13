@@ -152,7 +152,7 @@ function buildHtml(markdown: string, width: number, theme: 'light' | 'dark'): st
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 15px;
   line-height: 1.7;
   color: ${fg};
@@ -173,7 +173,7 @@ h1:first-child, h2:first-child { margin-top: 0; }
 p { margin: 0.75em 0; }
 a { color: ${linkColor}; text-decoration: none; }
 code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", monospace;
   font-size: 0.875em;
   background: ${codeBg};
   color: ${codeFg};
