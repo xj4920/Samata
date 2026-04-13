@@ -27,6 +27,7 @@ export type DeleteKnowledgeInput        = { id_prefix: string };
 export type AssignKnowledgeAgentInput   = { knowledge_id: string; agent_name: string };
 export type UnassignKnowledgeAgentInput = { knowledge_id: string; agent_name: string };
 export type GetKnowledgeAgentsInput     = { knowledge_id: string };
+export type ListKnowledgeRecentInput   = { since?: string; until?: string; limit?: number };
 
 // --- Skill ---
 export type GetSkillInput    = { name: string };

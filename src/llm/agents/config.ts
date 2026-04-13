@@ -11,7 +11,7 @@ import { getExecutionChannel } from '../../runtime/execution-context.js';
  */
 export const COMMON_SET = new Set([
   // Knowledge
-  'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge',
+  'search_knowledge', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_knowledge_recent',
   // Skill
   'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
   // System

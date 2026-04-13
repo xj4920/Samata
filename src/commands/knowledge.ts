@@ -90,6 +90,33 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
   return db.prepare(sql).all(...params) as KnowledgeItem[];
 }
 
+export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agentId?: string, limit = 20): KnowledgeItem[] {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: string[] = [];
+
+  if (since) {
+    conditions.push('k.updated_at >= ?');
+    params.push(since);
+  }
+  if (until) {
+    conditions.push('k.updated_at <= ?');
+    params.push(until);
+  }
+
+  if (agentId) {
+    conditions.push('k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?)');
+    params.push(agentId);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const cap = Math.min(Math.max(limit, 1), 50);
+  const sql = `SELECT k.* FROM knowledge k ${where} ORDER BY k.updated_at DESC LIMIT ?`;
+  params.push(String(cap));
+
+  return db.prepare(sql).all(...params) as KnowledgeItem[];
+}
+
 export function search(args: string): void {
   const keyword = args.trim();
   const rows = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);

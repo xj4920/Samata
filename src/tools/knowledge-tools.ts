@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput } from '../llm/tool-types.js';
+import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
 import { isSystemAdmin } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
-import { fetchKnowledge, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
+import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
@@ -98,6 +98,19 @@ export const toolDefinitions: Anthropic.Tool[] = [
       required: ['knowledge_id'],
     },
   },
+  {
+    name: 'list_knowledge_recent',
+    description: '按更新时间查询知识库条目。可指定起止时间范围，返回该时间段内更新过的FAQ列表。时间格式为 ISO 日期或日期时间（如 "2026-04-01" 或 "2026-04-13T12:00:00"）。不传参数则返回最近更新的条目。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        since: { type: 'string', description: '起始时间（含），ISO 日期或日期时间' },
+        until: { type: 'string', description: '截止时间（含），ISO 日期或日期时间' },
+        limit: { type: 'number', description: '返回条数上限，默认20，最大50' },
+      },
+      required: [],
+    },
+  },
 ];
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
@@ -146,6 +159,19 @@ function handleGetKnowledgeAgents(input: { knowledge_id: string }): string {
   return JSON.stringify(getKnowledgeAgents(input.knowledge_id));
 }
 
+function handleListKnowledgeRecent(input: ListKnowledgeRecentInput): string {
+  const agentId = getCurrentAgent()?.id;
+  const rows = fetchKnowledgeByUpdatedTime(input.since, input.until, agentId, input.limit);
+  if (rows.length === 0) return JSON.stringify({ message: '该时间范围内没有更新的FAQ' });
+  return JSON.stringify(rows.map(r => ({
+    id: r.id.slice(0, 8),
+    question: r.question,
+    answer: r.answer,
+    tags: r.tags,
+    updated_at: r.updated_at,
+  })));
+}
+
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
   switch (name) {
     case 'search_knowledge': return handleSearchKnowledge(input);
@@ -155,6 +181,7 @@ export async function handleTool(name: string, input: any, _ctx?: ToolContext): 
     case 'assign_knowledge_agent': return handleAssignKnowledgeAgent(input);
     case 'unassign_knowledge_agent': return handleUnassignKnowledgeAgent(input);
     case 'get_knowledge_agents': return handleGetKnowledgeAgents(input);
+    case 'list_knowledge_recent': return handleListKnowledgeRecent(input);
     default: return null;
   }
 }
