@@ -4,6 +4,7 @@ import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
+import { getPluginTools } from '../../plugins/registry.js';
 
 /**
  * Base tool set shared by all agents in 'standard' mode.
@@ -371,7 +372,8 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     effectiveNames = new Set(globalTools.map(t => t.name));
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
-    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList]);
+    const pluginToolNames = getPluginTools().map(t => t.name);
+    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...pluginToolNames]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else {
     // Legacy allowlist/blocklist (backward compat for un-migrated agents)
