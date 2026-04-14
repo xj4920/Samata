@@ -1037,6 +1037,41 @@ export function initSchema(): void {
     }
   });
 
+  runOnce('add-documents-table', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        file_type   TEXT NOT NULL,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        agent_id    TEXT REFERENCES agents(id),
+        created_by  TEXT NOT NULL REFERENCES users(id),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    try { db.exec("ALTER TABLE knowledge ADD COLUMN document_id TEXT REFERENCES documents(id) ON DELETE CASCADE"); } catch (e) {}
+  });
+
+  runOnce('user-blocklist-add-document-tools', () => {
+    const rows = db.prepare("SELECT id, user_tools_list FROM agents WHERE user_tools_mode = 'blocklist' AND user_tools_list IS NOT NULL").all() as { id: string; user_tools_list: string }[];
+    for (const row of rows) {
+      const current: string[] = JSON.parse(row.user_tools_list);
+      let changed = false;
+      for (const tool of ['import_document', 'delete_document']) {
+        if (!current.includes(tool)) { current.push(tool); changed = true; }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify(current), row.id);
+      }
+    }
+  });
+
+  runOnce('add-documents-stored-path', () => {
+    try { db.exec("ALTER TABLE documents ADD COLUMN stored_path TEXT"); } catch (e) {}
+  });
+
   runOnce('otcclaw-remove-generate-video-extract-wework-qa', () => {
     const row = db.prepare(
       "SELECT tools_list, block_tools, user_tools_list FROM agents WHERE name = 'otcclaw'",

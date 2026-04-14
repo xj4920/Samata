@@ -27,6 +27,8 @@ export const COMMON_SET = new Set([
   'create_todo', 'list_todos', 'update_todo', 'delete_todo',
   // Media
   'generate_image', 'generate_video',
+  // Document
+  'import_document', 'list_documents', 'delete_document',
 ]);
 
 /** @deprecated Kept for backward compatibility with list_tool_presets and CLI create wizard. Use COMMON_SET + allow/block instead. */

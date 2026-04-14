@@ -126,6 +126,10 @@ export type MarkdownToImageInput = {
   theme?: 'light' | 'dark';
 };
 
+// --- Document ---
+export type ImportDocumentInput = { file_path: string; title?: string };
+export type DeleteDocumentInput = { id_prefix: string };
+
 // --- Media Generation ---
 export type GenerateImageInput = {
   prompt: string;
