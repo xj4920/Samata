@@ -920,6 +920,8 @@ export function initSchema(): void {
       'delete_todo',
       'set_reminder',
       'cancel_reminder',
+      'import_document',
+      'delete_document',
     ];
     const json = JSON.stringify(MEMBER_MUTATION_BLOCK);
     db.prepare(
@@ -1060,6 +1062,28 @@ export function initSchema(): void {
       let changed = false;
       for (const tool of ['import_document', 'delete_document']) {
         if (!current.includes(tool)) { current.push(tool); changed = true; }
+      }
+      if (changed) {
+        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify(current), row.id);
+      }
+    }
+  });
+
+  /** Covers blocklist agents with NULL user_tools_list missed by user-blocklist-add-document-tools. */
+  runOnce('user-blocklist-document-tools-nullsafe', () => {
+    const rows = db.prepare("SELECT id, user_tools_list FROM agents WHERE user_tools_mode = 'blocklist'").all() as {
+      id: string;
+      user_tools_list: string | null;
+    }[];
+    for (const row of rows) {
+      const current: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+      let changed = false;
+      for (const tool of ['import_document', 'delete_document']) {
+        if (!current.includes(tool)) {
+          current.push(tool);
+          changed = true;
+        }
       }
       if (changed) {
         db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE id = ?")
