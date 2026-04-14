@@ -38,6 +38,7 @@ import {
   formatKnowledge, formatSkillList,
   formatError,
 } from './formatter.js';
+import { saveUploadedFile } from '../commands/artifact.js';
 
 type FeishuAppConfig = {
   appId: string;
@@ -1024,13 +1025,9 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       if (fileKey) {
         try {
           const buf = await instance.api.downloadMessageResource(messageId, fileKey, 'file');
-          // 将文件内容的前 2000 字符作为文本预览传给 LLM
-          const preview = buf.toString('utf-8', 0, Math.min(buf.length, 2000));
-          const isPrintable = /^[\x20-\x7E\t\n\r\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+$/.test(preview.slice(0, 200));
-          text = isPrintable
-            ? `用户发送了文件 "${fileName}" (${buf.length} bytes)，内容预览:\n\`\`\`\n${preview}\n\`\`\``
-            : `用户发送了文件 "${fileName}" (${buf.length} bytes)，该文件为二进制格式，无法预览文本内容。`;
-          log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes)`);
+          const savedPath = saveUploadedFile(buf, fileName);
+          text = `用户发送了文件 "${fileName}" (${buf.length} bytes)，已保存到本地路径: ${savedPath}\n请使用合适的工具（parse_word、parse_excel、read_file 等）读取文件内容。`;
+          log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {
           log.error(`[飞书:${instance.appName}] 下载文件失败: ${err.message}`);
           text = `用户发送了文件 "${fileName}"，但下载失败。`;

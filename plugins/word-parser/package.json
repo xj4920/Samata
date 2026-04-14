@@ -1,0 +1,9 @@
+{
+  "name": "@samata/plugin-word-parser",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@samata/plugin-sdk": "*",
+    "mammoth": "^1.12.0"
+  }
+}

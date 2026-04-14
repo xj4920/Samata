@@ -8,7 +8,7 @@
  * 1. /command → 直接调用命令函数，不经过 LLM
  * 2. 自然语言 → runAgenticChat()
  */
-import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
+import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { setCurrentUser, getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
@@ -25,6 +25,7 @@ import {
 } from './formatter.js';
 import { getProviderName, getModelName, switchProvider, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { getDb } from '../db/connection.js';
+import { saveUploadedFile } from '../commands/artifact.js';
 
 interface WeworkBotInstance {
   botId: string;
@@ -219,6 +220,34 @@ function handleMixedMessageForInstance(instance: WeworkBotInstance, frame: WsFra
   });
 }
 
+function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<FileMessage>): Promise<void> {
+  return runWithExecutionContext({ channel: 'wework' }, async () => {
+    const body = frame.body!;
+    const userId = body.from.userid;
+    const isGroup = body.chattype === 'group';
+    const mapKey = isGroup ? `g:${body.chatid}:${userId}` : userId;
+    const username = `wework_${userId.slice(-6)}`;
+    const logTag = `[企微:${instance.botName}]`;
+
+    log.dim(`${logTag} ${username}: [文件消息]`);
+
+    try {
+      const { buffer, filename: dlFilename } = await instance.wsClient.downloadFile(body.file.url, body.file.aeskey);
+      const filename = dlFilename || '未知文件';
+      const savedPath = saveUploadedFile(buffer, filename);
+
+      log.dim(`${logTag} 下载文件成功: ${filename} (${buffer.length} bytes) -> ${savedPath}`);
+
+      const text = `用户发送了文件 "${filename}" (${buffer.length} bytes)，已保存到本地路径: ${savedPath}\n请使用合适的工具（parse_word、parse_excel、read_file 等）读取文件内容。`;
+      await handleAIChat(instance, frame, text, mapKey, userId, username);
+    } catch (err: any) {
+      log.error(`${logTag} 处理文件消息出错: ${err.message}`);
+      const streamId = generateReqId('stream');
+      await instance.wsClient.replyStream(frame, streamId, `文件处理出错: ${err.message}`, true);
+    }
+  });
+}
+
 // --- Slash Commands ---
 
 async function handleSlashCommand(
@@ -375,6 +404,9 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
   ));
   ws.on('message.mixed', (frame) => handleMixedMessageForInstance(instance, frame).catch(err =>
     log.error(`[企微:${name}] 处理图文混排消息出错: ${err.message}`)
+  ));
+  ws.on('message.file', (frame) => handleFileMessageForInstance(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理文件消息出错: ${err.message}`)
   ));
 
   ws.on('event.enter_chat', (frame) => handleEnterChat(instance, frame));
