@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ImportDocumentInput, DeleteDocumentInput } from '../llm/tool-types.js';
+import { getCurrentUser } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 import { importDocument, deleteDocument, listDocuments } from '../commands/document-import.js';
 
@@ -41,7 +42,10 @@ export const toolDefinitions: Anthropic.Tool[] = [
 async function handleImportDocument(input: ImportDocumentInput): Promise<string> {
   const agentId = getCurrentAgent()?.id;
   if (!agentId) return JSON.stringify({ error: '未关联 Agent，无法导入' });
-  const result = await importDocument(input.file_path, agentId, { title: input.title });
+  const result = await importDocument(input.file_path, agentId, {
+    title: input.title,
+    actorUserId: getCurrentUser().id,
+  });
   return JSON.stringify(result);
 }
 

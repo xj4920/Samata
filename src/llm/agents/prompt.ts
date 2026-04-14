@@ -66,6 +66,8 @@ ${buildPermissionText(user, agent)}
   * 用户问"某某公司" → keyword="某某"
   * 只有用户明确说"所有客户"或"全部客户"时才可以不传keyword
 - 禁止使用空参数{}查询 query_clients，这会返回全量数据，效率低且可能超出限制
+- 用户要求将文件保存/导入为知识时，必须使用 import_document（支持 .md/.docx/.xlsx/.csv，自动按章节拆分为多条知识）
+- 禁止将整个文件内容用 add_knowledge 保存为单条知识，add_knowledge 仅用于手动创建单条 FAQ
 
 ${ATTACHMENT_GUIDANCE}`;
 }
@@ -79,6 +81,10 @@ ${buildPermissionText(user, agent)}
 回答要求：
 - 用简洁专业的中文回答
 - 查询数据时主动使用工具获取最新信息，不要凭记忆回答
+
+工具使用规范：
+- 用户要求将文件保存/导入为知识时，必须使用 import_document（支持 .md/.docx/.xlsx/.csv，自动按章节拆分为多条知识）
+- 禁止将整个文件内容用 add_knowledge 保存为单条知识，add_knowledge 仅用于手动创建单条 FAQ
 
 ${ATTACHMENT_GUIDANCE}`;
 }

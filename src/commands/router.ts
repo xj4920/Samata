@@ -2,6 +2,7 @@ import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getExecutionChannel } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import * as knowledgeCmd from './knowledge.js';
+import * as knowledgeTagAudit from './knowledge-tag-audit.js';
 import * as documentImport from './document-import.js';
 import * as monitorCmd from './monitor.js';
 import { getLoadedPlugins } from '../plugins/registry.js';
@@ -36,6 +37,12 @@ const commands: Record<string, Command> = {
   'faq-add':  { description: '添加FAQ', usage: '/faq-add <内容>', requiredRole: 'agent_admin', handler: (args) => knowledgeCmd.add(args, getCurrentAgent()?.id) },
   'faq-update': { description: '修改FAQ', usage: '/faq-update <id> <内容>', requiredRole: 'agent_admin', handler: knowledgeCmd.update },
   'faq-del':  { description: '删除FAQ', usage: '/faq-del <id>', requiredRole: 'agent_admin', handler: knowledgeCmd.remove },
+  'faq-tags-check': {
+    description: '核对知识标签与 monitor 白名单',
+    usage: '/faq-tags-check',
+    requiredRole: 'agent_admin',
+    handler: () => knowledgeTagAudit.cliAuditKnowledgeTags(),
+  },
   'doc-import': { description: '导入文档为知识', usage: '/doc-import <文件路径>', requiredRole: 'agent_admin', handler: documentImport.cliImport },
   'doc-list':   { description: '已导入的文档', usage: '/doc-list', handler: documentImport.cliList },
   'doc-del':    { description: '删除文档及知识', usage: '/doc-del <文档ID>', requiredRole: 'agent_admin', handler: documentImport.cliDelete },

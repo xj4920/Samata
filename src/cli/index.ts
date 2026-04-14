@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   async function reconnect(): Promise<void> {
     console.log('\n\x1b[33m⚠ 与 server 的连接已断开，正在重连...\x1b[0m');
     await waitForServer();
-    session = await createCliSession(username);
+    session = await createCliSession(username, session.agentName);
     console.log(`\r\x1b[32m✔ 已重新连接 server (${session.agentDisplayName})\x1b[0m\n`);
   }
 
@@ -49,6 +49,10 @@ async function main(): Promise<void> {
       } else if (event.type === 'done') {
         session = event.session;
       } else if (event.type === 'error') {
+        const err = new Error(event.message);
+        if (isConnectionError(err)) {
+          throw err;
+        }
         console.error(event.message);
       }
     }

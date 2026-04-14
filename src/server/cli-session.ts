@@ -27,7 +27,7 @@ export function listCliUsers(): CliUserInfo[] {
   return getAllUsers().map(toUserInfo);
 }
 
-export function createCliSession(username?: string): CliSession {
+export function createCliSession(username?: string, agentName?: string): CliSession {
   const users = getAllUsers();
   const user = username
     ? users.find(item => item.username === username)
@@ -37,7 +37,7 @@ export function createCliSession(username?: string): CliSession {
     throw new Error('未找到可登录用户');
   }
 
-  const agent = getDefaultAgent();
+  const agent = agentName ? getAgent(agentName) : getDefaultAgent();
   const session: CliSession = {
     id: randomUUID(),
     user,

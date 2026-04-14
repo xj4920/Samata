@@ -37,6 +37,12 @@
   "todos": {
     "tags": ["工作", "个人", "学习", "生活", "孩子", "紧急", "健康"]
   },
+  "knowledge": {
+    "tags": {
+      "otcclaw": ["期权", "对冲", "雪球"],
+      "tutor": ["语文", "数学", "英语"]
+    }
+  },
   "hedgeRatio": {
     "enabled": false,
     "pollingIntervalSec": 60,

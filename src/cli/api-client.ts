@@ -51,10 +51,10 @@ export async function listCliUsers(): Promise<CliUserInfo[]> {
   return result.users;
 }
 
-export async function createCliSession(username: string): Promise<CliSessionInfo> {
+export async function createCliSession(username: string, agentName?: string): Promise<CliSessionInfo> {
   const result = await request<{ ok: true; session: CliSessionInfo }>('/api/cli/session', {
     method: 'POST',
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({ username, agentName }),
   });
   return result.session;
 }

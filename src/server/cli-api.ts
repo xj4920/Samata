@@ -37,7 +37,7 @@ export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3
 
       if (req.method === 'POST' && url.pathname === '/api/cli/session') {
         const body = await readJson(req);
-        const session = createCliSession(body.username);
+        const session = createCliSession(body.username, body.agentName);
         return sendJson(res, 200, {
           ok: true,
           session: toCliSessionInfo(session),

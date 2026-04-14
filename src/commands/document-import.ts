@@ -9,6 +9,9 @@ import * as path from 'path';
 import * as XLSX from 'xlsx';
 import { fileURLToPath } from 'url';
 import { executePluginTool } from '../plugins/registry.js';
+import { getProvider, getModelName } from '../llm/provider.js';
+import { parseLLMJsonArray } from '../utils/json-repair.js';
+import { loadKnowledgeTagsFromConfig } from './knowledge-tag-audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +24,7 @@ export interface ImportResult {
   documentId?: string;
   title?: string;
   chunkCount?: number;
+  topics?: string[];
   error?: string;
 }
 
@@ -39,6 +43,7 @@ export interface DocumentInfo {
 interface Chunk {
   heading: string;
   content: string;
+  tags?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +80,33 @@ function ensureDocWriteAccess(agentId?: string): { success: true } | { success: 
     return { success: true };
   }
   return { success: false, error: '需要指定 agent' };
+}
+
+// ---------------------------------------------------------------------------
+// Tag candidates
+// ---------------------------------------------------------------------------
+
+function collectTagCandidates(agentId: string): string[] {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT DISTINCT k.tags FROM knowledge k
+     WHERE k.tags IS NOT NULL AND k.tags != ''
+       AND k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?)`,
+  ).all(agentId) as { tags: string }[];
+
+  const tagSet = new Set<string>();
+  for (const row of rows) {
+    for (const t of row.tags.split(',')) {
+      const trimmed = t.trim();
+      if (trimmed) tagSet.add(trimmed);
+    }
+  }
+
+  for (const t of loadKnowledgeTagsFromConfig(agentId)) {
+    tagSet.add(t);
+  }
+
+  return [...tagSet];
 }
 
 // ---------------------------------------------------------------------------
@@ -208,14 +240,129 @@ function splitExcelBySheets(filePath: string, docTitle: string): Chunk[] {
 }
 
 // ---------------------------------------------------------------------------
+// LLM semantic chunking (fallback when heading-based split yields <= 1 chunk)
+// ---------------------------------------------------------------------------
+
+interface SplitPoint {
+  heading: string;
+  start_paragraph: number;
+  tags?: string[];
+}
+
+/**
+ * Number paragraphs and ask LLM to identify split points and assign tags.
+ * We split programmatically — no content duplication in LLM output.
+ */
+async function chunkWithLLM(content: string, docTitle: string, tagCandidates: string[]): Promise<Chunk[]> {
+  const paragraphs = content.split(/\n{2,}/).filter(p => p.trim());
+  if (paragraphs.length < 2) return [];
+
+  const numbered = paragraphs
+    .map((p, i) => `[${i + 1}] ${p.length > 120 ? p.slice(0, 120) + '…' : p}`)
+    .join('\n');
+
+  const tagInstruction = tagCandidates.length > 0
+    ? `\n可选标签（从中选取 1-3 个最相关的）：\n${tagCandidates.join('、')}\n如标签列表中没有合适的，可新建一个简短标签。`
+    : '\n为每组生成 1-3 个简短标签。';
+
+  const provider = getProvider();
+  const response = await provider.createMessage({
+    model: getModelName(),
+    max_tokens: 2000,
+    system: '你是一个文档结构化专家。请直接返回 JSON 结果，不要使用 markdown 代码块包裹。',
+    tools: [],
+    messages: [{
+      role: 'user',
+      content: `以下是一篇文档的段落摘要（共 ${paragraphs.length} 段），请按语义主题对其分组并打标签。
+
+文档标题：${docTitle}
+
+${numbered}
+
+要求：
+- 按语义主题分组，每组聚焦一个独立主题
+- 为每组生成简明标题（如"港股雪球产品对冲策略"）
+- 返回每组的起始段落编号
+${tagInstruction}
+
+以 JSON 数组返回，按段落顺序排列，每个元素：
+- heading: 主题标题
+- start_paragraph: 该组起始段落编号（从1开始）
+- tags: 标签数组（1-3 个）
+
+只返回 JSON 数组。`,
+    }],
+  });
+
+  const text = response.content[0];
+  if (text.type !== 'text') return [];
+
+  const splits = parseLLMJsonArray<SplitPoint>(text.text)
+    .filter(s => s.heading && typeof s.start_paragraph === 'number')
+    .sort((a, b) => a.start_paragraph - b.start_paragraph);
+
+  if (splits.length < 2) return [];
+
+  const chunks: Chunk[] = [];
+  for (let i = 0; i < splits.length; i++) {
+    const startIdx = Math.max(0, splits[i].start_paragraph - 1);
+    const endIdx = i + 1 < splits.length
+      ? Math.max(0, splits[i + 1].start_paragraph - 1)
+      : paragraphs.length;
+    const body = paragraphs.slice(startIdx, endIdx).join('\n\n').trim();
+    if (body) {
+      chunks.push({
+        heading: splits[i].heading,
+        content: body,
+        tags: splits[i].tags?.join(',') || '',
+      });
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Attempt LLM chunking when heading-based split produced <= 1 chunk.
+ * Retries once on transient failure; returns original chunks if LLM can't improve.
+ */
+async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: string, agentId: string): Promise<Chunk[]> {
+  if (chunks.length > 1 || rawContent.length <= 500) return chunks;
+
+  const tagCandidates = collectTagCandidates(agentId);
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const llmChunks = await chunkWithLLM(rawContent, docTitle, tagCandidates);
+      if (llmChunks.length > 1) {
+        return llmChunks.map(c => ({
+          heading: `${docTitle} - ${c.heading}`,
+          content: c.content,
+          tags: c.tags,
+        }));
+      }
+      break;
+    } catch (e: any) {
+      if (attempt < MAX_ATTEMPTS) {
+        log.warn(`LLM 分段第 ${attempt} 次失败，重试: ${e.message}`);
+      } else {
+        log.warn(`LLM 分段失败，使用原始分段: ${e.message}`);
+      }
+    }
+  }
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
 // Content loading per file type
 // ---------------------------------------------------------------------------
 
-async function loadAndChunk(filePath: string, fileType: string, docTitle: string): Promise<{ chunks: Chunk[]; error?: string }> {
+async function loadAndChunk(filePath: string, fileType: string, docTitle: string, agentId: string): Promise<{ chunks: Chunk[]; error?: string }> {
   switch (fileType) {
     case 'md': {
       const content = fs.readFileSync(filePath, 'utf-8');
-      return { chunks: splitMarkdownByHeadings(content, docTitle) };
+      const chunks = splitMarkdownByHeadings(content, docTitle);
+      return { chunks: await tryLLMChunking(chunks, content, docTitle, agentId) };
     }
 
     case 'docx': {
@@ -223,7 +370,8 @@ async function loadAndChunk(filePath: string, fileType: string, docTitle: string
       if (!result) return { chunks: [], error: '需要 word-parser 插件（plugins/word-parser/），请确认已安装' };
       const parsed = JSON.parse(result);
       if (parsed.error) return { chunks: [], error: parsed.error };
-      return { chunks: splitMarkdownByHeadings(parsed.content, docTitle) };
+      const chunks = splitMarkdownByHeadings(parsed.content, docTitle);
+      return { chunks: await tryLLMChunking(chunks, parsed.content, docTitle, agentId) };
     }
 
     case 'xlsx':
@@ -242,7 +390,8 @@ async function loadAndChunk(filePath: string, fileType: string, docTitle: string
       if (!pdfResult) return { chunks: [], error: '需要 pdf-parser 插件（plugins/pdf-parser/），请确认已安装' };
       const pdfParsed = JSON.parse(pdfResult);
       if (pdfParsed.error) return { chunks: [], error: pdfParsed.error };
-      return { chunks: splitMarkdownByHeadings(pdfParsed.content, docTitle) };
+      const chunks = splitMarkdownByHeadings(pdfParsed.content, docTitle);
+      return { chunks: await tryLLMChunking(chunks, pdfParsed.content, docTitle, agentId) };
     }
 
     default:
@@ -257,10 +406,11 @@ async function loadAndChunk(filePath: string, fileType: string, docTitle: string
 export async function importDocument(
   filePath: string,
   agentId: string,
-  options?: { title?: string },
+  options?: { title?: string; actorUserId?: string },
 ): Promise<ImportResult> {
   const perm = ensureDocWriteAccess(agentId);
   if (!perm.success) return { success: false, error: perm.error };
+  const actorUserId = options?.actorUserId ?? getCurrentUser().id;
 
   const resolved = resolveFilePath(filePath);
   if (!fs.existsSync(resolved)) {
@@ -283,11 +433,10 @@ export async function importDocument(
     return { success: false, error: `文档已导入过 (${existing.id.slice(0, 8)}: ${existing.title})，如需更新请先删除或使用 reimport` };
   }
 
-  const { chunks, error } = await loadAndChunk(resolved, fileType, docTitle);
+  const { chunks, error } = await loadAndChunk(resolved, fileType, docTitle, agentId);
   if (error) return { success: false, error };
   if (chunks.length === 0) return { success: false, error: '文档内容为空，无法导入' };
 
-  const user = getCurrentUser();
   const docId = uuid();
 
   const storedPath = persistDocumentFiles(docId, resolved, fileType, chunks);
@@ -295,7 +444,7 @@ export async function importDocument(
   // Insert document record
   db.prepare(
     'INSERT INTO documents (id, title, source_path, file_type, chunk_count, agent_id, created_by, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(docId, docTitle, resolved, fileType, chunks.length, agentId, user.id, storedPath);
+  ).run(docId, docTitle, resolved, fileType, chunks.length, agentId, actorUserId, storedPath);
 
   // Insert knowledge entries
   const insKnowledge = db.prepare(
@@ -307,13 +456,20 @@ export async function importDocument(
 
   for (const chunk of chunks) {
     const kid = uuid();
-    insKnowledge.run(kid, chunk.heading, chunk.content, docTitle, user.id, docId);
+    const tags = chunk.tags || docTitle;
+    insKnowledge.run(kid, chunk.heading, chunk.content, tags, actorUserId, docId);
     insKA.run(uuid(), kid, agentId);
   }
 
   recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType, chunks: chunks.length });
 
-  return { success: true, documentId: docId.slice(0, 8), title: docTitle, chunkCount: chunks.length };
+  return {
+    success: true,
+    documentId: docId.slice(0, 8),
+    title: docTitle,
+    chunkCount: chunks.length,
+    topics: chunks.map(c => c.heading),
+  };
 }
 
 export function deleteDocument(docIdPrefix: string, agentId?: string): ImportResult {
@@ -351,7 +507,12 @@ export function listDocuments(agentId?: string): DocumentInfo[] {
   return db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all() as DocumentInfo[];
 }
 
-export async function reimportDocument(docIdPrefix: string, agentId: string): Promise<ImportResult> {
+export async function reimportDocument(
+  docIdPrefix: string,
+  agentId: string,
+  options?: { actorUserId?: string },
+): Promise<ImportResult> {
+  const actorUserId = options?.actorUserId ?? getCurrentUser().id;
   const db = getDb();
   const rows = db.prepare('SELECT * FROM documents WHERE id LIKE ?').all(`${docIdPrefix}%`) as DocumentInfo[];
   if (rows.length === 0) return { success: false, error: `未找到文档: ${docIdPrefix}` };
@@ -379,7 +540,7 @@ export async function reimportDocument(docIdPrefix: string, agentId: string): Pr
     return delResult;
   }
 
-  const result = await importDocument(reimportPath, agentId, { title });
+  const result = await importDocument(reimportPath, agentId, { title, actorUserId });
 
   // Clean up temp copy
   if (reimportPath !== doc.source_path) {
@@ -423,9 +584,13 @@ export async function cliImport(args: string): Promise<void> {
     return;
   }
 
-  const result = await importDocument(filePath, agentId);
+  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id });
   if (result.success) {
     log.print(`文档已导入: [${result.documentId}] ${result.title} (${result.chunkCount} 条知识)`);
+    if (result.topics && result.topics.length > 1) {
+      log.print('按主题拆分为：');
+      for (const t of result.topics) log.print(`  · ${t}`);
+    }
   } else {
     log.print(result.error!);
   }
