@@ -786,14 +786,15 @@ export function initSchema(): void {
       let blockTools: string[] = [];
 
       if (agent.name === 'otcclaw') {
-        // otcclaw: standard mode, allow = Client + Trade + knowledge agent mgmt + wework + markdown + update_memory
+        // otcclaw: standard mode, allow = Client + Trade + knowledge agent mgmt + markdown + update_memory; block generate_video (from COMMON_SET)
         allowTools = [
           'query_clients', 'view_client', 'get_client_history', 'add_client', 'update_client',
           'advance_client', 'rollback_client', 'delete_client',
           'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
           'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
-          'extract_wework_qa', 'markdown_to_image', 'update_memory',
+          'markdown_to_image', 'update_memory',
         ];
+        blockTools = ['generate_video'];
       } else if (agent.name === 'alter-ego') {
         // alter-ego: same effective tools as admin — all \ (Client + Trade + Health)
         db.prepare(
@@ -1024,7 +1025,7 @@ export function initSchema(): void {
     const row = db.prepare("SELECT user_tools_list FROM agents WHERE name = 'otcclaw'").get() as { user_tools_list: string | null } | undefined;
     if (row) {
       const current: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-      const toAdd = ['add_client', 'update_client', 'advance_client', 'rollback_client', 'generate_video'];
+      const toAdd = ['add_client', 'update_client', 'advance_client', 'rollback_client'];
       let changed = false;
       for (const tool of toAdd) {
         if (!current.includes(tool)) { current.push(tool); changed = true; }
@@ -1034,5 +1035,30 @@ export function initSchema(): void {
           .run(JSON.stringify(current));
       }
     }
+  });
+
+  runOnce('otcclaw-remove-generate-video-extract-wework-qa', () => {
+    const row = db.prepare(
+      "SELECT tools_list, block_tools, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; block_tools: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    let toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    toolsList = toolsList.filter((t) => t !== 'extract_wework_qa');
+    const toolsListJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
+
+    const blockTools: string[] = row.block_tools ? JSON.parse(row.block_tools) : [];
+    if (!blockTools.includes('generate_video')) blockTools.push('generate_video');
+    const blockToolsJson = blockTools.length > 0 ? JSON.stringify(blockTools) : null;
+
+    let newUserToolsList: string | null = row.user_tools_list;
+    if (row.user_tools_list) {
+      const u: string[] = JSON.parse(row.user_tools_list).filter((t: string) => t !== 'generate_video');
+      newUserToolsList = JSON.stringify(u);
+    }
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, block_tools = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(toolsListJson, blockToolsJson, newUserToolsList);
   });
 }
