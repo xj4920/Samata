@@ -8,7 +8,7 @@ import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索知识库中的FAQ。支持多关键词搜索（空格分隔），会自动拆分并匹配。建议传入2-3个核心关键词而非完整句子。例如：用户问"专线怎么申请"→传入"专线 申请"；问"北向极速开通流程"→传入"北向 极速 开通"。如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
+    description: '搜索知识库中的FAQ。支持多关键词搜索（空格分隔），匹配任一即返回，全部匹配排在前面。重要：必须将中文长短语拆成2-4字的短词，用空格分隔传入。例如：用户问"专线怎么申请"→传入"专线 申请"；问"场外期权提前赎回"→传入"场外期权 提前赎回"；问"北向极速开通流程"→传入"北向极速 开通 流程"；问"约券召回通知时间"→传入"约券 召回 通知时间"。绝对不要把整句话当作一个关键词传入。如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -114,6 +114,44 @@ export const toolDefinitions: Anthropic.Tool[] = [
 ];
 
 const MAX_SEARCH_RESULT_CHARS = 3000;
+const MAX_SNIPPET_LEN = 500;
+
+/** 根据关键词位置提取 answer 中最相关的片段，而不是盲取开头 */
+function extractRelevantSnippet(answer: string, keyword: string): string {
+  if (answer.length <= MAX_SNIPPET_LEN) return answer;
+
+  // 优先用最长（最具体）的关键词定位，避免被短通用词（如"规则"）拉到开头
+  const keywords = keyword.split(/\s+/).filter(Boolean).sort((a, b) => b.length - a.length);
+  let bestPos = -1;
+
+  for (const kw of keywords) {
+    const pos = answer.indexOf(kw);
+    if (pos !== -1) {
+      bestPos = pos;
+      break;
+    }
+  }
+
+  if (bestPos === -1) return answer.slice(0, MAX_SNIPPET_LEN) + '...';
+
+  // 向前找最近的 markdown 标题或段落边界作为片段起点
+  let start = bestPos;
+  const searchBack = answer.slice(Math.max(0, bestPos - 200), bestPos);
+  const headingMatch = searchBack.lastIndexOf('\n#');
+  if (headingMatch !== -1) {
+    start = Math.max(0, bestPos - 200) + headingMatch + 1; // skip the \n
+  } else {
+    const nlMatch = searchBack.lastIndexOf('\n');
+    if (nlMatch !== -1) {
+      start = Math.max(0, bestPos - 200) + nlMatch + 1;
+    }
+  }
+
+  const snippet = answer.slice(start, start + MAX_SNIPPET_LEN);
+  const prefix = start > 0 ? '...' : '';
+  const suffix = start + MAX_SNIPPET_LEN < answer.length ? '...' : '';
+  return prefix + snippet + suffix;
+}
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
@@ -123,7 +161,7 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const items: any[] = [];
   let totalLen = 0;
   for (const r of rows) {
-    const answer = r.answer.length > 300 ? r.answer.slice(0, 300) + '...' : r.answer;
+    const answer = extractRelevantSnippet(r.answer, input.keyword);
     const item = {
       id: r.id.slice(0, 8),
       question: r.question,

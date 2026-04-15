@@ -39,6 +39,33 @@ function ensureKnowledgeWriteAccess(agentId?: string, knowledgeId?: string): { s
   return { success: true };
 }
 
+const BROAD_BUSINESS_TERMS = new Set([
+  '场外期权', '北向极速', '北向借券', '约券', '雪球', '借券',
+]);
+
+const CJK_RE = /^[\u4e00-\u9fff]+$/;
+
+/** 对长中文关键词做 bigram 拆分，返回 { primary: 原始词[], derived: bigram词[] } */
+function expandCJKKeywords(rawKeywords: string[]): { primary: string[]; derived: string[] } {
+  const primary: string[] = [];
+  const derived = new Set<string>();
+
+  for (const kw of rawKeywords) {
+    primary.push(kw);
+    if (CJK_RE.test(kw) && kw.length > 2) {
+      for (let i = 0; i + 2 <= kw.length; i += 2) {
+        derived.add(kw.slice(i, i + 2));
+      }
+      for (let i = 1; i + 2 <= kw.length; i += 2) {
+        derived.add(kw.slice(i, i + 2));
+      }
+    }
+  }
+
+  const primarySet = new Set(primary);
+  return { primary, derived: [...derived].filter(d => !primarySet.has(d)) };
+}
+
 export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeItem[] {
   const db = getDb();
   const agentFilter = agentId
@@ -54,8 +81,8 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
     return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
   }
 
-  const keywords = keyword.split(/\s+/).filter(Boolean);
-  if (keywords.length === 0) {
+  const rawKeywords = keyword.split(/\s+/).filter(Boolean);
+  if (rawKeywords.length === 0) {
     if (agentId) {
       return db.prepare(
         `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) ORDER BY k.created_at DESC`
@@ -64,26 +91,35 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
     return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
   }
 
-  // 每个关键词匹配 question/answer/tags 任一字段即命中
-  // 相关性评分：question 命中 +3，tags +2，answer +1
-  const whereClauses = keywords.map(() =>
+  const { primary, derived } = expandCJKKeywords(rawKeywords);
+  const allTerms = [...primary, ...derived];
+
+  // 评分权重：正常词 question+3 tags+2 answer+1，大类词降权 1/1/0，bigram 衍生词 1/1/0
+  type TermWeight = { q: number; t: number; a: number };
+  const weights: TermWeight[] = allTerms.map((kw, i) => {
+    if (i >= primary.length) return { q: 1, t: 1, a: 0 };           // derived bigram
+    if (BROAD_BUSINESS_TERMS.has(kw)) return { q: 1, t: 1, a: 0 };  // broad term
+    return { q: 3, t: 2, a: 1 };                                     // normal
+  });
+
+  const whereClauses = allTerms.map(() =>
     '(k.question LIKE ? OR k.answer LIKE ? OR k.tags LIKE ?)'
   ).join(' OR ');
 
-  const scoreExpr = keywords.map(() =>
-    '(CASE WHEN k.question LIKE ? THEN 3 ELSE 0 END) + ' +
-    '(CASE WHEN k.tags LIKE ? THEN 2 ELSE 0 END) + ' +
-    '(CASE WHEN k.answer LIKE ? THEN 1 ELSE 0 END)'
+  const scoreExpr = weights.map(w =>
+    `(CASE WHEN k.question LIKE ? THEN ${w.q} ELSE 0 END) + ` +
+    `(CASE WHEN k.tags LIKE ? THEN ${w.t} ELSE 0 END) + ` +
+    `(CASE WHEN k.answer LIKE ? THEN ${w.a} ELSE 0 END)`
   ).join(' + ');
 
   const sql = `SELECT k.*, (${scoreExpr}) as relevance FROM knowledge k WHERE (${whereClauses}) ${agentFilter} ORDER BY relevance DESC, k.created_at DESC LIMIT 10`;
 
   const params: string[] = [];
-  for (const kw of keywords) {
-    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); // score params
+  for (const kw of allTerms) {
+    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`);
   }
-  for (const kw of keywords) {
-    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`); // where params
+  for (const kw of allTerms) {
+    params.push(`%${kw}%`, `%${kw}%`, `%${kw}%`);
   }
   if (agentId) params.push(agentId);
 
