@@ -44,6 +44,8 @@ async function main(): Promise<void> {
         await sendPromptReply(session.sessionId, event.promptId, answer);
       } else if (event.type === 'tool_start') {
         process.stderr.write(`\r\x1b[2m🔧 ${event.name}...\x1b[0m`);
+      } else if (event.type === 'tool_progress') {
+        process.stderr.write(`\r\x1b[2m⏳ ${event.message}\x1b[0m`);
       } else if (event.type === 'thinking') {
         process.stderr.write(`\r\x1b[2m💭 ${event.text.slice(0, 80)}\x1b[0m`);
       } else if (event.type === 'done') {

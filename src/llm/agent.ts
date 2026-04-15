@@ -38,9 +38,9 @@ export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
   return 'image/png'; // fallback
 }
 
-export async function executeTool(name: string, input: any, deliveryContext?: DeliveryContext): Promise<string> {
+export async function executeTool(name: string, input: any, deliveryContext?: DeliveryContext, onProgress?: (event: { type: 'tool_progress'; message: string }) => void): Promise<string> {
   const globalTools = getGlobalTools();
-  const ctx: ToolContext = { deliveryContext, globalTools };
+  const ctx: ToolContext = { deliveryContext, globalTools, onProgress };
   if (name.startsWith('mcp_')) {
     return callMcpTool(name, input);
   }
@@ -65,6 +65,11 @@ function isContextOverflowError(err: any): boolean {
   return /context.window.exceeds.limit|token.*limit.*exceeded|maximum.*context.*length/i.test(msg);
 }
 
+function isOrphanToolError(err: any): boolean {
+  const msg = err?.message ?? '';
+  return /tool.result.*tool.id.*not found|tool_call_id.*not found/i.test(msg);
+}
+
 /**
  * Safely trim history from the front, ensuring tool_use/tool_result pairs stay intact.
  * The cut point always lands on a plain 'user' message (not a tool_result follow-up).
@@ -79,6 +84,58 @@ function trimHistory(history: Anthropic.MessageParam[], maxLen: number = MAX_HIS
   }
   if (cutIndex > 0 && cutIndex < history.length) {
     history.splice(0, cutIndex);
+  }
+  sanitizeToolPairs(history);
+}
+
+/**
+ * Remove orphan tool_use / tool_result messages so the API never sees
+ * a tool_call_id without its matching assistant tool_use (or vice-versa).
+ * Mutates history in-place.
+ */
+function sanitizeToolPairs(history: Anthropic.MessageParam[]): void {
+  // Collect all tool_use ids from assistant messages
+  const toolUseIds = new Set<string>();
+  for (const msg of history) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      for (const block of msg.content as any[]) {
+        if (block.type === 'tool_use' && block.id) toolUseIds.add(block.id);
+      }
+    }
+  }
+
+  // Collect all tool_result ids from user messages
+  const toolResultIds = new Set<string>();
+  for (const msg of history) {
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+      for (const block of msg.content as any[]) {
+        if (block.type === 'tool_result' && block.tool_use_id) toolResultIds.add(block.tool_use_id);
+      }
+    }
+  }
+
+  // If every tool_use has a matching tool_result and vice-versa, nothing to do
+  const orphanUseIds = [...toolUseIds].filter(id => !toolResultIds.has(id));
+  const orphanResultIds = [...toolResultIds].filter(id => !toolUseIds.has(id));
+  if (orphanUseIds.length === 0 && orphanResultIds.length === 0) return;
+
+  const badIds = new Set([...orphanUseIds, ...orphanResultIds]);
+
+  // Remove messages that only contain orphan blocks; strip orphan blocks from mixed messages
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!Array.isArray(msg.content)) continue;
+    const blocks = msg.content as any[];
+    const cleaned = blocks.filter(b => {
+      if (b.type === 'tool_use' && badIds.has(b.id)) return false;
+      if (b.type === 'tool_result' && badIds.has(b.tool_use_id)) return false;
+      return true;
+    });
+    if (cleaned.length === 0) {
+      history.splice(i, 1);
+    } else if (cleaned.length !== blocks.length) {
+      msg.content = cleaned;
+    }
   }
 }
 
@@ -196,7 +253,8 @@ async function callLLM(params: CreateMessageParams, streamText: boolean, showThi
 export type ProgressEvent =
   | { type: 'tool_start'; name: string; input: unknown; round: number }
   | { type: 'tool_end'; name: string; result: string; round: number; durationMs: number }
-  | { type: 'thinking'; text: string; round: number };
+  | { type: 'thinking'; text: string; round: number }
+  | { type: 'tool_progress'; message: string };
 
 /**
  * 通用的 agentic chat 函数，支持 CLI 和飞书bot复用
@@ -294,9 +352,23 @@ export async function runAgenticChat(
   try {
     ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
   } catch (err: any) {
-    log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
-    history.length = historyLenBefore;
-    throw err;
+    if (isOrphanToolError(err) && historyLenBefore > 0) {
+      log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
+      history.length = historyLenBefore;
+      sanitizeToolPairs(history);
+      history.push({ role: 'user', content: processedInput });
+      try {
+        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+      } catch (retryErr: any) {
+        log.error(`${logPrefix}AI 请求失败: ${retryErr?.message ?? String(retryErr)}`);
+        history.length = historyLenBefore;
+        throw retryErr;
+      }
+    } else {
+      log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
+      history.length = historyLenBefore;
+      throw err;
+    }
   }
 
   // Agentic loop: keep processing until no more tool calls
@@ -337,7 +409,7 @@ export async function runAgenticChat(
           result = JSON.stringify({ error: `权限不足：工具 "${block.name}" 不在当前用户的允许列表中` });
         } else {
           try {
-            result = await executeTool(block.name, block.input, deliveryContext);
+            result = await executeTool(block.name, block.input, deliveryContext, onProgress);
           } catch (err: any) {
             result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
           }
@@ -364,6 +436,20 @@ export async function runAgenticChat(
         // Keep the original user message + last 2 tool rounds (4 messages: assistant+toolResult x2)
         const keepFromTurn = Math.max(historyLenBefore + 1, history.length - 4);
         history.splice(historyLenBefore + 1, keepFromTurn - historyLenBefore - 1);
+        sanitizeToolPairs(history);
+        try {
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+          round += 1;
+          continue;
+        } catch (retryErr: any) {
+          log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
+          history.length = historyLenBefore;
+          throw retryErr;
+        }
+      }
+      if (isOrphanToolError(err)) {
+        log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
+        sanitizeToolPairs(history);
         try {
           ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
           round += 1;

@@ -19,11 +19,12 @@ export interface CliExecuteResponse {
 }
 
 export type CliStreamEvent =
-  | { type: 'text';       chunk: string }
-  | { type: 'tool_start'; name: string; input: unknown; round: number }
-  | { type: 'tool_end';   name: string; result: string; round: number; durationMs: number }
-  | { type: 'thinking';   text: string; round: number }
-  | { type: 'log';        line: string }
-  | { type: 'prompt';     promptId: string; message: string; defaultValue?: string }
-  | { type: 'done';       session: CliSessionInfo }
-  | { type: 'error';      message: string }
+  | { type: 'text';           chunk: string }
+  | { type: 'tool_start';     name: string; input: unknown; round: number }
+  | { type: 'tool_end';       name: string; result: string; round: number; durationMs: number }
+  | { type: 'tool_progress';  message: string }
+  | { type: 'thinking';       text: string; round: number }
+  | { type: 'log';            line: string }
+  | { type: 'prompt';         promptId: string; message: string; defaultValue?: string }
+  | { type: 'done';           session: CliSessionInfo }
+  | { type: 'error';          message: string }

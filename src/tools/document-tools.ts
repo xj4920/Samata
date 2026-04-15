@@ -39,12 +39,13 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
-async function handleImportDocument(input: ImportDocumentInput): Promise<string> {
+async function handleImportDocument(input: ImportDocumentInput, ctx?: ToolContext): Promise<string> {
   const agentId = getCurrentAgent()?.id;
   if (!agentId) return JSON.stringify({ error: '未关联 Agent，无法导入' });
   const result = await importDocument(input.file_path, agentId, {
     title: input.title,
     actorUserId: getCurrentUser().id,
+    onProgress: ctx?.onProgress,
   });
   return JSON.stringify(result);
 }
@@ -67,9 +68,9 @@ function handleDeleteDocument(input: DeleteDocumentInput): string {
   return JSON.stringify(deleteDocument(input.id_prefix, agentId));
 }
 
-export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
+export async function handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
   switch (name) {
-    case 'import_document': return handleImportDocument(input);
+    case 'import_document': return handleImportDocument(input, ctx);
     case 'list_documents': return handleListDocuments();
     case 'delete_document': return handleDeleteDocument(input);
     default: return null;

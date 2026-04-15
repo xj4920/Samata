@@ -316,6 +316,7 @@ export interface ToolContext {
   deliveryContext?: DeliveryContext;
   /** All registered tools — needed by list_agents / get_agent to compute per-agent tool sets */
   globalTools?: Anthropic.Tool[];
+  onProgress?: (event: { type: 'tool_progress'; message: string }) => void;
 }
 
 // --- Current agent session state ---

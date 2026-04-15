@@ -129,6 +129,7 @@ async function handleAIChat(
 
       let hint = '';
       if (event.type === 'tool_start') hint = `正在调用 ${event.name}...`;
+      else if (event.type === 'tool_progress') hint = event.message;
       else if (event.type === 'thinking') hint = event.text.slice(0, 200);
 
       if (hint && hint !== lastStreamContent) {

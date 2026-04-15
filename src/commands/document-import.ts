@@ -375,6 +375,7 @@ async function describeImagesInMarkdown(
   content: string,
   images: ExtractedImage[],
   imageDir: string,
+  onProgress?: (event: { type: 'tool_progress'; message: string }) => void,
 ): Promise<string> {
   if (images.length === 0) return content;
 
@@ -388,25 +389,49 @@ async function describeImagesInMarkdown(
   if (!provider.describeImage) return content;
 
   const described = new Map<string, string>();
+  const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+  const DELAY_MS = 500;
+  const MAX_RETRIES = 2;
 
-  for (const img of images) {
-    try {
-      const imgPath = path.join(imageDir, img.filename);
-      if (!fs.existsSync(imgPath)) continue;
-
-      const buffer = fs.readFileSync(imgPath);
-      const ext = path.extname(img.filename).toLowerCase().slice(1);
-      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
-      const mime = mimeMap[ext] || 'image/png';
-      const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
-
-      const desc = await provider.describeImage(dataUrl, '用一两句中文简要描述这张图片的内容，重点说明图中的关键信息（如数据、流程、结构等）。');
-      if (desc) described.set(img.relativePath, desc);
-    } catch (e: any) {
-      log.warn(`图片描述失败 (${img.filename}): ${e.message}`);
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (images.length >= 10 && (i + 1) % 10 === 0) {
+      const msg = `图片描述进度: ${i + 1}/${images.length}`;
+      log.info(msg);
+      onProgress?.({ type: 'tool_progress', message: msg });
     }
+
+    const imgPath = path.join(imageDir, img.filename);
+    if (!fs.existsSync(imgPath)) continue;
+
+    const buffer = fs.readFileSync(imgPath);
+    const ext = path.extname(img.filename).toLowerCase().slice(1);
+    const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+    const mime = mimeMap[ext] || 'image/png';
+    const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const desc = await provider.describeImage!(dataUrl, '用一两句中文简要描述这张图片的内容，重点说明图中的关键信息（如数据、流程、结构等）。');
+        if (desc) described.set(img.relativePath, desc);
+        break;
+      } catch (e: any) {
+        if (attempt < MAX_RETRIES) {
+          const backoff = DELAY_MS * 2 ** (attempt + 1);
+          log.warn(`图片描述失败 (${img.filename}), ${backoff}ms 后重试 (${attempt + 1}/${MAX_RETRIES}): ${e.message}`);
+          await sleep(backoff);
+        } else {
+          log.warn(`图片描述失败 (${img.filename}): ${e.message}`);
+        }
+      }
+    }
+
+    if (i < images.length - 1) await sleep(DELAY_MS);
   }
 
+  const doneMsg = `图片描述完成: ${described.size}/${images.length} 张成功`;
+  log.info(doneMsg);
+  onProgress?.({ type: 'tool_progress', message: doneMsg });
   if (described.size === 0) return content;
 
   // Insert descriptions after each image reference
@@ -436,7 +461,7 @@ async function loadAndChunk(
   fileType: string,
   docTitle: string,
   agentId: string,
-  options?: { imageOutputDir?: string },
+  options?: { imageOutputDir?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<LoadResult> {
   switch (fileType) {
     case 'md': {
@@ -462,7 +487,7 @@ async function loadAndChunk(
         const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
         if (shouldDescribe) {
           log.info(`为 ${images.length} 张图片生成 AI 描述...`);
-          content = await describeImagesInMarkdown(content, images, options.imageOutputDir);
+          content = await describeImagesInMarkdown(content, images, options.imageOutputDir, options?.onProgress);
         }
       }
 
@@ -503,7 +528,7 @@ async function loadAndChunk(
         const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
         if (shouldDescribe) {
           log.info(`为 ${images.length} 张图片生成 AI 描述...`);
-          content = await describeImagesInMarkdown(content, images, options.imageOutputDir);
+          content = await describeImagesInMarkdown(content, images, options.imageOutputDir, options?.onProgress);
         }
       }
 
@@ -527,7 +552,7 @@ async function loadAndChunk(
 export async function importDocument(
   filePath: string,
   agentId: string,
-  options?: { title?: string; actorUserId?: string },
+  options?: { title?: string; actorUserId?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<ImportResult> {
   const perm = ensureDocWriteAccess(agentId);
   if (!perm.success) return { success: false, error: perm.error };
@@ -561,6 +586,7 @@ export async function importDocument(
 
   const { chunks, rawContent, images, error } = await loadAndChunk(resolved, fileType, docTitle, agentId, {
     imageOutputDir,
+    onProgress: options?.onProgress,
   });
   if (error) {
     // Clean up any partially created directories
