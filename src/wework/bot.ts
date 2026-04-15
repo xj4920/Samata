@@ -11,7 +11,7 @@
 import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
-import { setCurrentUser, getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
+import { isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -104,10 +104,8 @@ async function handleAIChat(
   images?: ImageInput[],
 ): Promise<string> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
-  const prevUser = getCurrentUser();
-  setCurrentUser(session.user);
 
-  try {
+  return runWithExecutionContext({ channel: 'wework', user: session.user }, async () => {
     const agentConfig = getAgent(session.agentName);
 
     const MAX_HISTORY = 20;
@@ -152,9 +150,7 @@ async function handleAIChat(
     const finalText = textReply || '（无回复内容）';
     await ws.replyStream(frame, streamId, finalText, true);
     return finalText;
-  } finally {
-    setCurrentUser(prevUser);
-  }
+  });
 }
 
 function handleImageMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<ImageMessage>): Promise<void> {
@@ -259,57 +255,58 @@ async function handleSlashCommand(
 ): Promise<string | null> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
   const agentConfig = getAgent(session.agentName);
-  setCurrentUser(session.user);
   setCurrentAgent(agentConfig);
 
-  if (text === '/start') {
-    const role = isAgentAdmin(session.agentName) ? 'agent admin' : 'member';
-    return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
-  }
-
-  if (text === '/help') {
-    const entries = getCommandEntries();
-    const lines = ['可用命令：', ''];
-    for (const e of entries) {
-      lines.push(`${e.name} — ${e.description}`);
-      if (e.usage) lines.push(`  用法: ${e.usage}`);
+  return runWithExecutionContext({ channel: 'wework', user: session.user }, async () => {
+    if (text === '/start') {
+      const role = isAgentAdmin(session.agentName) ? 'agent admin' : 'member';
+      return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
     }
-    lines.push('', '也可以直接输入自然语言，AI 助手会帮你处理！');
-    return lines.join('\n');
-  }
 
-  if (text === '/reset') {
-    resetSession(instance.botId, instance.sessions, mapKey);
-    return '对话上下文已重置';
-  }
-
-  if (text.startsWith('/debug')) {
-    return `你的企微用户 ID: ${userId}\nBot: ${instance.botName} (${instance.botId})`;
-  }
-
-  if (text.startsWith('/model')) {
-    if (!isAgentAdmin(getSession(instance.botId, instance.sessions, mapKey, '').agentName)) {
-      return '仅管理员可切换模型';
+    if (text === '/help') {
+      const entries = getCommandEntries();
+      const lines = ['可用命令：', ''];
+      for (const e of entries) {
+        lines.push(`${e.name} — ${e.description}`);
+        if (e.usage) lines.push(`  用法: ${e.usage}`);
+      }
+      lines.push('', '也可以直接输入自然语言，AI 助手会帮你处理！');
+      return lines.join('\n');
     }
-    const arg = text.replace(/^\/model\s*/, '').trim();
-    if (!arg || arg === 'list') {
-      const available = getAvailableProviders();
-      const current = getProviderName();
-      const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-      return `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`;
+
+    if (text === '/reset') {
+      resetSession(instance.botId, instance.sessions, mapKey);
+      return '对话上下文已重置';
     }
-    const ok = switchProvider(arg as ProviderName);
-    return ok
-      ? `已切换到 ${getProviderName()} / ${getModelName()}`
-      : `未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`;
-  }
 
-  const cleaned = text.trim();
-  const spaceIdx = cleaned.indexOf(' ');
-  const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
-  const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
+    if (text.startsWith('/debug')) {
+      return `你的企微用户 ID: ${userId}\nBot: ${instance.botName} (${instance.botId})`;
+    }
 
-  return handleCommand(instance, cmd, args, mapKey);
+    if (text.startsWith('/model')) {
+      if (!isAgentAdmin(getSession(instance.botId, instance.sessions, mapKey, '').agentName)) {
+        return '仅管理员可切换模型';
+      }
+      const arg = text.replace(/^\/model\s*/, '').trim();
+      if (!arg || arg === 'list') {
+        const available = getAvailableProviders();
+        const current = getProviderName();
+        const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
+        return `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`;
+      }
+      const ok = switchProvider(arg as ProviderName);
+      return ok
+        ? `已切换到 ${getProviderName()} / ${getModelName()}`
+        : `未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`;
+    }
+
+    const cleaned = text.trim();
+    const spaceIdx = cleaned.indexOf(' ');
+    const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
+    const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
+
+    return handleCommand(instance, cmd, args, mapKey);
+  });
 }
 
 async function handleCommand(instance: WeworkBotInstance, cmd: string, args: string, mapKey: string): Promise<string | null> {

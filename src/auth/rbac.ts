@@ -1,6 +1,6 @@
 import { getDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
-import { getExecutionChannel } from '../runtime/execution-context.js';
+import { getExecutionChannel, getContextUser } from '../runtime/execution-context.js';
 
 export type Role = 'admin' | 'user';
 
@@ -10,15 +10,17 @@ export interface User {
   role: Role;
 }
 
-let currentUser: User | null = null;
+let fallbackUser: User | null = null;
 
 export function setCurrentUser(user: User): void {
-  currentUser = user;
+  fallbackUser = user;
 }
 
 export function getCurrentUser(): User {
-  if (!currentUser) throw new Error('未登录');
-  return currentUser;
+  const ctxUser = getContextUser();
+  if (ctxUser) return ctxUser as User;
+  if (fallbackUser) return fallbackUser;
+  throw new Error('未登录');
 }
 
 export function isAdmin(): boolean {

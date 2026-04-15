@@ -23,7 +23,7 @@ import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, getCurrentUser, getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
+import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { getAgent, resolveAgent, AgentUnboundError, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -310,6 +310,8 @@ async function handleAIChat(
   replyOpts?: FeishuReplyOptions,
 ): Promise<{ text: string; mediaPaths?: string[] }> {
   const session = await getSessionForInstance(instance, feishuUserId, feishuUsername);
+
+  return runWithExecutionContext({ channel: 'feishu', user: session.user }, async () => {
   const showThinkingEnabled = instance.config.showThinking !== false;
   const traceId = replyOpts?.traceId ?? createTraceId();
   const interactionTrace: InteractionTrace = {
@@ -352,123 +354,108 @@ async function handleAIChat(
     await sendProgressCard('🤔 思考中...');
   }
 
-  // 临时切换当前用户上下文（tool handler 依赖），处理完后恢复
-  const prevUser = getCurrentUser();
-  setCurrentUser(session.user);
+  const agentConfig = getAgent(session.agentName);
+  logTraceBlock(instance, traceId, 'AI 对话开始', [
+    `user=${session.user.username} (${session.user.role})`,
+    `agent=${agentConfig.displayName} (${agentConfig.name})`,
+    `history=${session.history.length} 条`,
+    `input=${compactTextForLog(userInput, 240)}`,
+    images?.length ? `images=${images.length}` : undefined,
+  ], 'info');
 
-  try {
-    // 解析当前 session 使用的 Agent
-    const agentConfig = getAgent(session.agentName);
-    logTraceBlock(instance, traceId, 'AI 对话开始', [
-      `user=${session.user.username} (${session.user.role})`,
-      `agent=${agentConfig.displayName} (${agentConfig.name})`,
-      `history=${session.history.length} 条`,
-      `input=${compactTextForLog(userInput, 240)}`,
-      images?.length ? `images=${images.length}` : undefined,
-    ], 'info');
-
-    // 渐进发送过程卡片（节流 1.5s）
-    let lastUpdateTime = 0;
-    const THROTTLE_MS = 1500;
-    const onProgress = (event: import('../llm/agent.js').ProgressEvent) => {
-      if (event.type === 'thinking') {
-        const preview = compactTextForLog(event.text, 220);
-        if (preview) interactionTrace.thoughts.push(`r${event.round}: ${preview}`);
-      } else if (event.type === 'tool_start') {
-        interactionTrace.tools.push({
-          round: event.round,
-          name: event.name,
-          inputPreview: formatValueForLog(event.input),
-        });
-      } else if (event.type === 'tool_end') {
-        const toolTrace = [...interactionTrace.tools].reverse().find(
-          item => item.name === event.name && item.round === event.round && item.resultPreview === undefined,
-        );
-        if (toolTrace) {
-          toolTrace.resultPreview = formatValueForLog(event.result, 260);
-          toolTrace.durationMs = event.durationMs;
-        }
-      }
-
-      if (!showThinkingEnabled) return;
-
-      const now = Date.now();
-      if (now - lastUpdateTime < THROTTLE_MS) return;
-      lastUpdateTime = now;
-      let hint = '';
-      if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
-      else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
-      if (hint) {
-        void sendProgressCard(hint);
-      }
-    };
-
-    let textReply = await runAgenticChat(session.history, userInput, session.user, {
-      streamEnabled: false,
-      logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
-      showThinking: true,
-      agentConfig,
-      images,
-      onProgress,
-      deliveryContext: {
-        channel: 'feishu',
-        targetId: feishuUserId,
-        appId: instance.appId,
-      } as DeliveryContext,
-    });
-
-    // 将 AI 的回复存入会话历史（原始文本，保留完整上下文）
-    if (textReply) {
-      session.history.push({ role: 'assistant', content: textReply });
-    }
-
-    // 提取媒体文件路径（图片/文件），从文本中分离
-    const { cleanText, mediaPaths } = extractMediaFromText(textReply);
-
-    // 对剩余文本中的 markdown 图片语法做上传替换（嵌入 Card）
-    let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
-
-    const elapsedMs = Date.now() - interactionTrace.startedAt;
-    const toolLines = interactionTrace.tools.slice(0, 8).map((tool, index) =>
-      `tool${index + 1}=r${tool.round} ${tool.name}${tool.durationMs !== undefined ? ` (${tool.durationMs}ms)` : ''} | input=${tool.inputPreview}${tool.resultPreview ? ` | result=${tool.resultPreview}` : ''}`
-    );
-    const thoughtLines = interactionTrace.thoughts.slice(0, 6).map((thought, index) => `thought${index + 1}=${thought}`);
-    logTraceBlock(instance, traceId, 'AI 对话完成', [
-      `elapsed=${elapsedMs}ms`,
-      `reply=${compactTextForLog(processedText || '（无回复内容）', 320)}`,
-      mediaPaths.length > 0 ? `media=${mediaPaths.map(p => path.basename(p)).join(', ')}` : undefined,
-      `tools=${interactionTrace.tools.length}`,
-      ...toolLines,
-      interactionTrace.tools.length > toolLines.length ? `tools_more=${interactionTrace.tools.length - toolLines.length}` : undefined,
-      `thoughts=${interactionTrace.thoughts.length}`,
-      ...thoughtLines,
-      interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
-    ], 'info');
-
-    // 最终回复前，如果进度卡片还在，尝试直接用它进行回复（通过 updateCard）
-    if (processedText && progressMessageId) {
-      try {
-        const finalReplyId = await sendFeishuReply(instance, chatId, processedText, {
-          ...replyOpts,
-          updateMessageId: progressMessageId
-        });
-        if (finalReplyId === progressMessageId) {
-          // 卡片更新成功，文本部分已发送；继续发送媒体附件
-          if (mediaPaths.length > 0) {
-            await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
-          }
-          return { text: '' };
-        }
-      } catch (err: any) {
-        log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
+  // 渐进发送过程卡片（节流 1.5s）
+  let lastUpdateTime = 0;
+  const THROTTLE_MS = 1500;
+  const onProgress = (event: import('../llm/agent.js').ProgressEvent) => {
+    if (event.type === 'thinking') {
+      const preview = compactTextForLog(event.text, 220);
+      if (preview) interactionTrace.thoughts.push(`r${event.round}: ${preview}`);
+    } else if (event.type === 'tool_start') {
+      interactionTrace.tools.push({
+        round: event.round,
+        name: event.name,
+        inputPreview: formatValueForLog(event.input),
+      });
+    } else if (event.type === 'tool_end') {
+      const toolTrace = [...interactionTrace.tools].reverse().find(
+        item => item.name === event.name && item.round === event.round && item.resultPreview === undefined,
+      );
+      if (toolTrace) {
+        toolTrace.resultPreview = formatValueForLog(event.result, 260);
+        toolTrace.durationMs = event.durationMs;
       }
     }
 
-    // 发送独立媒体附件（在文本消息之后由外层 handleEvent 调用 sendFeishuReply 后执行）
-    return { text: processedText || '（无回复内容）', mediaPaths };
-  } finally {
-    setCurrentUser(prevUser);
+    if (!showThinkingEnabled) return;
+
+    const now = Date.now();
+    if (now - lastUpdateTime < THROTTLE_MS) return;
+    lastUpdateTime = now;
+    let hint = '';
+    if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
+    else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
+    if (hint) {
+      void sendProgressCard(hint);
+    }
+  };
+
+  let textReply = await runAgenticChat(session.history, userInput, session.user, {
+    streamEnabled: false,
+    logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
+    showThinking: true,
+    agentConfig,
+    images,
+    onProgress,
+    deliveryContext: {
+      channel: 'feishu',
+      targetId: feishuUserId,
+      appId: instance.appId,
+    } as DeliveryContext,
+  });
+
+  if (textReply) {
+    session.history.push({ role: 'assistant', content: textReply });
   }
+
+  const { cleanText, mediaPaths } = extractMediaFromText(textReply);
+  let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
+
+  const elapsedMs = Date.now() - interactionTrace.startedAt;
+  const toolLines = interactionTrace.tools.slice(0, 8).map((tool, index) =>
+    `tool${index + 1}=r${tool.round} ${tool.name}${tool.durationMs !== undefined ? ` (${tool.durationMs}ms)` : ''} | input=${tool.inputPreview}${tool.resultPreview ? ` | result=${tool.resultPreview}` : ''}`
+  );
+  const thoughtLines = interactionTrace.thoughts.slice(0, 6).map((thought, index) => `thought${index + 1}=${thought}`);
+  logTraceBlock(instance, traceId, 'AI 对话完成', [
+    `elapsed=${elapsedMs}ms`,
+    `reply=${compactTextForLog(processedText || '（无回复内容）', 320)}`,
+    mediaPaths.length > 0 ? `media=${mediaPaths.map(p => path.basename(p)).join(', ')}` : undefined,
+    `tools=${interactionTrace.tools.length}`,
+    ...toolLines,
+    interactionTrace.tools.length > toolLines.length ? `tools_more=${interactionTrace.tools.length - toolLines.length}` : undefined,
+    `thoughts=${interactionTrace.thoughts.length}`,
+    ...thoughtLines,
+    interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
+  ], 'info');
+
+  if (processedText && progressMessageId) {
+    try {
+      const finalReplyId = await sendFeishuReply(instance, chatId, processedText, {
+        ...replyOpts,
+        updateMessageId: progressMessageId
+      });
+      if (finalReplyId === progressMessageId) {
+        if (mediaPaths.length > 0) {
+          await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
+        }
+        return { text: '' };
+      }
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
+    }
+  }
+
+  return { text: processedText || '（无回复内容）', mediaPaths };
+  }); // end runWithExecutionContext
 }
 
 /**
@@ -890,20 +877,14 @@ async function handleMemoryCommand(args: string, instance: FeishuBotInstance, fe
 
   if (sub === 'add') {
     if (!rest) return '用法: /memory add <内容>';
-    const prevUser = getCurrentUser();
-    setCurrentUser(session.user);
     const result = saveMemory({ content: rest, scope: 'agent', agentId, source: 'manual' });
-    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已保存: ${rest}`;
   }
 
   if (sub === 'del' || sub === 'delete') {
     if (!rest) return '用法: /memory del <id>';
-    const prevUser = getCurrentUser();
-    setCurrentUser(session.user);
     const result = deleteMemory(rest);
-    setCurrentUser(prevUser);
     if (!result.success) return `❌ ${(result as any).error}`;
     return `✅ 记忆已删除: ${rest}`;
   }
@@ -1195,15 +1176,15 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
       const session = await getSessionForInstance(instance, senderId, '');
       const agentConfig = getAgent(session.agentName);
-      const prevUser = getCurrentUser();
       const prevAgent = getCurrentAgent();
-      setCurrentUser(session.user);
       setCurrentAgent(agentConfig);
       let reply: string | null;
       try {
-        reply = await handleCommand(instance, cmd, args, senderId);
+        reply = await runWithExecutionContext(
+          { channel: 'feishu', user: session.user },
+          () => handleCommand(instance, cmd, args, senderId),
+        );
       } finally {
-        setCurrentUser(prevUser);
         setCurrentAgent(prevAgent);
       }
       if (reply !== null) {

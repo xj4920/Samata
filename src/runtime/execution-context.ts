@@ -10,8 +10,15 @@ export interface OutputCapture {
 
 export type PromptFn = (message: string, defaultValue?: string) => Promise<string>;
 
+export interface ContextUser {
+  id: string;
+  username: string;
+  role: string;
+}
+
 export interface ExecutionContext {
   channel: AppChannel;
+  user?: ContextUser;
   interactive?: boolean;
   promptFn?: PromptFn;
   outputCapture?: OutputCapture;
@@ -36,6 +43,10 @@ export function getExecutionChannel(): AppChannel {
 
 export function isInteractive(): boolean {
   return storage.getStore()?.interactive === true;
+}
+
+export function getContextUser(): ContextUser | undefined {
+  return storage.getStore()?.user;
 }
 
 export async function remoteInput(message: string, defaultValue?: string): Promise<string> {

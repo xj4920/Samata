@@ -5,9 +5,11 @@
  * 支持渠道：企微(wework)、飞书(feishu)、Telegram、CLI
  *
  * 用法：
- *   npx tsx scripts/analyze-log.ts                          # 分析今天的日志
- *   npx tsx scripts/analyze-log.ts logs/app-2026-04-12.log  # 指定文件
- *   npx tsx scripts/analyze-log.ts --csv                    # CSV 输出
+ *   npx tsx scripts/analyze-log.ts                                            # 今天
+ *   npx tsx scripts/analyze-log.ts logs/app-2026-04-12.log                    # 指定文件
+ *   npx tsx scripts/analyze-log.ts --from=2026-04-10 --to=2026-04-15         # 日期范围
+ *   npx tsx scripts/analyze-log.ts --channel=feishu                           # 只看飞书
+ *   npx tsx scripts/analyze-log.ts --channel=wework --from=2026-04-10 --csv  # 组合
  *
  * 分析结果以 markdown 写入 ./logs/daily_usage/<date>.md
  */
@@ -142,20 +144,57 @@ function parseTelegramLine(line: string): UserMessage | null {
   };
 }
 
-function resolveLogPath(args: string[]): string {
+function parseArg(args: string[], prefix: string): string | undefined {
+  const hit = args.find(a => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : undefined;
+}
+
+function enumerateDateRange(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const cur = new Date(from + 'T00:00:00Z');
+  const end = new Date(to + 'T00:00:00Z');
+  while (cur <= end) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function resolveLogPaths(args: string[]): string[] {
   const root = process.cwd();
   const filePath = args.find(a => !a.startsWith('--'));
   if (filePath) {
     const p = resolve(root, filePath);
     if (!existsSync(p)) { console.error(`文件不存在: ${p}`); process.exit(1); }
-    return p;
+    return [p];
   }
+
+  const fromDate = parseArg(args, '--from=');
+  const toDate = parseArg(args, '--to=');
+
+  if (fromDate || toDate) {
+    const today = new Date();
+    today.setHours(today.getHours() + 8);
+    const todayStr = today.toISOString().slice(0, 10);
+    const from = fromDate || todayStr;
+    const to = toDate || todayStr;
+    const dates = enumerateDateRange(from, to);
+    const paths = dates
+      .map(d => join(root, 'logs', `app-${d}.log`))
+      .filter(p => existsSync(p));
+    if (paths.length === 0) {
+      console.error(`日期范围 ${from} ~ ${to} 内无日志文件`);
+      process.exit(1);
+    }
+    return paths;
+  }
+
   const today = new Date();
   today.setHours(today.getHours() + 8);
   const dateStr = today.toISOString().slice(0, 10);
   const defaultPath = join(root, 'logs', `app-${dateStr}.log`);
   if (!existsSync(defaultPath)) { console.error(`今日日志不存在: ${defaultPath}`); process.exit(1); }
-  return defaultPath;
+  return [defaultPath];
 }
 
 function truncate(s: string, max: number): string {
@@ -237,10 +276,10 @@ const CHANNEL_LABEL: Record<Channel, string> = {
   cli: 'CLI',
 };
 
-function buildMarkdown(messages: UserMessage[], dateStr: string): string {
+function buildMarkdown(messages: UserMessage[], dateLabel: string): string {
   const lines: string[] = [];
 
-  lines.push(`# Samata 日使用报告 — ${dateStr}`);
+  lines.push(`# Samata 使用报告 — ${dateLabel}`);
   lines.push('');
   lines.push(`## 用户提问记录 (共 ${messages.length} 条)`);
   lines.push('');
@@ -336,27 +375,52 @@ function extractDateFromPath(logPath: string): string {
   return m ? m[1] : new Date().toISOString().slice(0, 10);
 }
 
+const VALID_CHANNELS: Channel[] = ['wework', 'feishu', 'telegram', 'cli'];
+
 // --- main ---
 const args = process.argv.slice(2);
 const csvMode = args.includes('--csv');
-const logPath = resolveLogPath(args);
-const dateStr = extractDateFromPath(logPath);
+const channelArg = parseArg(args, '--channel=') as Channel | undefined;
 
-const rawLines = readFileSync(logPath, 'utf8').split('\n');
-const messages = parseAllMessages(rawLines);
+if (channelArg && !VALID_CHANNELS.includes(channelArg)) {
+  console.error(`无效渠道: ${channelArg}，可选: ${VALID_CHANNELS.join(', ')}`);
+  process.exit(1);
+}
+
+const logPaths = resolveLogPaths(args);
+
+const allLines: string[] = [];
+for (const p of logPaths) {
+  allLines.push(...readFileSync(p, 'utf8').split('\n'));
+}
+
+let messages = parseAllMessages(allLines);
+
+if (channelArg) {
+  messages = messages.filter(m => m.channel === channelArg);
+}
 
 if (messages.length === 0) {
-  console.log('未找到用户提问记录。');
+  const suffix = channelArg ? ` (渠道: ${channelArg})` : '';
+  console.log(`未找到用户提问记录${suffix}。`);
   process.exit(0);
 }
 
-const output = csvMode ? buildCSV(messages) : buildMarkdown(messages, dateStr);
+const dates = logPaths.map(extractDateFromPath);
+const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
+const fileTag = dates.length === 1 ? dates[0] : `${dates[0]}_${dates[dates.length - 1]}`;
+
+const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
+const output = csvMode
+  ? buildCSV(messages)
+  : buildMarkdown(messages, dateLabel + channelSuffix);
 console.log(output);
 
 const outDir = join(process.cwd(), 'logs', 'daily_usage');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 const ext = csvMode ? 'csv' : 'md';
-const outFile = join(outDir, `${dateStr}.${ext}`);
+const channelFileTag = channelArg ? `_${channelArg}` : '';
+const outFile = join(outDir, `${fileTag}${channelFileTag}.${ext}`);
 writeFileSync(outFile, output, 'utf8');
 console.log(`\n=> 已写入 ${outFile}`);

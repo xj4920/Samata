@@ -13,9 +13,10 @@ import { resolve } from 'node:path';
 import { TelegramAPI, type TgMessage } from './api.js';
 import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
-import { setCurrentUser, type User, isAgentAdmin } from '../auth/rbac.js';
+import { type User, isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, type DeliveryContext } from '../llm/agent.js';
 import { getAgent, AgentUnboundError } from '../llm/agents/config.js';
+import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -48,24 +49,22 @@ let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 async function handleAIChat(chatId: number, userInput: string, telegramUserId: number, telegramUsername: string): Promise<string> {
   const session = getSession(telegramUserId, telegramUsername);
 
-  // 临时切换当前用户上下文（tool handler 依赖）
-  setCurrentUser(session.user);
+  return runWithExecutionContext({ channel: 'telegram', user: session.user }, async () => {
+    const agentConfig = getAgent(session.agentName);
 
-  // 解析当前 session 使用的 Agent
-  const agentConfig = getAgent(session.agentName);
+    const textReply = await runAgenticChat(session.history, userInput, session.user, {
+      streamEnabled: false,
+      logPrefix: `[TG:${telegramUsername}] `,
+      showThinking: true,
+      agentConfig,
+      deliveryContext: {
+        channel: 'telegram',
+        targetId: String(chatId),
+      } as DeliveryContext,
+    });
 
-  const textReply = await runAgenticChat(session.history, userInput, session.user, {
-    streamEnabled: false,
-    logPrefix: `[TG:${telegramUsername}] `,
-    showThinking: true,
-    agentConfig,
-    deliveryContext: {
-      channel: 'telegram',
-      targetId: String(chatId),
-    } as DeliveryContext,
+    return textReply || '（无回复内容）';
   });
-
-  return textReply || '（无回复内容）';
 }
 
 /**
@@ -149,7 +148,6 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     if (text === '/help') {
       const session = getSession(userId, username);
       const agentConfig = getAgent(session.agentName);
-      setCurrentUser(session.user);
       setCurrentAgent(agentConfig);
       const entries = getCommandEntries();
       const lines = ['📋 可用命令：', ''];
