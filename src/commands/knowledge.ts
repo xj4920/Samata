@@ -76,7 +76,7 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
     '(CASE WHEN k.answer LIKE ? THEN 1 ELSE 0 END)'
   ).join(' + ');
 
-  const sql = `SELECT k.*, (${scoreExpr}) as relevance FROM knowledge k WHERE (${whereClauses}) ${agentFilter} ORDER BY relevance DESC, k.created_at DESC`;
+  const sql = `SELECT k.*, (${scoreExpr}) as relevance FROM knowledge k WHERE (${whereClauses}) ${agentFilter} ORDER BY relevance DESC, k.created_at DESC LIMIT 10`;
 
   const params: string[] = [];
   for (const kw of keywords) {

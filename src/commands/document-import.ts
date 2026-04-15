@@ -137,6 +137,15 @@ function persistDocumentFiles(
     fs.writeFileSync(path.join(dir, 'parsed.md'), fullMd, 'utf-8');
   }
 
+  // Log images directory if it was populated during parsing
+  const imgDir = path.join(dir, 'images');
+  if (fs.existsSync(imgDir)) {
+    const imgFiles = fs.readdirSync(imgDir).filter(f => !f.startsWith('.'));
+    if (imgFiles.length === 0) {
+      try { fs.rmdirSync(imgDir); } catch {}
+    }
+  }
+
   return dir;
 }
 
@@ -354,24 +363,117 @@ async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: str
 }
 
 // ---------------------------------------------------------------------------
+// Image description via LLM Vision
+// ---------------------------------------------------------------------------
+
+interface ExtractedImage {
+  filename: string;
+  relativePath: string;
+}
+
+async function describeImagesInMarkdown(
+  content: string,
+  images: ExtractedImage[],
+  imageDir: string,
+): Promise<string> {
+  if (images.length === 0) return content;
+
+  let provider: import('../llm/provider.js').LLMProvider;
+  try {
+    const { getProvider } = await import('../llm/provider.js');
+    provider = getProvider();
+  } catch {
+    return content;
+  }
+  if (!provider.describeImage) return content;
+
+  const described = new Map<string, string>();
+
+  for (const img of images) {
+    try {
+      const imgPath = path.join(imageDir, img.filename);
+      if (!fs.existsSync(imgPath)) continue;
+
+      const buffer = fs.readFileSync(imgPath);
+      const ext = path.extname(img.filename).toLowerCase().slice(1);
+      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+      const mime = mimeMap[ext] || 'image/png';
+      const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+
+      const desc = await provider.describeImage(dataUrl, '用一两句中文简要描述这张图片的内容，重点说明图中的关键信息（如数据、流程、结构等）。');
+      if (desc) described.set(img.relativePath, desc);
+    } catch (e: any) {
+      log.warn(`图片描述失败 (${img.filename}): ${e.message}`);
+    }
+  }
+
+  if (described.size === 0) return content;
+
+  // Insert descriptions after each image reference
+  let result = content;
+  for (const [relPath, desc] of described) {
+    const escaped = relPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(!\\[[^\\]]*\\]\\(${escaped}\\))`, 'g');
+    result = result.replace(pattern, `$1\n\n> **[图片内容]** ${desc}`);
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Content loading per file type
 // ---------------------------------------------------------------------------
 
-async function loadAndChunk(filePath: string, fileType: string, docTitle: string, agentId: string): Promise<{ chunks: Chunk[]; error?: string }> {
+interface LoadResult {
+  chunks: Chunk[];
+  rawContent?: string;
+  images?: ExtractedImage[];
+  error?: string;
+}
+
+async function loadAndChunk(
+  filePath: string,
+  fileType: string,
+  docTitle: string,
+  agentId: string,
+  options?: { imageOutputDir?: string },
+): Promise<LoadResult> {
   switch (fileType) {
     case 'md': {
       const content = fs.readFileSync(filePath, 'utf-8');
       const chunks = splitMarkdownByHeadings(content, docTitle);
-      return { chunks: await tryLLMChunking(chunks, content, docTitle, agentId) };
+      return { chunks: await tryLLMChunking(chunks, content, docTitle, agentId), rawContent: content };
     }
 
     case 'docx': {
-      const result = await executePluginTool('parse_word', { file_path: filePath, format: 'markdown', max_chars: 100000 });
+      const pluginInput: Record<string, any> = { file_path: filePath, format: 'markdown', max_chars: 100000 };
+      if (options?.imageOutputDir) pluginInput.image_output_dir = options.imageOutputDir;
+
+      const result = await executePluginTool('parse_word', pluginInput);
       if (!result) return { chunks: [], error: '需要 word-parser 插件（plugins/word-parser/），请确认已安装' };
       const parsed = JSON.parse(result);
       if (parsed.error) return { chunks: [], error: parsed.error };
-      const chunks = splitMarkdownByHeadings(parsed.content, docTitle);
-      return { chunks: await tryLLMChunking(chunks, parsed.content, docTitle, agentId) };
+
+      let content: string = parsed.content;
+      const images: ExtractedImage[] = parsed.images || [];
+
+      // Enrich markdown with Vision descriptions for extracted images
+      if (images.length > 0 && options?.imageOutputDir) {
+        const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
+        if (shouldDescribe) {
+          log.info(`为 ${images.length} 张图片生成 AI 描述...`);
+          content = await describeImagesInMarkdown(content, images, options.imageOutputDir);
+        }
+      }
+
+      if (parsed.engine) log.dim(`  Word 解析引擎: ${parsed.engine}`);
+
+      const chunks = splitMarkdownByHeadings(content, docTitle);
+      return {
+        chunks: await tryLLMChunking(chunks, content, docTitle, agentId),
+        rawContent: content,
+        images,
+      };
     }
 
     case 'xlsx':
@@ -386,12 +488,31 @@ async function loadAndChunk(filePath: string, fileType: string, docTitle: string
     }
 
     case 'pdf': {
-      const pdfResult = await executePluginTool('parse_pdf', { file_path: filePath, max_chars: 100000 });
+      const pluginInput: Record<string, any> = { file_path: filePath, max_chars: 100000 };
+      if (options?.imageOutputDir) pluginInput.image_output_dir = options.imageOutputDir;
+
+      const pdfResult = await executePluginTool('parse_pdf', pluginInput);
       if (!pdfResult) return { chunks: [], error: '需要 pdf-parser 插件（plugins/pdf-parser/），请确认已安装' };
       const pdfParsed = JSON.parse(pdfResult);
       if (pdfParsed.error) return { chunks: [], error: pdfParsed.error };
-      const chunks = splitMarkdownByHeadings(pdfParsed.content, docTitle);
-      return { chunks: await tryLLMChunking(chunks, pdfParsed.content, docTitle, agentId) };
+
+      let content: string = pdfParsed.content;
+      const images: ExtractedImage[] = pdfParsed.images || [];
+
+      if (images.length > 0 && options?.imageOutputDir) {
+        const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
+        if (shouldDescribe) {
+          log.info(`为 ${images.length} 张图片生成 AI 描述...`);
+          content = await describeImagesInMarkdown(content, images, options.imageOutputDir);
+        }
+      }
+
+      const chunks = splitMarkdownByHeadings(content, docTitle);
+      return {
+        chunks: await tryLLMChunking(chunks, content, docTitle, agentId),
+        rawContent: content,
+        images,
+      };
     }
 
     default:
@@ -433,13 +554,29 @@ export async function importDocument(
     return { success: false, error: `文档已导入过 (${existing.id.slice(0, 8)}: ${existing.title})，如需更新请先删除或使用 reimport` };
   }
 
-  const { chunks, error } = await loadAndChunk(resolved, fileType, docTitle, agentId);
-  if (error) return { success: false, error };
-  if (chunks.length === 0) return { success: false, error: '文档内容为空，无法导入' };
-
+  // Generate doc ID early so we can set up the image output directory before parsing
   const docId = uuid();
+  const docStorageDir = getDocStorageDir(docId);
+  const imageOutputDir = path.join(docStorageDir, 'images');
+
+  const { chunks, rawContent, images, error } = await loadAndChunk(resolved, fileType, docTitle, agentId, {
+    imageOutputDir,
+  });
+  if (error) {
+    // Clean up any partially created directories
+    try { fs.rmSync(docStorageDir, { recursive: true, force: true }); } catch {}
+    return { success: false, error };
+  }
+  if (chunks.length === 0) {
+    try { fs.rmSync(docStorageDir, { recursive: true, force: true }); } catch {}
+    return { success: false, error: '文档内容为空，无法导入' };
+  }
 
   const storedPath = persistDocumentFiles(docId, resolved, fileType, chunks);
+
+  if (images && images.length > 0) {
+    log.info(`  提取了 ${images.length} 张图片 → ${imageOutputDir}`);
+  }
 
   // Insert document record
   db.prepare(

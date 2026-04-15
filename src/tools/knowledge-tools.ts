@@ -113,17 +113,30 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
+const MAX_SEARCH_RESULT_CHARS = 3000;
+
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
   const rows = fetchKnowledge(input.keyword, agentId);
   if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ，建议换用更短或不同的关键词重试' });
-  return JSON.stringify(rows.map(r => ({
-    id: r.id.slice(0, 8),
-    question: r.question,
-    answer: r.answer,
-    tags: r.tags,
-    relevance: (r as any).relevance,
-  })));
+
+  const items: any[] = [];
+  let totalLen = 0;
+  for (const r of rows) {
+    const answer = r.answer.length > 300 ? r.answer.slice(0, 300) + '...' : r.answer;
+    const item = {
+      id: r.id.slice(0, 8),
+      question: r.question,
+      answer,
+      tags: r.tags,
+      relevance: (r as any).relevance,
+    };
+    const itemJson = JSON.stringify(item);
+    if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
+    items.push(item);
+    totalLen += itemJson.length;
+  }
+  return JSON.stringify(items);
 }
 
 function handleAddKnowledge(input: AddKnowledgeInput): string {
