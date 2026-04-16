@@ -6,7 +6,7 @@ import { log } from '../utils/logger.js';
 import { v4 as uuid } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 import { fileURLToPath } from 'url';
 import { executePluginTool } from '../plugins/registry.js';
 import { getProvider, getModelName } from '../llm/provider.js';

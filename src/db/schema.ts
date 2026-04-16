@@ -1120,4 +1120,52 @@ export function initSchema(): void {
       "UPDATE agents SET tools_list = ?, block_tools = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
     ).run(toolsListJson, blockToolsJson, newUserToolsList);
   });
+
+  runOnce('add-pricing-schedule-columns', () => {
+    const cols = db.pragma('table_info(clients)') as Array<{ name: string }>;
+    const colNames = new Set(cols.map(c => c.name));
+    if (!colNames.has('long_financing_spread')) {
+      db.exec('ALTER TABLE clients ADD COLUMN long_financing_spread REAL');
+    }
+    if (!colNames.has('short_financing')) {
+      db.exec('ALTER TABLE clients ADD COLUMN short_financing REAL');
+    }
+    if (!colNames.has('commission')) {
+      db.exec('ALTER TABLE clients ADD COLUMN commission REAL');
+    }
+    if (!colNames.has('commission_cost')) {
+      db.exec('ALTER TABLE clients ADD COLUMN commission_cost REAL');
+    }
+    if (!colNames.has('net_comm')) {
+      db.exec('ALTER TABLE clients ADD COLUMN net_comm REAL');
+    }
+    if (!colNames.has('long_pnl_spread')) {
+      db.exec('ALTER TABLE clients ADD COLUMN long_pnl_spread REAL');
+    }
+    if (!colNames.has('short_pnl_spread')) {
+      db.exec('ALTER TABLE clients ADD COLUMN short_pnl_spread REAL');
+    }
+    if (!colNames.has('index_hedging')) {
+      db.exec('ALTER TABLE clients ADD COLUMN index_hedging INTEGER');
+    }
+  });
+
+  runOnce('remove-pnl-spread-columns', () => {
+    const cols = db.pragma('table_info(clients)') as Array<{ name: string }>;
+    const colNames = new Set(cols.map(c => c.name));
+    if (colNames.has('long_pnl_spread')) {
+      db.exec('ALTER TABLE clients DROP COLUMN long_pnl_spread');
+    }
+    if (colNames.has('short_pnl_spread')) {
+      db.exec('ALTER TABLE clients DROP COLUMN short_pnl_spread');
+    }
+  });
+
+  runOnce('add-is-ft-column', () => {
+    const cols = db.pragma('table_info(clients)') as Array<{ name: string }>;
+    const colNames = new Set(cols.map(c => c.name));
+    if (!colNames.has('is_ft')) {
+      db.exec('ALTER TABLE clients ADD COLUMN is_ft INTEGER NOT NULL DEFAULT 0');
+    }
+  });
 }

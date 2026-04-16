@@ -96,7 +96,9 @@
     "sales": "陈婉茜",
     "products": [
       { "user_id": "17786", "counter_party": "MINGSHIOPTIMA" },
-      { "user_id": "18055", "counter_party": "MINGSHIOPTIMA02" }
+      { "user_id": "18055", "counter_party": "MINGSHIOPTIMA02" },
+      { "user_id": "18210", "counter_party": "MINGSHIOPTIMAX"},
+      { "user_id": "18209", "counter_party": "MINGSHIOPTIMAX02"}
     ]
   },
   {

@@ -14,6 +14,7 @@ export type AddClientInput         = { name: string; contact?: string; wework_gr
 export type UpdateClientInput      = { name_or_id: string; fields: Record<string, string> };
 export type AdvanceClientInput     = { name_or_id: string };
 export type RollbackClientInput    = { name_or_id: string };
+export type ImportPricingScheduleInput = { file_path: string; dry_run?: boolean };
 
 // --- Trade ---
 export type QueryTradesInput = { client?: string; party?: string; user?: string; date?: string; limit?: number };

@@ -1,11 +1,14 @@
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isSystemAdmin } from '../auth/rbac.js';
 import { recordEvent, getEvents } from '../models/event.js';
-import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState, prevState } from '../models/client.js';
+import { Client, ClientState, STATE_LABELS, STATE_PRIORITY, STATES, nextState, prevState, classifyClient } from '../models/client.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
 import { v4 as uuid } from 'uuid';
 import { fetchLatestTradeData, formatNum, ClientTradeData } from './trade.js';
+import XLSX from 'xlsx';
+import * as path from 'path';
+import * as fs from 'fs';
 
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -57,7 +60,8 @@ export function update(args: string): void {
     log.print('不允许通过 update 修改 state，请使用 advance 命令推进状态');
     return;
   }
-  const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes'];
+  const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes',
+    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'is_ft'];
   const sets: string[] = [];
   const vals: any[] = [];
   for (const [k, v] of Object.entries(kv)) {
@@ -166,9 +170,10 @@ export async function list(args: string): Promise<void> {
     return;
   }
 
-  const head = ['ID', '名称', '状态', 'T日存续名本', 'T日成交金额', '销售', '标签', '创建时间', '更新时间'];
+  const head = ['ID', '名称', '状态', 'T日存续名本', 'T日成交金额', '销售', '分类', '标签', '创建时间', '更新时间'];
   const tableRows = rows.map(c => {
     const td = tradeData.get(c.name.toLowerCase());
+    const category = classifyClient(c.is_ft === 1, c.short_financing);
     return [
       c.id.slice(0, 8),
       c.name,
@@ -176,6 +181,7 @@ export async function list(args: string): Promise<void> {
       td ? formatNum(td.notional_t) : '-',
       td ? formatNum(td.trade_amt_ft) : '-',
       c.sales ?? '-',
+      category ?? '-',
       c.tags ?? '-',
       c.created_at,
       c.updated_at,
@@ -196,6 +202,8 @@ export function view(args: string): void {
   const client = findByPrefix(idPrefix);
   if (!client) return;
 
+  const category = classifyClient(client.is_ft === 1, client.short_financing);
+
   log.print(`  ID:         ${client.id}`);
   log.print(`  名称:       ${client.name}`);
   log.print(`  WeWork Group: ${client.wework_group ?? '-'}`);
@@ -204,7 +212,16 @@ export function view(args: string): void {
   log.print(`  联系方式:   ${client.contact ?? '-'}`);
   log.print(`  状态:       ${STATE_LABELS[client.state]}`);
   log.print(`  标签:       ${client.tags ?? '-'}`);
+  log.print(`  客户分类:   ${category ?? '-'}`);
   log.print(`  备注:       ${client.notes ?? '-'}`);
+  log.print(`  --- 报价信息 ---`);
+  log.print(`  Long Financing Spread: ${client.long_financing_spread ?? '-'}`);
+  log.print(`  Short Financing:       ${client.short_financing ?? '-'}`);
+  log.print(`  Commission:            ${client.commission ?? '-'}`);
+  log.print(`  Commission Cost:       ${client.commission_cost ?? '-'}`);
+  log.print(`  Net Comm:              ${client.net_comm ?? '-'}`);
+  log.print(`  Index Hedging:         ${client.index_hedging === 1 ? '是' : client.index_hedging === 0 ? '否' : '-'}`);
+  log.print(`  极速客户:              ${client.is_ft === 1 ? '是' : '否'}`);
   log.print(`  创建时间:   ${client.created_at}`);
   log.print(`  更新时间:   ${client.updated_at}`);
 }
@@ -312,7 +329,8 @@ export function updateClient(nameOrId: string, fields: Record<string, string>): 
   if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
 
   const db = getDb();
-  const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes'];
+  const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes',
+    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'is_ft'];
   const sets: string[] = [];
   const vals: any[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -355,9 +373,161 @@ export function rollbackClient(nameOrId: string): { success: true; name: string;
   return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[prev] };
 }
 
+export function importPricingSchedule(filePath: string, dryRun: boolean = true): { success: true; imported: number; skipped: number; details: string[]; unmatched: Array<{ counterparty: string; suggestions: string[] }> } | { success: false; error: string } {
+  const resolved = filePath.startsWith('~/')
+    ? path.join(process.env.HOME || '', filePath.slice(1))
+    : path.resolve(filePath);
+
+  if (!fs.existsSync(resolved)) {
+    return { success: false, error: `文件不存在: ${resolved}` };
+  }
+
+  let workbook: XLSX.WorkBook;
+  try {
+    workbook = XLSX.readFile(resolved);
+  } catch (e: any) {
+    return { success: false, error: `Excel解析失败: ${e.message}` };
+  }
+
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet) {
+    return { success: false, error: `Sheet不存在: ${sheetName}` };
+  }
+
+  const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet);
+  if (rows.length === 0) {
+    return { success: false, error: 'Excel文件为空' };
+  }
+
+  const db = getDb();
+  const allClients = db.prepare('SELECT id, name, tags, is_ft, short_financing FROM clients').all() as { id: string; name: string; tags: string | null; is_ft: number; short_financing: number | null }[];
+  const clientNameMap = new Map<string, { id: string; name: string; tags: string | null; is_ft: number; short_financing: number | null }>();
+  for (const c of allClients) {
+    clientNameMap.set(c.name.toUpperCase(), c);
+  }
+
+  const IGNORED_COLS = new Set(['Long PNL Spread', 'Short PNL Spread']);
+
+  const BP_FIELDS = new Set(['Commission', 'Commission Cost', 'Net Comm']);
+
+  const FIELD_MAP: Record<string, string> = {
+    'Long Financing Spread': 'long_financing_spread',
+    'Short Financing': 'short_financing',
+    'Commission': 'commission',
+    'Commission Cost': 'commission_cost',
+    'Net Comm': 'net_comm',
+  };
+
+  function similarity(a: string, b: string): number {
+    const s1 = a.toLowerCase();
+    const s2 = b.toLowerCase();
+    if (s1 === s2) return 1;
+    if (s1.includes(s2) || s2.includes(s1)) return 0.8;
+    const len = Math.max(s1.length, s2.length);
+    let matches = 0;
+    for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
+      if (s1[i] === s2[i]) matches++;
+    }
+    return matches / len;
+  }
+
+  function findTopSuggestions(counterparty: string, clients: { name: string }[], topN: number = 3): string[] {
+    const scored = clients.map(c => ({ name: c.name, score: similarity(counterparty, c.name) }));
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, topN).filter(s => s.score > 0.2).map(s => s.name);
+  }
+
+  let imported = 0;
+  let skipped = 0;
+  const details: string[] = [];
+  const unmatched: Array<{ counterparty: string; suggestions: string[] }> = [];
+
+  const updateStmt = db.prepare(`
+    UPDATE clients SET
+      long_financing_spread = ?, short_financing = ?, commission = ?,
+      commission_cost = ?, net_comm = ?, index_hedging = ?, tags = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `);
+
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const counterparty = String(row['Counterparty'] ?? '').trim();
+      if (!counterparty) continue;
+
+      const matched = clientNameMap.get(counterparty.toUpperCase());
+      if (!matched) {
+        skipped++;
+        const suggestions = findTopSuggestions(counterparty, allClients);
+        unmatched.push({ counterparty, suggestions });
+        details.push(`${counterparty}: 未找到匹配客户${suggestions.length > 0 ? `，推荐: ${suggestions.join(', ')}` : ''}`);
+        continue;
+      }
+
+      const indexHedging = row['Index Hedging?'];
+      const indexHedgingVal = indexHedging === true || indexHedging === 'true' || indexHedging === 1 ? 1 : 0;
+
+      const fields: Record<string, number | null> = {};
+      for (const [xlsxCol, dbCol] of Object.entries(FIELD_MAP)) {
+        const val = row[xlsxCol];
+        if (val !== null && val !== undefined && val !== '') {
+          const numVal = Number(val);
+          fields[dbCol] = BP_FIELDS.has(xlsxCol) ? numVal * 0.0001 : numVal;
+        } else {
+          fields[dbCol] = null;
+        }
+      }
+
+      const isFt = matched.is_ft === 1;
+      const shortFinancing = fields.short_financing ?? matched.short_financing;
+      const category = classifyClient(isFt, shortFinancing);
+
+      const existingTags = matched.tags ? matched.tags.split(',').map(t => t.trim()) : [];
+      const categoryTags = existingTags.filter(t => t !== '多空客户' && t !== '中性客户');
+      if (category) categoryTags.push(category);
+      const newTags = categoryTags.join(',');
+
+      if (!dryRun) {
+        updateStmt.run(
+          fields.long_financing_spread,
+          fields.short_financing,
+          fields.commission,
+          fields.commission_cost,
+          fields.net_comm,
+          indexHedgingVal,
+          newTags,
+          matched.id,
+        );
+
+        recordEvent('client', matched.id, 'import_pricing', {
+          source: path.basename(resolved),
+          counterparty,
+          category,
+          ...fields,
+          index_hedging: indexHedgingVal,
+        });
+      }
+
+      imported++;
+      const dryRunTag = dryRun ? ' [预览]' : '';
+      details.push(`${counterparty} → ${matched.name} (${category ?? '未分类'})${dryRunTag}`);
+    }
+  });
+
+  tx();
+
+  if (dryRun && imported > 0) {
+    details.push('');
+    details.push('⚠️ 以上为预览结果，未实际写入数据库。请确认后使用 dry_run=false 执行导入。');
+  }
+
+  return { success: true, imported, skipped, details, unmatched };
+}
+
 // --- /client subcommand dispatcher ---
 
-const ADMIN_SUBCMDS = new Set(['add', 'update', 'delete', 'advance', 'rollback']);
+const ADMIN_SUBCMDS = new Set(['add', 'update', 'delete', 'advance', 'rollback', 'import-pricing']);
 
 export async function handleClient(args: string): Promise<void> {
   const parts = args.trim().split(/\s+/);
@@ -378,7 +548,28 @@ export async function handleClient(args: string): Promise<void> {
     case 'delete':  return remove(rest);
     case 'advance': return advance(rest);
     case 'rollback': return rollback(rest);
+    case 'import-pricing': return handleImportPricingCLI(rest);
     default:
-      log.print('用法: /client <list|view|history|add|update|delete|advance|rollback> [参数]');
+      log.print('用法: /client <list|view|history|add|update|delete|advance|rollback|import-pricing> [参数]');
+  }
+}
+
+function handleImportPricingCLI(args: string): void {
+  const parts = args.trim().split(/\s+/);
+  const filePath = parts[0];
+  if (!filePath) {
+    log.print('用法: /client import-pricing <xlsx文件路径> [--confirm]');
+    return;
+  }
+  const confirm = parts.includes('--confirm');
+  const result = importPricingSchedule(filePath, !confirm);
+  if (!result.success) {
+    log.print(`导入失败: ${result.error}`);
+    return;
+  }
+  const mode = confirm ? '实际导入' : '预览';
+  log.print(`报价${mode}完成: 成功 ${result.imported} 条, 跳过 ${result.skipped} 条`);
+  for (const d of result.details) {
+    log.print(`  ${d}`);
   }
 }

@@ -29,3 +29,6 @@ scripts/test_*.mjs
 
 data*
 .puppeteerrc.cjs
+
+
+.trae/
