@@ -43,14 +43,13 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'save_agent',
-    description: '创建或更新 Agent（仅管理员）。standard 模式下有效工具 = COMMON_SET + tools_list - block_tools。',
+    description: '创建或更新 Agent（仅管理员）。standard 模式下有效工具 = COMMON_SET + tools_list - block_tools。注意：system prompt 由 config/agents/<name>.md 维护（git 版本管理），不支持通过本工具修改。',
     input_schema: {
       type: 'object' as const,
       properties: {
         name: { type: 'string', description: 'Agent 唯一名称（英文）' },
         display_name: { type: 'string', description: 'Agent 显示名称' },
         description: { type: 'string', description: 'Agent 职责描述' },
-        system_prompt: { type: 'string', description: '自定义 system prompt（不传则使用默认）' },
         model: { type: 'string', description: '指定模型（不传则使用全局默认）' },
         provider: { type: 'string', description: '指定 provider（不传则使用全局默认）' },
         tools_mode: { type: 'string', description: "'all' | 'standard'。standard 模式: COMMON_SET + tools_list - block_tools" },
@@ -151,7 +150,6 @@ function handleSaveAgent(input: {
   name: string;
   display_name: string;
   description?: string;
-  system_prompt?: string;
   model?: string;
   provider?: string;
   tools_mode?: string;
@@ -173,7 +171,6 @@ function handleSaveAgent(input: {
     name: input.name,
     displayName: input.display_name,
     description: input.description,
-    systemPrompt: input.system_prompt,
     model: input.model,
     provider: input.provider,
     toolsMode: input.tools_mode as any,

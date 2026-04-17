@@ -14,6 +14,7 @@ export type AddClientInput         = { name: string; contact?: string; wework_gr
 export type UpdateClientInput      = { name_or_id: string; fields: Record<string, string> };
 export type AdvanceClientInput     = { name_or_id: string };
 export type RollbackClientInput    = { name_or_id: string };
+export type DeleteClientInput      = { name_or_id: string; dry_run?: boolean };
 export type ImportPricingScheduleInput = { file_path: string; dry_run?: boolean };
 
 // --- Trade ---
@@ -61,7 +62,6 @@ export type SaveAgentInput    = {
   name: string;
   display_name: string;
   description?: string;
-  system_prompt?: string;
   model?: string;
   provider?: string;
   tools_mode?: string;
@@ -126,6 +126,11 @@ export type MarkdownToImageInput = {
   width?: number;
   theme?: 'light' | 'dark';
 };
+
+// --- Pricing Quote ---
+export type ImportPricingQuoteInput = { file_path: string; quote_type?: string; dry_run?: boolean };
+export type QueryPricingQuoteInput = { quote_type?: string; date?: string; currency?: string; tenor?: string; rate_type?: string };
+export type ListPricingQuoteDatesInput = { quote_type?: string };
 
 // --- Document ---
 export type ImportDocumentInput = { file_path: string; title?: string };

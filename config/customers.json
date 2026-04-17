@@ -88,7 +88,8 @@
     "name": "稳博",
     "sales": "陈婉茜",
     "products": [
-      { "user_id": "16635", "counter_party": "IF-PM1" }
+      { "user_id": "16635", "counter_party": "IF-PM1" },
+      { "user_id": "15088", "counter_party": "INVESTINGFORMULA"}
     ]
   },
   {

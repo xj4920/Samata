@@ -13,8 +13,10 @@ import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
+import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
+import { buildFileHint } from '../runtime/file-hint.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
 import { fetchSystemStatus, formatSystemStatus } from '../commands/monitor.js';
@@ -86,7 +88,7 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
         reply = `⚠️ ${err.message}`;
       } else {
         log.error(`[企微:${instance.botName}] 处理消息出错: ${err.message}`);
-        reply = `处理出错: ${err.message}`;
+        reply = friendlyAIError(err);
       }
       const streamId = generateReqId('stream');
       await instance.wsClient.replyStream(frame, streamId, reply, true);
@@ -116,26 +118,46 @@ async function handleAIChat(
     const ws = instance.wsClient;
     const streamId = generateReqId('stream');
 
-    await ws.replyStream(frame, streamId, '思考中...', false);
+    // WeCom 长连接流式协议要求 content 是累积式（每次调用必须包含前面所有内容 + 新增）。
+    // 我们把 progress（thinking/tool_start/tool_progress）聚合进一个闭合的 <think>...</think>
+    // 块，最终答案拼接在后面，保证内容严格单调递增，且思考块始终闭合。
+    const progressLines: string[] = [];
+    const PLACEHOLDER = '思考中...';
 
-    let lastStreamContent = '';
+    const render = (answer: string | null): string => {
+      const parts: string[] = [];
+      if (progressLines.length > 0) {
+        parts.push(`<think>\n${progressLines.join('\n')}\n</think>`);
+      }
+      parts.push(answer ?? PLACEHOLDER);
+      return parts.join('\n\n');
+    };
+
+    await ws.replyStream(frame, streamId, render(null), false);
+
     const THROTTLE_MS = 800;
     let lastChunkTime = 0;
 
     const onProgress = (event: ProgressEvent) => {
+      let line = '';
+      if (event.type === 'tool_start') {
+        line = `🔧 调用 ${event.name}`;
+      } else if (event.type === 'tool_progress') {
+        line = event.message;
+      } else if (event.type === 'thinking') {
+        const clean = event.text.replace(/<\/?think>/gi, '').trim();
+        if (!clean) return;
+        line = `💭 ${clean.slice(0, 200)}`;
+      }
+      if (!line) return;
+
+      progressLines.push(line);
+
       const now = Date.now();
       if (now - lastChunkTime < THROTTLE_MS) return;
       lastChunkTime = now;
 
-      let hint = '';
-      if (event.type === 'tool_start') hint = `正在调用 ${event.name}...`;
-      else if (event.type === 'tool_progress') hint = event.message;
-      else if (event.type === 'thinking') hint = event.text.slice(0, 200);
-
-      if (hint && hint !== lastStreamContent) {
-        lastStreamContent = hint;
-        ws.replyStreamNonBlocking(frame, streamId, hint, false).catch(() => {});
-      }
+      ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
     };
 
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
@@ -149,7 +171,7 @@ async function handleAIChat(
     });
 
     const finalText = textReply || '（无回复内容）';
-    await ws.replyStream(frame, streamId, finalText, true);
+    await ws.replyStream(frame, streamId, render(finalText), true);
     return finalText;
   });
 }
@@ -176,7 +198,7 @@ function handleImageMessageForInstance(instance: WeworkBotInstance, frame: WsFra
     } catch (err: any) {
       log.error(`${logTag} 处理图片消息出错: ${err.message}`);
       const streamId = generateReqId('stream');
-      await instance.wsClient.replyStream(frame, streamId, `处理出错: ${err.message}`, true);
+      await instance.wsClient.replyStream(frame, streamId, friendlyAIError(err), true);
     }
   });
 }
@@ -212,7 +234,7 @@ function handleMixedMessageForInstance(instance: WeworkBotInstance, frame: WsFra
     } catch (err: any) {
       log.error(`${logTag} 处理图文混排消息出错: ${err.message}`);
       const streamId = generateReqId('stream');
-      await instance.wsClient.replyStream(frame, streamId, `处理出错: ${err.message}`, true);
+      await instance.wsClient.replyStream(frame, streamId, friendlyAIError(err), true);
     }
   });
 }
@@ -235,12 +257,12 @@ function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFram
 
       log.dim(`${logTag} 下载文件成功: ${filename} (${buffer.length} bytes) -> ${savedPath}`);
 
-      const text = `用户发送了文件 "${filename}" (${buffer.length} bytes)，已保存到本地路径: ${savedPath}\n请使用合适的工具（parse_word、parse_excel、read_file 等）读取文件内容。`;
+      const text = buildFileHint(filename, savedPath, buffer.length);
       await handleAIChat(instance, frame, text, mapKey, userId, username);
     } catch (err: any) {
       log.error(`${logTag} 处理文件消息出错: ${err.message}`);
       const streamId = generateReqId('stream');
-      await instance.wsClient.replyStream(frame, streamId, `文件处理出错: ${err.message}`, true);
+      await instance.wsClient.replyStream(frame, streamId, friendlyAIError(err), true);
     }
   });
 }

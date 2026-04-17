@@ -22,13 +22,21 @@ async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2, he
   for (let i = 0; i <= maxRetries; i++) {
     const agent = makeMinimaxAgent(headersTimeout);
     try {
-      return await fetch(url, { ...init, dispatcher: agent } as any);
+      const res = await fetch(url, { ...init, dispatcher: agent } as any);
+      if (res.ok || res.status < 500) return res;
+      // 5xx: 读出 body 以便最后一次失败时交回给调用方，保持现有错误路径
+      const body = await res.text();
+      lastErr = new Error(`MiniMax API ${res.status}: ${body.slice(0, 500)}`);
+      if (i === maxRetries) {
+        return new Response(body, { status: res.status, headers: res.headers });
+      }
     } catch (e: any) {
       lastErr = e;
       const isTimeout = e?.cause?.message?.includes('Connect Timeout') ||
                         e?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
       if (!isTimeout || i === maxRetries) throw e;
     }
+    await new Promise(r => setTimeout(r, 500 * 2 ** i));
   }
   throw lastErr;
 }

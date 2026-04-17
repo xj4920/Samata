@@ -132,7 +132,6 @@ async function createAgent(): Promise<void> {
     blockTools = blockInput ? blockInput.split(',').map(t => t.trim()).filter(Boolean) : [];
   }
 
-  const systemPrompt = await remoteInput('系统提示词（可选，留空使用默认）:');
   const model = await remoteInput('模型（可选，留空使用全局默认）:');
   const provider = await remoteInput('Provider（可选，留空使用全局默认）:');
 
@@ -141,9 +140,9 @@ async function createAgent(): Promise<void> {
   log.print(`  显示名: ${displayName}`);
   if (description) log.print(`  描述: ${description}`);
   log.print(`  工具模式: ${toolsMode}${toolsList ? ` (${toolsList.length} 个)` : ''}`);
-  if (systemPrompt) log.print(`  系统提示词: ${systemPrompt.slice(0, 50)}...`);
   if (model) log.print(`  模型: ${model}`);
   if (provider) log.print(`  Provider: ${provider}`);
+  log.print(`  提示：如需自定义 system prompt，请编辑 config/agents/${name}.md（找不到该文件时 fallback 到 _default.md）`);
 
   const ok = await remoteConfirm('确认创建？');
   if (!ok) {
@@ -155,7 +154,6 @@ async function createAgent(): Promise<void> {
     name,
     displayName,
     description: description || undefined,
-    systemPrompt: systemPrompt || undefined,
     model: model || undefined,
     provider: provider || undefined,
     toolsMode,

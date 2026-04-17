@@ -9,6 +9,7 @@ import { fetchLatestTradeData, formatNum, ClientTradeData } from './trade.js';
 import XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs';
+import { loadCustomers } from '../config/customers.js';
 
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -61,7 +62,7 @@ export function update(args: string): void {
     return;
   }
   const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes',
-    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'is_ft'];
+    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'pricing_range', 'is_ft'];
   const sets: string[] = [];
   const vals: any[] = [];
   for (const [k, v] of Object.entries(kv)) {
@@ -215,12 +216,16 @@ export function view(args: string): void {
   log.print(`  客户分类:   ${category ?? '-'}`);
   log.print(`  备注:       ${client.notes ?? '-'}`);
   log.print(`  --- 报价信息 ---`);
-  log.print(`  Long Financing Spread: ${client.long_financing_spread ?? '-'}`);
-  log.print(`  Short Financing:       ${client.short_financing ?? '-'}`);
-  log.print(`  Commission:            ${client.commission ?? '-'}`);
-  log.print(`  Commission Cost:       ${client.commission_cost ?? '-'}`);
-  log.print(`  Net Comm:              ${client.net_comm ?? '-'}`);
+  const range = parsePricingRange(client.pricing_range);
+  log.print(`  Long Financing Spread: ${formatFieldWithRange(client.long_financing_spread, range?.long_financing_spread)}`);
+  log.print(`  Short Financing:       ${formatFieldWithRange(client.short_financing, range?.short_financing)}`);
+  log.print(`  Commission:            ${formatFieldWithRange(client.commission, range?.commission)}`);
+  log.print(`  Commission Cost:       ${formatFieldWithRange(client.commission_cost, range?.commission_cost)}`);
+  log.print(`  Net Comm:              ${formatFieldWithRange(client.net_comm, range?.net_comm)}`);
   log.print(`  Index Hedging:         ${client.index_hedging === 1 ? '是' : client.index_hedging === 0 ? '否' : '-'}`);
+  if (range?.products && range.products.length > 0) {
+    log.print(`  报价来源产品:          ${range.products.join(', ')}`);
+  }
   log.print(`  极速客户:              ${client.is_ft === 1 ? '是' : '否'}`);
   log.print(`  创建时间:   ${client.created_at}`);
   log.print(`  更新时间:   ${client.updated_at}`);
@@ -330,7 +335,7 @@ export function updateClient(nameOrId: string, fields: Record<string, string>): 
 
   const db = getDb();
   const allowed = ['name', 'contact', 'wework_group', 'requirements', 'sales', 'tags', 'notes',
-    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'is_ft'];
+    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm', 'index_hedging', 'pricing_range', 'is_ft'];
   const sets: string[] = [];
   const vals: any[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -373,7 +378,100 @@ export function rollbackClient(nameOrId: string): { success: true; name: string;
   return { success: true, name: client.name, from: STATE_LABELS[client.state], to: STATE_LABELS[prev] };
 }
 
-export function importPricingSchedule(filePath: string, dryRun: boolean = true): { success: true; imported: number; skipped: number; details: string[]; unmatched: Array<{ counterparty: string; suggestions: string[] }> } | { success: false; error: string } {
+export function deleteClient(
+  nameOrId: string,
+  dryRun: boolean = true,
+):
+  | { success: true; dry_run: boolean; id: string; name: string; state: string; tags: string | null; deleted?: boolean }
+  | { success: false; error: string } {
+  const client = findByPrefix(nameOrId);
+  if (!client) return { success: false, error: `未找到客户: ${nameOrId}` };
+
+  if (dryRun) {
+    return {
+      success: true,
+      dry_run: true,
+      id: client.id.slice(0, 8),
+      name: client.name,
+      state: STATE_LABELS[client.state] || client.state,
+      tags: client.tags,
+    };
+  }
+
+  const db = getDb();
+  db.prepare('DELETE FROM clients WHERE id = ?').run(client.id);
+  recordEvent('client', client.id, 'delete', { name: client.name });
+  return {
+    success: true,
+    dry_run: false,
+    deleted: true,
+    id: client.id.slice(0, 8),
+    name: client.name,
+    state: STATE_LABELS[client.state] || client.state,
+    tags: client.tags,
+  };
+}
+
+// 报价 range JSON 的结构化类型
+export interface PricingRangeField {
+  min: number;
+  max: number;
+}
+
+export interface PricingRange {
+  long_financing_spread?: PricingRangeField | null;
+  short_financing?: PricingRangeField | null;
+  commission?: PricingRangeField | null;
+  commission_cost?: PricingRangeField | null;
+  net_comm?: PricingRangeField | null;
+  products?: string[];
+}
+
+export function parsePricingRange(json: string | null | undefined): PricingRange | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as PricingRange;
+  } catch {
+    return null;
+  }
+}
+
+const BP_FIELDS_DB = new Set(['commission', 'commission_cost', 'net_comm']);
+
+export function formatFieldWithRange(value: number | null, range?: PricingRangeField | null): string {
+  if (value === null || value === undefined) return '-';
+  if (!range || range.min === range.max) return String(value);
+  return `${value} (range: ${range.min} ~ ${range.max})`;
+}
+
+// 产品名精确（大小写不敏感）+ 模糊匹配到管理人
+function productStringSimilarity(a: string, b: string): number {
+  const s1 = a.toLowerCase();
+  const s2 = b.toLowerCase();
+  if (s1 === s2) return 1;
+  if (s1.includes(s2) || s2.includes(s1)) return 0.8;
+  const len = Math.max(s1.length, s2.length);
+  let matches = 0;
+  for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
+    if (s1[i] === s2[i]) matches++;
+  }
+  return matches / len;
+}
+
+export interface UnmatchedProductSuggestion {
+  counter_party: string;
+  manager: string;
+}
+
+export function importPricingSchedule(filePath: string, dryRun: boolean = true): {
+  success: true;
+  imported: number;
+  skipped_products: number;
+  details: string[];
+  unmatched_products: Array<{ counterparty: string; suggestions: UnmatchedProductSuggestion[] }>;
+  missing_clients: Array<{ manager: string; products: string[] }>;
+  action_required?: string;
+} | { success: false; error: string } {
   const resolved = filePath.startsWith('~/')
     ? path.join(process.env.HOME || '', filePath.slice(1))
     : path.resolve(filePath);
@@ -401,128 +499,249 @@ export function importPricingSchedule(filePath: string, dryRun: boolean = true):
   }
 
   const db = getDb();
-  const allClients = db.prepare('SELECT id, name, tags, is_ft, short_financing FROM clients').all() as { id: string; name: string; tags: string | null; is_ft: number; short_financing: number | null }[];
-  const clientNameMap = new Map<string, { id: string; name: string; tags: string | null; is_ft: number; short_financing: number | null }>();
-  for (const c of allClients) {
-    clientNameMap.set(c.name.toUpperCase(), c);
+
+  // 产品 → 管理人映射（来自 config/customers.json）
+  const customers = loadCustomers();
+  const productToManager = new Map<string, string>(); // UPPER(counter_party) → manager name
+  const allProducts: Array<{ counter_party: string; manager: string }> = [];
+  for (const c of customers) {
+    for (const p of c.products) {
+      productToManager.set(p.counter_party.toUpperCase(), c.name);
+      allProducts.push({ counter_party: p.counter_party, manager: c.name });
+    }
   }
 
-  const IGNORED_COLS = new Set(['Long PNL Spread', 'Short PNL Spread']);
+  // 客户表：name(ci) → row
+  const allClients = db.prepare('SELECT id, name, tags, is_ft FROM clients').all() as { id: string; name: string; tags: string | null; is_ft: number }[];
+  const clientByName = new Map<string, { id: string; name: string; tags: string | null; is_ft: number }>();
+  for (const c of allClients) {
+    clientByName.set(c.name.toUpperCase(), c);
+  }
 
-  const BP_FIELDS = new Set(['Commission', 'Commission Cost', 'Net Comm']);
-
-  const FIELD_MAP: Record<string, string> = {
+  const BP_FIELDS_XLSX = new Set(['Commission', 'Commission Cost', 'Net Comm']);
+  const FIELD_MAP: Record<string, keyof PricingRange> = {
     'Long Financing Spread': 'long_financing_spread',
     'Short Financing': 'short_financing',
     'Commission': 'commission',
     'Commission Cost': 'commission_cost',
     'Net Comm': 'net_comm',
   };
+  const NUMERIC_FIELDS: Array<keyof PricingRange> = [
+    'long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm',
+  ];
 
-  function similarity(a: string, b: string): number {
-    const s1 = a.toLowerCase();
-    const s2 = b.toLowerCase();
-    if (s1 === s2) return 1;
-    if (s1.includes(s2) || s2.includes(s1)) return 0.8;
-    const len = Math.max(s1.length, s2.length);
-    let matches = 0;
-    for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
-      if (s1[i] === s2[i]) matches++;
+  function matchProductToManager(counterparty: string): { manager: string; matchedProduct: string } | null {
+    const upper = counterparty.toUpperCase();
+    const direct = productToManager.get(upper);
+    if (direct) return { manager: direct, matchedProduct: counterparty };
+    // 模糊匹配：在所有 counter_party 中找 top1，score >= 0.6 接受
+    let best: { counter_party: string; manager: string; score: number } | null = null;
+    for (const p of allProducts) {
+      const s = productStringSimilarity(counterparty, p.counter_party);
+      if (!best || s > best.score) best = { counter_party: p.counter_party, manager: p.manager, score: s };
     }
-    return matches / len;
+    if (best && best.score >= 0.6) return { manager: best.manager, matchedProduct: best.counter_party };
+    return null;
   }
 
-  function findTopSuggestions(counterparty: string, clients: { name: string }[], topN: number = 3): string[] {
-    const scored = clients.map(c => ({ name: c.name, score: similarity(counterparty, c.name) }));
+  function topProductSuggestions(counterparty: string, topN: number = 3): UnmatchedProductSuggestion[] {
+    const scored = allProducts.map(p => ({
+      counter_party: p.counter_party,
+      manager: p.manager,
+      score: productStringSimilarity(counterparty, p.counter_party),
+    }));
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, topN).filter(s => s.score > 0.2).map(s => s.name);
+    return scored.slice(0, topN).filter(s => s.score > 0.3).map(s => ({ counter_party: s.counter_party, manager: s.manager }));
   }
 
-  let imported = 0;
-  let skipped = 0;
+  // 聚合器：按管理人分组
+  interface Aggregate {
+    manager: string;
+    products: string[];
+    fieldValues: Record<string, number[]>;
+    indexHedging: boolean;
+  }
+  const aggregates = new Map<string, Aggregate>(); // UPPER(manager) → aggregate
+
   const details: string[] = [];
-  const unmatched: Array<{ counterparty: string; suggestions: string[] }> = [];
+  const unmatchedProducts: Array<{ counterparty: string; suggestions: UnmatchedProductSuggestion[] }> = [];
+  const reportedUnmatched = new Set<string>();
+
+  for (const row of rows) {
+    const counterparty = String(row['Counterparty'] ?? '').trim();
+    if (!counterparty) continue;
+
+    const mapping = matchProductToManager(counterparty);
+    if (!mapping) {
+      if (!reportedUnmatched.has(counterparty.toUpperCase())) {
+        reportedUnmatched.add(counterparty.toUpperCase());
+        unmatchedProducts.push({ counterparty, suggestions: topProductSuggestions(counterparty) });
+      }
+      continue;
+    }
+
+    const managerKey = mapping.manager.toUpperCase();
+    let agg = aggregates.get(managerKey);
+    if (!agg) {
+      agg = { manager: mapping.manager, products: [], fieldValues: {}, indexHedging: false };
+      for (const f of NUMERIC_FIELDS) agg.fieldValues[f as string] = [];
+      aggregates.set(managerKey, agg);
+    }
+    if (!agg.products.includes(counterparty)) agg.products.push(counterparty);
+
+    for (const [xlsxCol, dbCol] of Object.entries(FIELD_MAP)) {
+      const val = row[xlsxCol];
+      if (val !== null && val !== undefined && val !== '') {
+        const numRaw = Number(val);
+        if (Number.isFinite(numRaw)) {
+          const num = BP_FIELDS_XLSX.has(xlsxCol) ? numRaw * 0.0001 : numRaw;
+          agg.fieldValues[dbCol as string].push(num);
+        }
+      }
+    }
+
+    const ih = row['Index Hedging?'];
+    if (ih === true || ih === 'true' || ih === 1) agg.indexHedging = true;
+  }
+
+  // 按管理人写入
+  let imported = 0;
+  const missingClients: Array<{ manager: string; products: string[] }> = [];
 
   const updateStmt = db.prepare(`
     UPDATE clients SET
       long_financing_spread = ?, short_financing = ?, commission = ?,
-      commission_cost = ?, net_comm = ?, index_hedging = ?, tags = ?,
+      commission_cost = ?, net_comm = ?, index_hedging = ?, pricing_range = ?, tags = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `);
 
   const tx = db.transaction(() => {
-    for (const row of rows) {
-      const counterparty = String(row['Counterparty'] ?? '').trim();
-      if (!counterparty) continue;
-
-      const matched = clientNameMap.get(counterparty.toUpperCase());
-      if (!matched) {
-        skipped++;
-        const suggestions = findTopSuggestions(counterparty, allClients);
-        unmatched.push({ counterparty, suggestions });
-        details.push(`${counterparty}: 未找到匹配客户${suggestions.length > 0 ? `，推荐: ${suggestions.join(', ')}` : ''}`);
+    for (const agg of aggregates.values()) {
+      const client = clientByName.get(agg.manager.toUpperCase());
+      if (!client) {
+        missingClients.push({ manager: agg.manager, products: agg.products });
         continue;
       }
 
-      const indexHedging = row['Index Hedging?'];
-      const indexHedgingVal = indexHedging === true || indexHedging === 'true' || indexHedging === 1 ? 1 : 0;
-
-      const fields: Record<string, number | null> = {};
-      for (const [xlsxCol, dbCol] of Object.entries(FIELD_MAP)) {
-        const val = row[xlsxCol];
-        if (val !== null && val !== undefined && val !== '') {
-          const numVal = Number(val);
-          fields[dbCol] = BP_FIELDS.has(xlsxCol) ? numVal * 0.0001 : numVal;
+      // 计算每字段 min/max；全为空则 null
+      const repr: Record<string, number | null> = {};
+      const rangeObj: PricingRange = { products: agg.products };
+      for (const f of NUMERIC_FIELDS) {
+        const vals = agg.fieldValues[f as string];
+        if (vals.length === 0) {
+          repr[f as string] = null;
+          (rangeObj as any)[f] = null;
         } else {
-          fields[dbCol] = null;
+          const min = Math.min(...vals);
+          const max = Math.max(...vals);
+          repr[f as string] = min;
+          (rangeObj as any)[f] = { min, max };
         }
       }
 
-      const isFt = matched.is_ft === 1;
-      const shortFinancing = fields.short_financing ?? matched.short_financing;
-      const category = classifyClient(isFt, shortFinancing);
+      const isFt = client.is_ft === 1;
+      const category = classifyClient(isFt, repr.short_financing);
 
-      const existingTags = matched.tags ? matched.tags.split(',').map(t => t.trim()) : [];
+      const existingTags = client.tags ? client.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
       const categoryTags = existingTags.filter(t => t !== '多空客户' && t !== '中性客户');
       if (category) categoryTags.push(category);
       const newTags = categoryTags.join(',');
 
+      const rangeJson = JSON.stringify(rangeObj);
+      const indexHedgingVal = agg.indexHedging ? 1 : 0;
+
       if (!dryRun) {
         updateStmt.run(
-          fields.long_financing_spread,
-          fields.short_financing,
-          fields.commission,
-          fields.commission_cost,
-          fields.net_comm,
+          repr.long_financing_spread,
+          repr.short_financing,
+          repr.commission,
+          repr.commission_cost,
+          repr.net_comm,
           indexHedgingVal,
+          rangeJson,
           newTags,
-          matched.id,
+          client.id,
         );
 
-        recordEvent('client', matched.id, 'import_pricing', {
+        recordEvent('client', client.id, 'import_pricing', {
           source: path.basename(resolved),
-          counterparty,
+          products: agg.products,
           category,
-          ...fields,
+          ...repr,
           index_hedging: indexHedgingVal,
+          pricing_range: rangeObj,
         });
       }
 
       imported++;
       const dryRunTag = dryRun ? ' [预览]' : '';
-      details.push(`${counterparty} → ${matched.name} (${category ?? '未分类'})${dryRunTag}`);
+      const rangeSuffix = describeRangeSummary(rangeObj);
+      details.push(`${agg.manager} ← ${agg.products.join(', ')} (${category ?? '未分类'})${rangeSuffix}${dryRunTag}`);
     }
   });
 
   tx();
+
+  // 汇总未知产品和缺失客户的信息
+  const actionNotes: string[] = [];
+
+  if (unmatchedProducts.length > 0) {
+    details.push('');
+    details.push('⚠️ 以下产品未在 config/customers.json 中找到对应管理人，已跳过：');
+    for (const u of unmatchedProducts) {
+      const sug = u.suggestions.length > 0
+        ? `（相似产品: ${u.suggestions.map(s => `${s.counter_party}→${s.manager}`).join(', ')}）`
+        : '';
+      details.push(`  - ${u.counterparty}${sug}`);
+    }
+    details.push('禁止直接为这些产品调用 add_client 创建新客户！产品通常属于某个已有管理人（参考相似产品对应的管理人）。');
+    details.push('请先向用户确认：该产品属于哪个管理人？确认后由管理员在 config/customers.json 中维护产品 → 管理人映射，再重新导入。');
+    actionNotes.push(
+      '对 unmatched_products 绝不要直接调用 add_client。先询问用户：这些产品归属哪个已有管理人？'
+      + '参考每个 suggestion 的 manager 字段作为提示。需要管理员在 config/customers.json 中补充映射后重新导入。',
+    );
+  }
+
+  if (missingClients.length > 0) {
+    details.push('');
+    details.push('⚠️ 以下管理人已在 customers.json 中映射，但在客户表中不存在，已跳过：');
+    for (const m of missingClients) {
+      details.push(`  - ${m.manager}（涉及产品: ${m.products.join(', ')}）`);
+    }
+    details.push('请先通过 /client add 或 add_client 工具用**管理人名**创建客户，再重试导入。');
+    actionNotes.push(
+      '对 missing_clients 可使用 add_client 创建客户，但名称必须是管理人名（如"稳博"），不要使用产品名。',
+    );
+  }
 
   if (dryRun && imported > 0) {
     details.push('');
     details.push('⚠️ 以上为预览结果，未实际写入数据库。请确认后使用 dry_run=false 执行导入。');
   }
 
-  return { success: true, imported, skipped, details, unmatched };
+  return {
+    success: true,
+    imported,
+    skipped_products: unmatchedProducts.length,
+    details,
+    unmatched_products: unmatchedProducts,
+    missing_clients: missingClients,
+    ...(actionNotes.length > 0 ? { action_required: actionNotes.join(' ') } : {}),
+  };
+}
+
+function describeRangeSummary(range: PricingRange): string {
+  const parts: string[] = [];
+  for (const f of ['long_financing_spread', 'short_financing', 'commission', 'commission_cost', 'net_comm'] as const) {
+    const v = range[f];
+    if (v && v.min !== v.max) {
+      const unit = BP_FIELDS_DB.has(f) ? 'bp' : '';
+      const toStr = (n: number) => BP_FIELDS_DB.has(f) ? `${(n / 0.0001).toFixed(2)}` : `${n}`;
+      parts.push(`${f}=${toStr(v.min)}~${toStr(v.max)}${unit}`);
+    }
+  }
+  return parts.length > 0 ? ` [range: ${parts.join(', ')}]` : '';
 }
 
 // --- /client subcommand dispatcher ---
@@ -568,7 +787,7 @@ function handleImportPricingCLI(args: string): void {
     return;
   }
   const mode = confirm ? '实际导入' : '预览';
-  log.print(`报价${mode}完成: 成功 ${result.imported} 条, 跳过 ${result.skipped} 条`);
+  log.print(`报价${mode}完成: 成功 ${result.imported} 条管理人${result.skipped_products > 0 ? `, 未知产品 ${result.skipped_products} 个` : ''}${result.missing_clients.length > 0 ? `, 缺失客户 ${result.missing_clients.length} 个` : ''}`);
   for (const d of result.details) {
     log.print(`  ${d}`);
   }

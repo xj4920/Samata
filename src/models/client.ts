@@ -55,6 +55,7 @@ export interface Client {
   commission_cost: number | null;
   net_comm: number | null;
   index_hedging: number | null;
+  pricing_range: string | null;
   is_ft: number;
   created_by: string;
   created_at: string;

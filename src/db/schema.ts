@@ -517,7 +517,8 @@ export function initSchema(): void {
   });
 
   runOnce('doctor-add-health-tools', () => {
-    const doctorRow = db.prepare("SELECT tools_list, system_prompt FROM agents WHERE name='doctor'").get() as { tools_list: string | null; system_prompt: string | null } | undefined;
+    // system prompt 已迁移到 config/agents/doctor.md，这里只保留 tools_list 更新
+    const doctorRow = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
     if (doctorRow) {
       const current: string[] = doctorRow.tools_list ? JSON.parse(doctorRow.tools_list) : [];
       const healthTools = ['add_health_record', 'query_health_records', 'health_summary',
@@ -526,31 +527,9 @@ export function initSchema(): void {
       for (const tool of healthTools) {
         if (!current.includes(tool)) { current.push(tool); changed = true; }
       }
-      const doctorPrompt = `你是家庭医生助手，具备基础医学知识，能够协助用户管理日常健康数据、解读检查报告、提供用药提醒和健康建议。
-
-**服务范围**
-- 健康数据记录与趋势分析（血压、血糖、体重等指标）
-- 检查报告解读（血常规、生化、影像等）
-- 用药提醒设置与管理
-- 常见症状初步分析（仅供参考）
-- 健康生活方式建议
-
-**回答格式**
-1. **情况评估**：简要描述当前情况
-2. **可能原因**：列出 2-3 个最可能的原因
-3. **建议措施**：具体可操作的建议（就医/用药/生活方式）
-4. **注意���项**：需要警惕的预警信号
-
-**免责声明**
-本助手提供的信息仅供参考，不构成医疗诊断或处方建议。若出现严重或持续症状，请及时就医。用药请遵医嘱，不得自行调整处方药剂量。`;
-
-      const updates: string[] = [];
-      const params: any[] = [];
-      if (changed) { updates.push('tools_list = ?'); params.push(JSON.stringify(current)); }
-      if (!doctorRow.system_prompt) { updates.push('system_prompt = ?'); params.push(doctorPrompt); }
-      if (updates.length > 0) {
-        updates.push("updated_at = datetime('now')");
-        db.prepare(`UPDATE agents SET ${updates.join(', ')} WHERE name = 'doctor'`).run(...params);
+      if (changed) {
+        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'doctor'")
+          .run(JSON.stringify(current));
       }
     }
   });
@@ -1166,6 +1145,97 @@ export function initSchema(): void {
     const colNames = new Set(cols.map(c => c.name));
     if (!colNames.has('is_ft')) {
       db.exec('ALTER TABLE clients ADD COLUMN is_ft INTEGER NOT NULL DEFAULT 0');
+    }
+  });
+
+  runOnce('add-pricing-quotes-table', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS pricing_quotes (
+        id          TEXT PRIMARY KEY,
+        agent_id    TEXT NOT NULL,
+        quote_type  TEXT NOT NULL,
+        quote_date  TEXT NOT NULL,
+        file_name   TEXT,
+        data        TEXT NOT NULL,
+        metadata    TEXT,
+        created_by  TEXT NOT NULL REFERENCES users(id),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_pricing_quotes_agent_type
+        ON pricing_quotes(agent_id, quote_type, quote_date);
+    `);
+  });
+
+  runOnce('add-pricing-range-column', () => {
+    const cols = db.pragma('table_info(clients)') as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'pricing_range')) {
+      db.exec('ALTER TABLE clients ADD COLUMN pricing_range TEXT');
+    }
+  });
+
+  runOnce('otcclaw-add-pricing-quote-tools', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const toAdd = ['import_pricing_quote', 'query_pricing_quote', 'list_pricing_quote_dates'];
+    for (const t of toAdd) {
+      if (!list.includes(t)) list.push(t);
+    }
+    db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+      .run(JSON.stringify(list));
+  });
+
+  /**
+   * system prompt 迁移到 config/agents/<name>.md 后，删除 agents.system_prompt 列。
+   * 优先使用 SQLite 3.35+ 的 `ALTER TABLE ... DROP COLUMN`；不支持则回退到 rebuild 模式。
+   */
+  runOnce('drop-agents-system-prompt-column', () => {
+    const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'system_prompt')) return;
+    try {
+      db.exec('ALTER TABLE agents DROP COLUMN system_prompt');
+      return;
+    } catch (_e) {
+      // fall through to rebuild
+    }
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE agents_new (
+          id            TEXT PRIMARY KEY,
+          name          TEXT NOT NULL UNIQUE,
+          display_name  TEXT NOT NULL,
+          description   TEXT,
+          model         TEXT,
+          provider      TEXT,
+          tools_mode    TEXT NOT NULL DEFAULT 'standard'
+                        CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
+          tools_list    TEXT,
+          block_tools   TEXT,
+          preset        TEXT,
+          user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
+                        CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
+          user_tools_list TEXT,
+          max_history   INTEGER DEFAULT 80,
+          created_by    TEXT NOT NULL,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      db.exec(`
+        INSERT INTO agents_new (id, name, display_name, description, model, provider,
+          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list,
+          max_history, created_by, created_at, updated_at)
+        SELECT id, name, display_name, description, model, provider,
+          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list,
+          max_history, created_by, created_at, updated_at
+        FROM agents;
+      `);
+      db.exec('DROP TABLE agents;');
+      db.exec('ALTER TABLE agents_new RENAME TO agents;');
+    } finally {
+      db.pragma('foreign_keys = ON');
     }
   });
 }

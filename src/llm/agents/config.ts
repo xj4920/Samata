@@ -65,7 +65,6 @@ export interface AgentConfig {
   name: string;
   displayName: string;
   description?: string;
-  systemPrompt?: string;
   model?: string;
   provider?: string;
   toolsMode: 'all' | 'standard' | 'allowlist' | 'blocklist';
@@ -98,7 +97,6 @@ interface AgentRow {
   name: string;
   display_name: string;
   description: string | null;
-  system_prompt: string | null;
   model: string | null;
   provider: string | null;
   tools_mode: string;
@@ -119,7 +117,6 @@ function rowToConfig(row: AgentRow): AgentConfig {
     name: row.name,
     displayName: row.display_name,
     description: row.description ?? undefined,
-    systemPrompt: row.system_prompt ?? undefined,
     model: row.model ?? undefined,
     provider: row.provider ?? undefined,
     toolsMode: row.tools_mode as AgentConfig['toolsMode'],
@@ -161,7 +158,6 @@ export interface SaveAgentInput {
   name: string;
   displayName: string;
   description?: string;
-  systemPrompt?: string;
   model?: string;
   provider?: string;
   toolsMode?: 'all' | 'standard' | 'allowlist' | 'blocklist';
@@ -184,11 +180,11 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
     }
 
     db.prepare(`UPDATE agents SET
-      display_name = ?, description = ?, system_prompt = ?, model = ?, provider = ?,
+      display_name = ?, description = ?, model = ?, provider = ?,
       tools_mode = ?, tools_list = ?, block_tools = ?, preset = ?, user_tools_mode = ?, user_tools_list = ?,
       max_history = ?, updated_at = datetime('now')
       WHERE name = ?`).run(
-      input.displayName, input.description ?? null, input.systemPrompt ?? null,
+      input.displayName, input.description ?? null,
       input.model ?? null, input.provider ?? null,
       input.toolsMode ?? existing.tools_mode, input.toolsList ? JSON.stringify(input.toolsList) : existing.tools_list,
       input.blockTools ? JSON.stringify(input.blockTools) : (existing as any).block_tools ?? null,
@@ -206,9 +202,9 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
   }
 
   const id = uuid();
-  db.prepare(`INSERT INTO agents (id, name, display_name, description, system_prompt, model, provider, tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, input.name, input.displayName, input.description ?? null, input.systemPrompt ?? null,
+  db.prepare(`INSERT INTO agents (id, name, display_name, description, model, provider, tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, input.name, input.displayName, input.description ?? null,
     input.model ?? null, input.provider ?? null,
     input.toolsMode ?? 'standard', input.toolsList ? JSON.stringify(input.toolsList) : null,
     input.blockTools ? JSON.stringify(input.blockTools) : null,

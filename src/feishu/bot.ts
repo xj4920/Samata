@@ -25,8 +25,10 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
 import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
+import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
+import { buildFileHint } from '../runtime/file-hint.js';
 import { getDb } from '../db/connection.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
@@ -1008,7 +1010,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
         try {
           const buf = await instance.api.downloadMessageResource(messageId, fileKey, 'file');
           const savedPath = saveUploadedFile(buf, fileName);
-          text = `用户发送了文件 "${fileName}" (${buf.length} bytes)，已保存到本地路径: ${savedPath}\n请使用合适的工具（parse_word、parse_excel、read_file 等）读取文件内容。`;
+          text = buildFileHint(fileName, savedPath, buf.length);
           log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {
           log.error(`[飞书:${instance.appName}] 下载文件失败: ${err.message}`);
@@ -1218,7 +1220,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     const cause = err.cause ? ` | cause: ${err.cause.message || err.cause.code || err.cause}` : '';
     log.error(`[飞书:${instance.appName}][${traceId}] 处理消息出错: ${err.message}${cause}`);
     try {
-      await sendFeishuReply(instance, chatId, `❌ 处理出错: ${err.message}`, replyOpts);
+      await sendFeishuReply(instance, chatId, `❌ ${friendlyAIError(err)}`, replyOpts);
     } catch { /* ignore send error */ }
   }
   }); // end runWithExecutionContext
