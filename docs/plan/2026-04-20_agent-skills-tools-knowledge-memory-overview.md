@@ -412,6 +412,109 @@ const sql = `
 - 删除 agent 时自动解除关联（ON DELETE CASCADE）
 - 知识本身独立存在，不依赖特定 agent
 
+### 4.6 Document Import — 文档导入为知识库
+
+Knowledge 条目有两大来源：手动 `add_knowledge`（单条 FAQ）和 `import_document`（文档自动分块）。后者是批量构建知识库的核心路径。
+
+#### 支持的文件类型
+
+| 格式 | 解析方式 | 分块策略 |
+|------|----------|----------|
+| `.md` | 直接读取文本 | `splitMarkdownByHeadings`（按 H2 标题分段） |
+| `.docx` | `parse_word` 插件（Pandoc/mammoth）→ Markdown | 标题分段 + LLM 语义分段 |
+| `.xlsx` / `.csv` | 内建 `splitExcelBySheets`（XLSX 库） | 按 Sheet 分段，转 Markdown 表格 |
+| `.pdf` | `parse_pdf` 插件（Marker/pdf-parse）→ Markdown | 标题分段 + LLM 语义分段 |
+
+#### documents 表结构
+
+```sql
+CREATE TABLE documents (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,                   -- 文档标题
+  source_path TEXT NOT NULL,                   -- 原始文件路径
+  file_type   TEXT NOT NULL,                   -- 文件类型 (md/docx/xlsx/csv/pdf)
+  chunk_count INTEGER NOT NULL DEFAULT 0,      -- 分块数量
+  agent_id    TEXT REFERENCES agents(id),      -- 所属 Agent
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  stored_path TEXT                             -- 存储目录路径
+);
+```
+
+knowledge 表通过 `document_id` 列（`ALTER TABLE` 后加）关联到 documents：
+
+```sql
+ALTER TABLE knowledge ADD COLUMN document_id TEXT REFERENCES documents(id) ON DELETE CASCADE;
+```
+
+#### 导入流程
+
+```
+import_document(file_path, title?)
+  │
+  ├─ 1. 权限检查: ensureDocWriteAccess(agentId) — 需要 Agent admin
+  ├─ 2. 文件路径解析 & 类型检测
+  ├─ 3. 重复导入检查 (source_path + agent_id)
+  ├─ 4. 生成 docId (UUID)
+  │
+  ├─ 5. loadAndChunk() — 按文件类型分支解析:
+  │   ├─ .md    → 读取 → splitMarkdownByHeadings → tryLLMChunking
+  │   ├─ .docx  → parse_word 插件 → 图片描述(Vision) → 标题分段 → LLM分段
+  │   ├─ .xlsx  → splitExcelBySheets (内建, 不走 parse_excel 插件)
+  │   ├─ .csv   → splitExcelBySheets
+  │   ├─ .pdf   → parse_pdf 插件 → 图片描述(Vision) → 标题分段 → LLM分段
+  │
+  ├─ 6. persistDocumentFiles() — 存储到 data/documents/{id前8位}/
+  │   ├─ original.{ext}  — 原始文件副本
+  │   ├─ parsed.md       — Markdown/Word/PDF 解析结果
+  │   ├─ parsed.json     — Excel/CSV 解析结果
+  │   └─ images/         — 提取的图片（Word/PDF）
+  │
+  ├─ 7. INSERT documents 表
+  ├─ 8. 每个 Chunk → INSERT knowledge (含 document_id)
+  │                     + INSERT knowledge_agents (关联到 agentId)
+  └─ 9. 返回 { success, documentId, title, chunkCount, topics }
+```
+
+#### 分块策略详解
+
+**标题分段**（`splitMarkdownByHeadings`）：
+- 按 `## ` (H2) 标题切割，每个段落 heading 格式为 `{文档标题} - {章节标题}`
+- 无 H2 标题时整体作为一条"全文"段落
+
+**Excel分段**（`splitExcelBySheets`）：
+- 每个 Sheet 转为 Markdown 表格，最多 200 行
+- heading 格式为 `{文档标题} - {Sheet名}`
+
+**LLM 语义分段**（`chunkWithLLM`）：
+- 触发条件：标题分段后只有 0~1 段且内容 > 500 字符
+- 将内容按双换行分段编号，请求 LLM 返回 JSON：`[{ heading, start_paragraph, tags[] }]`
+- 最多重试 2 次
+
+#### 与手动 add_knowledge 的区别
+
+| 维度 | import_document | add_knowledge |
+|------|----------------|---------------|
+| 来源 | 文件自动解析 | 手动输入 |
+| document_id | 有（关联 documents 表） | NULL |
+| 分块 | 自动（标题/Sheet/LLM分段） | 单条 |
+| 删除方式 | `delete_document` 级联删除所有 chunk | `delete_knowledge` 逐条删除 |
+| 权限 | Agent admin（user blocklist 限制） | Agent admin |
+| question 格式 | `{文档标题} - {章节标题}` | 自由文本 |
+
+System prompt 中明确路由规则：
+> 用户要求将文件保存/导入为知识时，**必须使用 import_document**；**禁止将整个文件内容用 add_knowledge 保存为单条知识**
+
+#### Document 工具定义
+
+**文件位置**：`src/tools/document-tools.ts`
+
+| 工具名 | 功能 | 权限 |
+|--------|------|------|
+| `import_document` | 将文件导入为知识库（自动分块） | Agent admin（在 user blocklist 中） |
+| `list_documents` | 列出当前 Agent 已导入文档 | 所有用户 |
+| `delete_document` | 删除文档及关联知识条目 | Agent admin |
+
 ---
 
 ## 总结
@@ -423,7 +526,7 @@ const sql = `
 | **Memory** | `agent_id + scope` | scope='global', agent_id=NULL | scope='agent', agent_id=必填 | 合并全局 + 专属 |
 | **Tools** | 配置字段过滤 | COMMON_SET | tools_list + user_tools_list | `getAgentTools()` 三层过滤 |
 | **Skills** | `agent_id` 直接关联 | agent_id=NULL | agent_id=必填 | 优先专属，fallback 全局 |
-| **Knowledge** | 多对多关联表 | 可关联多个 agent | 通过 knowledge_agents 关联 | JOIN 关联表过滤 |
+| **Knowledge** | 多对多关联表 + document_id | 可关联多个 agent | 通过 knowledge_agents 关联 | JOIN 关联表过滤；文档导入通过 document_id 关联 documents 表 |
 
 ### 权限层级统一模型
 
@@ -482,5 +585,9 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
 | Skills 工具 | `src/tools/skill-tools.ts` |
 | Knowledge 命令 | `src/commands/knowledge.ts` |
 | Knowledge 工具 | `src/tools/knowledge-tools.ts` |
+| Document 导入 | `src/commands/document-import.ts` |
+| Document 工具 | `src/tools/document-tools.ts` |
+| Word 解析插件 | `plugins/word-parser/index.ts` |
+| PDF 解析插件 | `plugins/pdf-parser/index.ts` |
 | Prompt 构建 | `src/llm/agents/prompt.ts` |
 | Agent 运行时 | `src/llm/agent.ts` |

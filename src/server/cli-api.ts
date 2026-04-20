@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createCliSession, destroyCliSession, listCliUsers, toCliSessionInfo, resolvePromptReply } from './cli-session.js';
+import { createCliSession, destroyCliSession, getCliSession, listCliUsers, toCliSessionInfo, resolvePromptReply } from './cli-session.js';
 import { executeCliInput, executeCliStream } from './cli-executor.js';
+import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
+import { getAgent, getCurrentAgent, setCurrentAgent } from '../llm/agents/config.js';
+import { getCommandEntries } from '../commands/router.js';
 import { log } from '../utils/logger.js';
 import type { CliStreamEvent } from '../shared/cli-contract.js';
 
@@ -42,6 +45,22 @@ export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3
           ok: true,
           session: toCliSessionInfo(session),
         });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/cli/commands') {
+        const body = await readJson(req);
+        const session = getCliSession(body.sessionId);
+        const prevUser = getCurrentUser();
+        const prevAgent = getCurrentAgent();
+        setCurrentUser(session.user);
+        setCurrentAgent(getAgent(session.agentName));
+        try {
+          const entries = getCommandEntries('cli');
+          return sendJson(res, 200, { commands: entries });
+        } finally {
+          if (prevUser) setCurrentUser(prevUser);
+          if (prevAgent) setCurrentAgent(prevAgent);
+        }
       }
 
       if (req.method === 'POST' && url.pathname === '/api/cli/execute') {

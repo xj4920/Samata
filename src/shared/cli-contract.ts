@@ -18,6 +18,13 @@ export interface CliExecuteResponse {
   error?: string;
 }
 
+export interface CliCommandEntry {
+  name: string;
+  description: string;
+  usage?: string;
+  subcommands?: string[];
+}
+
 export type CliStreamEvent =
   | { type: 'text';           chunk: string }
   | { type: 'tool_start';     name: string; input: unknown; round: number }

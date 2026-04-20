@@ -1,7 +1,35 @@
+import 'dotenv/config';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { select } from '@inquirer/prompts';
-import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers, isConnectionError, waitForServer } from './api-client.js';
+import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers, fetchCliCommands, isConnectionError, waitForServer } from './api-client.js';
+import type { CliCommandEntry } from '../shared/cli-contract.js';
+
+function makeCompleter(getEntries: () => CliCommandEntry[]) {
+  return (line: string): [string[], string] => {
+    const entries = getEntries();
+    const parts = line.split(/\s+/);
+
+    if (!line.includes(' ')) {
+      const cmds = entries.map(e => e.name);
+      const hits = cmds.filter(c => c.startsWith(line));
+      if (hits.length === 1) return [[hits[0] + ' '], line];
+      return [hits.length ? hits : cmds, line];
+    }
+
+    const cmdPart = parts[0];
+    const entry = entries.find(e => e.name === cmdPart);
+    if (entry?.subcommands) {
+      const subPart = line.slice(cmdPart.length).trimStart();
+      const hits = entry.subcommands
+        .filter(sub => sub.startsWith(subPart))
+        .map(sub => `${cmdPart} ${sub} `);
+      return [hits.length ? hits : [], line];
+    }
+
+    return [[], line];
+  };
+}
 
 async function main(): Promise<void> {
   const users = await listCliUsers();
@@ -19,17 +47,23 @@ async function main(): Promise<void> {
   });
 
   let session = await createCliSession(username);
+  let commandEntries = await fetchCliCommands(session.sessionId);
 
   console.log(`已连接 server，当前用户：${session.user.username} [${session.user.role}]`);
   console.log(`当前 Agent: ${session.agentDisplayName} (${session.agentName})`);
   console.log('输入 /exit 退出\n');
 
-  const rl = readline.createInterface({ input, output });
+  const rl = readline.createInterface({
+    input,
+    output,
+    completer: makeCompleter(() => commandEntries),
+  });
 
   async function reconnect(): Promise<void> {
     console.log('\n\x1b[33m⚠ 与 server 的连接已断开，正在重连...\x1b[0m');
     await waitForServer();
     session = await createCliSession(username, session.agentName);
+    commandEntries = await fetchCliCommands(session.sessionId);
     console.log(`\r\x1b[32m✔ 已重新连接 server (${session.agentDisplayName})\x1b[0m\n`);
   }
 
@@ -50,6 +84,7 @@ async function main(): Promise<void> {
         process.stderr.write(`\r\x1b[2m💭 ${event.text.slice(0, 80)}\x1b[0m`);
       } else if (event.type === 'done') {
         session = event.session;
+        commandEntries = await fetchCliCommands(session.sessionId);
       } else if (event.type === 'error') {
         const err = new Error(event.message);
         if (isConnectionError(err)) {

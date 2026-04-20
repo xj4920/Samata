@@ -1,4 +1,4 @@
-import type { CliExecuteResponse, CliSessionInfo, CliUserInfo, CliStreamEvent } from '../shared/cli-contract.js';
+import type { CliExecuteResponse, CliSessionInfo, CliUserInfo, CliStreamEvent, CliCommandEntry } from '../shared/cli-contract.js';
 
 const BASE_URL = process.env.CLI_SERVER_URL || `http://127.0.0.1:${process.env.CLI_API_PORT || '3456'}`;
 
@@ -107,4 +107,12 @@ export async function* streamCliInput(
       }
     }
   }
+}
+
+export async function fetchCliCommands(sessionId: string): Promise<CliCommandEntry[]> {
+  const result = await request<{ commands: CliCommandEntry[] }>('/api/cli/commands', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  });
+  return result.commands;
 }

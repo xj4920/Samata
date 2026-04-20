@@ -1,5 +1,5 @@
 import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
-import { getExecutionChannel } from '../runtime/execution-context.js';
+import { getExecutionChannel, type AppChannel } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import * as knowledgeCmd from './knowledge.js';
 import * as knowledgeTagAudit from './knowledge-tag-audit.js';
@@ -149,8 +149,9 @@ function handlePlugin(args: string): void {
   log.print('用法: /plugin list');
 }
 
-function shouldShowCommand(cmd: Command): boolean {
-  if (cmd.cliOnly && getExecutionChannel() !== 'cli') return false;
+function shouldShowCommand(cmd: Command, channelOverride?: AppChannel): boolean {
+  const channel = channelOverride ?? getExecutionChannel();
+  if (cmd.cliOnly && channel !== 'cli') return false;
   if (cmd.requiredRole === 'system_admin' && !isSystemAdmin()) return false;
   if (cmd.requiredRole === 'agent_admin') {
     const agentId = getCurrentAgent()?.id;
@@ -179,11 +180,11 @@ export function getCommandNames(): string[] {
     .map(([name]) => `/${name}`);
 }
 
-export function getCommandEntries(): Array<{ name: string; description: string; usage?: string; subcommands?: string[] }> {
+export function getCommandEntries(channelOverride?: AppChannel): Array<{ name: string; description: string; usage?: string; subcommands?: string[] }> {
   const entries: Array<{ name: string; description: string; usage?: string; subcommands?: string[] }> = [];
 
   for (const [name, cmd] of Object.entries(commands)) {
-    if (!shouldShowCommand(cmd)) continue;
+    if (!shouldShowCommand(cmd, channelOverride)) continue;
     entries.push({
       name: `/${name}`,
       description: cmd.description,
@@ -192,7 +193,7 @@ export function getCommandEntries(): Array<{ name: string; description: string; 
     });
   }
 
-  if (getExecutionChannel() === 'cli') {
+  if ((channelOverride ?? getExecutionChannel()) === 'cli') {
     entries.push({ name: '/reload', description: '重载代码（热重启）' });
     entries.push({ name: '/exit', description: '退出程序' });
   }

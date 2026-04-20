@@ -104,7 +104,7 @@ async function repl(): Promise<void> {
       historySize: 100,
       history: savedHistory,
       completer: (line: string) => {
-        const entries = getCommandEntries();
+        const entries = getCommandEntries('cli');
         const parts = line.split(/\s+/);
         
         if (!line.includes(' ')) {
@@ -174,7 +174,7 @@ async function repl(): Promise<void> {
   const updateHints = (line: string) => {
     const parts = line.split(/\s+/);
     const cmdPart = parts[0];
-    const entries = getCommandEntries();
+    const entries = getCommandEntries('cli');
 
     if (parts.length === 1) {
       // Command completion

@@ -108,5 +108,12 @@
     "products": [
       { "user_id": "17720", "counter_party": "VALEPINE" }
     ]
+  },
+  {
+    "name": "全利",
+    "sales": "吕若楠",
+    "products": [
+      {"user_id": "16574", "counter_party": "PANTHEON"}
+    ]
   }
 ]
