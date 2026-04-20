@@ -46,7 +46,7 @@ type AppChannel = 'cli' | 'feishu' | 'telegram' | 'wework' | 'system';
 
 CLI 通过 HTTP/SSE 与 server 交互，不直连 DB：
 
-- `npm run server` — 启动主进程（DB、bot、`http://127.0.0.1:3456` CLI API）
+- `npm run server` — 启动主进程（DB、bot、`http://127.0.0.1:3457` CLI API；避开 ccr 默认的 3456）
 - `npm run cli` — ��动 CLI 客户端（`src/cli/index.ts`，连接 server）
 
 **SSE streaming 端点**（`/api/cli/stream`）：agentic chat 通过 SSE 实时推送文本 chunk 和 tool 进度，消除黑屏等待。

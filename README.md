@@ -14,7 +14,7 @@
                      │ HTTP / SSE
 ┌────────────────────▼────────────────────────┐
 │  npm run server  (主进程)                     │
-│  ├── CLI API  http://127.0.0.1:3456          │
+│  ├── CLI API  http://127.0.0.1:3457          │
 │  ├── 飞书 / Telegram / 企微 Bot 自动启动      │
 │  └── SQLite DB                               │
 └─────────────────────────────────────────────┘
@@ -126,7 +126,7 @@ npm run check-readme # 检查 README 与实现是否一致
 
 | 变量 | 说明 |
 |------|------|
-| `CLI_API_PORT` | CLI API server 监听端口，默认 `3456` |
+| `CLI_API_PORT` | CLI API server 监听端口，默认 `3457`（避开 `ccr` 默认占用的 3456） |
 
 ## 命令列表
 

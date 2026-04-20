@@ -29,7 +29,7 @@ export interface LLMProvider {
   describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }
 
-export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter';
+export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'glm';
 
 const providers = new Map<ProviderName, LLMProvider>();
 let currentName: ProviderName = 'anthropic';
@@ -128,6 +128,7 @@ export async function initProviders(): Promise<boolean> {
   const { createMinimaxProvider } = await import('./minimax.js');
   const { createGeminiProvider } = await import('./gemini.js');
   const { createOpenRouterProvider } = await import('./openrouter.js');
+  const { createGlmProvider } = await import('./glm.js');
 
   // 尝试初始化 Anthropic
   const anthropic = createAnthropicProvider();
@@ -155,6 +156,13 @@ export async function initProviders(): Promise<boolean> {
   if (openrouter) {
     registerProvider('openrouter', openrouter);
     log.dim('  OpenRouter provider 已注册');
+  }
+
+  // 尝试初始化 GLM
+  const glm = createGlmProvider();
+  if (glm) {
+    registerProvider('glm', glm);
+    log.dim('  GLM provider 已注册');
   }
 
   if (providers.size === 0) return false;

@@ -7,6 +7,12 @@ LOG_FILE="$SCRIPT_DIR/logs/samata.log"
 
 mkdir -p "$SCRIPT_DIR/logs"
 
+# 读取 .env 中的 CLI_API_PORT（避开 ccr 默认占用的 3456），默认 3457
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  CLI_API_PORT=$(grep -E '^CLI_API_PORT=' "$SCRIPT_DIR/.env" | tail -n1 | cut -d= -f2- | tr -d '\r\n "'"'"'')
+fi
+CLI_API_PORT="${CLI_API_PORT:-3457}"
+
 # 如果 node_modules 不存在，先安装依赖
 if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   echo "node_modules 不存在，正在安装依赖..."
@@ -37,12 +43,12 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 兜底：如果端口仍被占用（孤儿进程），强制清理
-PORT_PID=$(lsof -ti :3456 2>/dev/null)
+PORT_PID=$(lsof -ti :"$CLI_API_PORT" 2>/dev/null)
 if [ -n "$PORT_PID" ]; then
-  echo "清理残留端口占用进程 (PID: $PORT_PID)..."
+  echo "清理残留端口 $CLI_API_PORT 占用进程 (PID: $PORT_PID)..."
   kill "$PORT_PID" 2>/dev/null
   sleep 1
-  lsof -ti :3456 2>/dev/null | xargs -r kill -9 2>/dev/null
+  lsof -ti :"$CLI_API_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
 fi
 
 setsid bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &

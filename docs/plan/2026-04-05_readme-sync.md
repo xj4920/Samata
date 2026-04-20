@@ -48,7 +48,7 @@ npm run cli
 ### 3. 架构说明（新增章节）
 
 #### 客户端 / 服务端分离
-- `npm run server` — 主进程，启动 DB、飞书/Telegram/企微 bot、CLI API（`http://127.0.0.1:3456`）
+- `npm run server` — 主进程，启动 DB、飞书/Telegram/企微 bot、CLI API（`http://127.0.0.1:3457`，避开 ccr 默认 3456）
 - `npm run cli` — 轻量 CLI 客户端，通过 HTTP/SSE 连接 server，不直接访问 DB
 
 #### SSE 流式推送
@@ -80,7 +80,7 @@ npm run cli
 - **调试**：`SHOW_THINKING`
 - **InfluxDB**：`INFLUX_HOST`、`INFLUX_PORT`、`INFLUX_TOKEN`、`INFLUX_DATABASE`、`INFLUX_TIMEOUT`
 - **Feishu**：`FEISHU_MODE`（ws/webhook）、`FEISHU_PORT`
-- **CLI API**：`CLI_API_PORT`（默认 3456）
+- **CLI API**：`CLI_API_PORT`（默认 3457，避开 ccr 默认 3456）
 
 ### 5. 命令列表（基于 router.ts）
 
