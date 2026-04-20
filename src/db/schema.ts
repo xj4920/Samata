@@ -1303,4 +1303,10 @@ export function initSchema(): void {
       db.pragma('foreign_keys = ON');
     }
   });
+
+  runOnce('agents-minimax-provider', () => {
+    db.prepare(
+      `UPDATE agents SET provider = 'minimax', model = 'MiniMax-M2.7-highspeed', updated_at = datetime('now') WHERE name NOT IN ('otcclaw', 'admin')`
+    ).run();
+  });
 }

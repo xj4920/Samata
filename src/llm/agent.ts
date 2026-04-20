@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getProvider, getProviderName, getProviderByName, getModelName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
+import { getProvider, getProviderName, getProviderByName, getModelName, type ProviderName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, type User } from '../auth/rbac.js';
 import type { AgentConfig } from './agents/config.js';
 import { getAgentTools, getDefaultAgent, getCurrentAgent, setCurrentAgent, type DeliveryContext, type ToolContext } from './agents/config.js';
@@ -282,6 +282,9 @@ export async function runAgenticChat(
   const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
 
   const agent = agentConfig;
+  const agentProviderOverride = agent?.provider
+    ? getProviderByName(agent.provider as ProviderName) ?? undefined
+    : undefined;
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
@@ -297,9 +300,9 @@ export async function runAgenticChat(
   let processedInput = userInput;
 
   if (images && images.length > 0) {
-    const currentProvider = getProvider();
-    const describer = currentProvider.describeImage
-      ? currentProvider
+    const activeProvider = agentProviderOverride ?? getProvider();
+    const describer = activeProvider.describeImage
+      ? activeProvider
       : getProviderByName('anthropic');
 
     if (describer?.describeImage) {
@@ -340,7 +343,7 @@ export async function runAgenticChat(
   }
 
   const makeParams = (): CreateMessageParams => ({
-    model: agent?.model ?? getModelName(),
+    model: agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName()),
     max_tokens: 4096,
     system: systemPrompt,
     tools: activeTools,
@@ -350,7 +353,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
   } catch (err: any) {
     if (isOrphanToolError(err) && historyLenBefore > 0) {
       log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
@@ -358,7 +361,7 @@ export async function runAgenticChat(
       sanitizeToolPairs(history);
       history.push({ role: 'user', content: processedInput });
       try {
-        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
       } catch (retryErr: any) {
         log.error(`${logPrefix}AI 请求失败: ${retryErr?.message ?? String(retryErr)}`);
         history.length = historyLenBefore;
@@ -429,7 +432,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
     } catch (err: any) {
       if (isContextOverflowError(err) && history.length > historyLenBefore + 4) {
         log.warn(`${logPrefix}上下文溢出，截断历史后重试...`);
@@ -438,7 +441,7 @@ export async function runAgenticChat(
         history.splice(historyLenBefore + 1, keepFromTurn - historyLenBefore - 1);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
           round += 1;
           continue;
         } catch (retryErr: any) {
@@ -451,7 +454,7 @@ export async function runAgenticChat(
         log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, undefined, onTextChunk));
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
           round += 1;
           continue;
         } catch (retryErr: any) {

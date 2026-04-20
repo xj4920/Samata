@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { getDb } from '../db/connection.js';
 import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { getExecutionChannel } from '../runtime/execution-context.js';
-import { getProviderName, getModelName } from '../llm/provider.js';
+import { getProviderName, getModelName, getProviderByName, type ProviderName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning } from '../feishu/bot.js';
 import { isMonitorRunning } from '../services/wework-monitor.js';
@@ -74,10 +74,13 @@ export function fetchSystemStatus(): SystemStatus {
     ? (db.prepare('SELECT COUNT(*) as c FROM skills WHERE agent_id IS NULL OR agent_id = ?').get(agentId) as { c: number }).c
     : (db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }).c;
 
-  // LLM model string
+  // LLM model string — show per-agent provider/model if set, otherwise global default
   let model: string | null = null;
   try {
-    model = `${getProviderName()}/${getModelName()}`;
+    const agentProvider = agent?.provider ? getProviderByName(agent.provider as ProviderName) : undefined;
+    const effectiveModel = agent?.model ?? (agentProvider?.defaultModel ?? getModelName());
+    const effectiveProvider = agentProvider?.name ?? getProviderName();
+    model = `${effectiveProvider}/${effectiveModel}`;
   } catch { /* LLM not initialized */ }
 
   const feishuMode = process.env.FEISHU_MODE || 'ws';
