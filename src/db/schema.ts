@@ -1,3 +1,5 @@
+import fs from 'fs';
+import { resolve, join } from 'path';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
@@ -1183,6 +1185,69 @@ export function initSchema(): void {
     }
     db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
       .run(JSON.stringify(list));
+  });
+
+  /**
+   * import_pricing_schedule 历史遗漏：config/agents/otcclaw.md 与 src/runtime/file-hint.ts
+   * 都引导 LLM 使用该工具，但 tools_list 从未包含它，导致 agent admin 调用时命中
+   * "不在允许列表" 错误。顺带同步进 user blocklist，保持与 add_client/update_client 等写操作一致。
+   */
+  runOnce('otcclaw-add-import-pricing-schedule', () => {
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'"
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    let toolsChanged = false;
+    if (!list.includes('import_pricing_schedule')) {
+      list.push('import_pricing_schedule');
+      toolsChanged = true;
+    }
+
+    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let userChanged = false;
+    if (!userList.includes('import_pricing_schedule')) {
+      userList.push('import_pricing_schedule');
+      userChanged = true;
+    }
+
+    if (toolsChanged || userChanged) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
+      ).run(
+        toolsChanged ? JSON.stringify(list) : row.tools_list,
+        userChanged ? JSON.stringify(userList) : row.user_tools_list,
+      );
+    }
+  });
+
+  /**
+   * 在 drop agents.system_prompt 列之前，把所有非空 prompt 导出到 config/agents/<name>.md，
+   * 避免用户通过 save_agent 自定义过的 prompt 在迁移时静默丢失。
+   * 仅在目标文件不存在时写入，不覆盖已经手写的 md。
+   */
+  runOnce('export-agents-system-prompt-to-md', () => {
+    const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'system_prompt')) return;
+
+    const rows = db.prepare(
+      "SELECT name, system_prompt FROM agents WHERE system_prompt IS NOT NULL AND TRIM(system_prompt) != ''"
+    ).all() as Array<{ name: string; system_prompt: string }>;
+    if (rows.length === 0) return;
+
+    const promptsDir = resolve(process.cwd(), 'config/agents');
+    fs.mkdirSync(promptsDir, { recursive: true });
+
+    const placeholderBlock = '\n\n{{permissions}}\n\n{{attachments}}\n\n{{skills}}\n\n{{memory}}\n';
+
+    for (const row of rows) {
+      const target = join(promptsDir, `${row.name}.md`);
+      if (fs.existsSync(target)) continue;
+      const body = row.system_prompt.trimEnd();
+      fs.writeFileSync(target, body + placeholderBlock, 'utf-8');
+      console.log(`[migration] exported agents.system_prompt → ${target}`);
+    }
   });
 
   /**

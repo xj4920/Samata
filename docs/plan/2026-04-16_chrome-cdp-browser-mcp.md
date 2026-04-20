@@ -132,4 +132,4 @@ for (const srv of Object.values(servers)) {
 
 ## 状态
 
-- [ ] 待执行
+- [x] 已执行完成

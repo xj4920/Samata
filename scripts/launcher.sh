@@ -14,6 +14,11 @@ if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   fi
 fi
 
+# Auto-detect WSL2 host IP for Chrome CDP access
+if [ -z "$WSL_HOST_IP" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+  export WSL_HOST_IP=$(grep nameserver /etc/resolv.conf | awk '{print $2}')
+fi
+
 NODE_PID=""
 trap '[ -n "$NODE_PID" ] && kill "$NODE_PID" 2>/dev/null; exit' TERM INT HUP
 

@@ -111,7 +111,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'import_pricing_schedule',
-    description: '从客户报价Excel文件导入报价信息到客户属性。默认为预览模式（dry_run=true），仅展示匹配结果不写入数据库；用户确认后设置dry_run=false执行实际导入。\nExcel 的 Counterparty 是**产品**维度（如 VALEPINE、MINGSHIOPTIMA02、INVESTINGFORMULA），本工具通过 config/customers.json 将产品聚合到**管理人**维度后再更新客户记录：\n- 同一管理人下多产品报价取 min 存入代表列（long_financing_spread/short_financing/commission/commission_cost/net_comm），同时将 min/max 与来源产品列表序列化存入 pricing_range JSON 字段\n- Commission/CommissionCost/NetComm 单位为 bp(0.0001)，导入时自动转换为小数\n- 仅极速客户 (is_ft=1) 会根据聚合后的 Short Financing 是否为空自动分类为多空客户或中性客户\n\n关键约束：\n- unmatched_products（customers.json 中无对应管理人的产品）**绝不要调用 add_client 为它创建新客户**。这些产品大概率是某个已有管理人的新交易对手（例如 INVESTINGFORMULA 是稳博的另一个产品）。必须先向用户确认"该产品属于哪个管理人"，返回的每条 suggestion 包含 counter_party 和 manager 字段可作为提示；确认后需由管理员在 config/customers.json 中补充产品 → 管理人映射再重新导入。\n- missing_clients（管理人已映射但客户表缺失）可以用 add_client 创建，但名称必须是**管理人名**（如 "稳博"），不要用产品名作为客户名。\n- 返回值中的 action_required 字段含有对未匹配项的处理指引，遇到此字段务必先处理完再继续。',
+    description: '从客户报价Excel文件导入报价信息到客户属性。默认为预览模式（dry_run=true），仅展示匹配结果不写入数据库；用户确认后设置dry_run=false执行实际导入。\nExcel 的 Counterparty 是**产品**维度（如 VALEPINE、MINGSHIOPTIMA02、INVESTINGFORMULA），本工具通过 config/customers.json 将产品聚合到**管理人**维度后再更新客户记录：\n- 同一管理人下多产品报价取 min 存入代表列（long_financing_spread/short_financing/commission/commission_cost/net_comm），同时将 min/max 与来源产品列表序列化存入 pricing_range JSON 字段\n- Commission/CommissionCost/NetComm 单位为 bp(0.0001)，导入时自动转换为小数\n- 仅极速客户 (is_ft=1) 会根据聚合后的 Short Financing 是否为空自动分类为多空客户或中性客户\n\n关键约束：\n- unmatched_products（customers.json 中无对应管理人的产品）**绝不要调用 add_client 为它创建新客户**。这些产品大概率是某个已有管理人的新交易对手（例如 INVESTINGFORMULA 是稳博的另一个产品）。必须先向用户确认"该产品属于哪个管理人"，返回的每条 suggestion 包含 counter_party、manager、source 字段；其中 source="llm" 表示字符串启发式失败后由 LLM 推断得到的高置信建议，source="heuristic" 表示基于字符串相似度的候选。务必把 source=llm 的建议作为首选 manager 呈给用户确认；确认后需由管理员在 config/customers.json 中补充产品 → 管理人映射再重新导入（本工具**不会**自动回写映射）。\n- missing_clients（管理人已映射但客户表缺失）可以用 add_client 创建，但名称必须是**管理人名**（如 "稳博"），不要用产品名作为客户名。\n- 返回值中的 action_required 字段含有对未匹配项的处理指引，遇到此字段务必先处理完再继续。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -228,9 +228,9 @@ function handleDeleteClient(input: DeleteClientInput): string {
   return JSON.stringify(deleteClient(input.name_or_id, input.dry_run ?? true));
 }
 
-function handleImportPricingSchedule(input: ImportPricingScheduleInput): string {
+async function handleImportPricingSchedule(input: ImportPricingScheduleInput): Promise<string> {
   if (!isAgentAdmin(getCurrentAgent()?.id ?? '')) return JSON.stringify({ error: '权限不足：需要 Agent 管理员权限' });
-  return JSON.stringify(importPricingSchedule(input.file_path, input.dry_run ?? true));
+  return JSON.stringify(await importPricingSchedule(input.file_path, input.dry_run ?? true));
 }
 
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {

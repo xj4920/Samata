@@ -59,6 +59,13 @@ function loadConfig(): McpServersConfig {
     }
   }
 
+  // Expand $ENV_VAR references in args and url
+  const expand = (s: string) => s.replace(/\$(\w+)/g, (m, k) => process.env[k] ?? m);
+  for (const srv of Object.values(servers)) {
+    if ('args' in srv && srv.args) srv.args = srv.args.map(expand);
+    if ('url' in srv) srv.url = expand(srv.url);
+  }
+
   return { servers };
 }
 

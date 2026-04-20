@@ -67,7 +67,7 @@ function isContextOverflowError(err: any): boolean {
 
 function isOrphanToolError(err: any): boolean {
   const msg = err?.message ?? '';
-  return /tool.result.*tool.id.*not found|tool_call_id.*not found/i.test(msg);
+  return /tool.result.*tool.id.*not found|tool_call_id.*not found|tool call result does not follow tool call/i.test(msg);
 }
 
 /**

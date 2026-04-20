@@ -119,7 +119,20 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
     }
   }
 
-  return result;
+  // Final defense: drop any 'tool' message whose preceding message is not an
+  // assistant carrying a matching tool_calls entry. Prevents providers like
+  // MiniMax from rejecting the request with "tool call result does not follow tool call".
+  const cleaned: OAIMessage[] = [];
+  for (const m of result) {
+    if (m.role === 'tool') {
+      const prev = cleaned[cleaned.length - 1];
+      const hasMatch = prev?.role === 'assistant'
+        && prev.tool_calls?.some(tc => tc.id === m.tool_call_id);
+      if (!hasMatch) continue;
+    }
+    cleaned.push(m);
+  }
+  return cleaned;
 }
 
 /* ----------------------------------------------------------------

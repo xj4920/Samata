@@ -9,7 +9,8 @@ import { fetchLatestTradeData, formatNum, ClientTradeData } from './trade.js';
 import XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs';
-import { loadCustomers } from '../config/customers.js';
+import { loadCustomers, Customer } from '../config/customers.js';
+import { getProviderForTask, getModelForTask } from '../llm/provider.js';
 
 function parseKV(args: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -445,12 +446,20 @@ export function formatFieldWithRange(value: number | null, range?: PricingRangeF
 }
 
 // 产品名精确（大小写不敏感）+ 模糊匹配到管理人
+// 归一化 counter_party 名称：去空格/标点 + 剥离末尾法人后缀，便于跨数据源匹配
+// 例：'JINDE CAPITAL' / 'JINDECAPITALLLC' 归一化后都是 'jindecapital'
+function normalizeCounterpartyName(s: string): string {
+  const compact = s.toLowerCase().replace(/[\s._\-]+/g, '');
+  return compact.replace(/(llc|ltd|lp|fund|capital)$/i, '') || compact;
+}
+
 function productStringSimilarity(a: string, b: string): number {
-  const s1 = a.toLowerCase();
-  const s2 = b.toLowerCase();
+  const s1 = normalizeCounterpartyName(a);
+  const s2 = normalizeCounterpartyName(b);
   if (s1 === s2) return 1;
   if (s1.includes(s2) || s2.includes(s1)) return 0.8;
   const len = Math.max(s1.length, s2.length);
+  if (len === 0) return 0;
   let matches = 0;
   for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
     if (s1[i] === s2[i]) matches++;
@@ -461,9 +470,64 @@ function productStringSimilarity(a: string, b: string): number {
 export interface UnmatchedProductSuggestion {
   counter_party: string;
   manager: string;
+  source?: 'heuristic' | 'llm';
 }
 
-export function importPricingSchedule(filePath: string, dryRun: boolean = true): {
+// LLM 兜底：把启发式匹配失败的 counterparty 批量交给模型分类，返回 { counterparty: manager } 映射
+// - 仅接受已存在于 customers.json 的 manager 作为结果，其他一律视为 unknown
+// - 任何异常（provider 未初始化 / 网络 / JSON 解析失败）均降级为空 Map，绝不影响主流程
+async function resolveUnmatchedByLLM(
+  pending: string[],
+  customers: Customer[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (pending.length === 0) return result;
+
+  const validManagers = new Set(customers.map(c => c.name));
+  const directory = customers.map(c => ({
+    manager: c.name,
+    products: c.products.map(p => p.counter_party),
+  }));
+
+  const prompt = `你是交易对手归属分类器。下面是已知"管理人 → 产品名列表"的目录，以及一批无法由字符串匹配识别的产品名。
+请把每个产品名归属到目录里的某个 manager；如果缺少足够线索则返回 "unknown"。
+
+目录 JSON：
+${JSON.stringify(directory)}
+
+待分类产品：
+${JSON.stringify(pending)}
+
+严格返回 JSON 对象，键为产品名（与输入一致），值为 manager 名或字符串 "unknown"。不要输出任何解释或额外文字。`;
+
+  try {
+    const provider = getProviderForTask('classification');
+    const response = await provider.createMessage({
+      model: getModelForTask('classification'),
+      max_tokens: 1024,
+      system: '你是严格的分类器，只输出 JSON，不输出任何解释。',
+      tools: [],
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const textBlock = response.content.find(b => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') return result;
+    const raw = textBlock.text.trim();
+    // 兼容 ```json ... ``` 包裹
+    const jsonText = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    const parsed = JSON.parse(jsonText) as Record<string, string>;
+    for (const cp of pending) {
+      const manager = parsed[cp];
+      if (typeof manager === 'string' && manager !== 'unknown' && validManagers.has(manager)) {
+        result.set(cp, manager);
+      }
+    }
+  } catch (err: any) {
+    log.print(`[import_pricing_schedule] LLM 兜底分类失败（降级为空）: ${err?.message ?? err}`);
+  }
+  return result;
+}
+
+export async function importPricingSchedule(filePath: string, dryRun: boolean = true): Promise<{
   success: true;
   imported: number;
   skipped_products: number;
@@ -471,7 +535,7 @@ export function importPricingSchedule(filePath: string, dryRun: boolean = true):
   unmatched_products: Array<{ counterparty: string; suggestions: UnmatchedProductSuggestion[] }>;
   missing_clients: Array<{ manager: string; products: string[] }>;
   action_required?: string;
-} | { success: false; error: string } {
+} | { success: false; error: string }> {
   const resolved = filePath.startsWith('~/')
     ? path.join(process.env.HOME || '', filePath.slice(1))
     : path.resolve(filePath);
@@ -551,7 +615,7 @@ export function importPricingSchedule(filePath: string, dryRun: boolean = true):
       score: productStringSimilarity(counterparty, p.counter_party),
     }));
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, topN).filter(s => s.score > 0.3).map(s => ({ counter_party: s.counter_party, manager: s.manager }));
+    return scored.slice(0, topN).filter(s => s.score > 0.3).map(s => ({ counter_party: s.counter_party, manager: s.manager, source: 'heuristic' as const }));
   }
 
   // 聚合器：按管理人分组
@@ -602,6 +666,22 @@ export function importPricingSchedule(filePath: string, dryRun: boolean = true):
 
     const ih = row['Index Hedging?'];
     if (ih === true || ih === 'true' || ih === 1) agg.indexHedging = true;
+  }
+
+  // 启发式匹配已尽力，剩余 unmatched 交给 LLM 兜底分类。
+  // 结果仅作为 suggestion 追加到 unmatched_products 里，不会改变 imported 数量，也不回写 customers.json。
+  if (unmatchedProducts.length > 0) {
+    const llmMap = await resolveUnmatchedByLLM(
+      unmatchedProducts.map(u => u.counterparty),
+      customers,
+    );
+    for (const u of unmatchedProducts) {
+      const manager = llmMap.get(u.counterparty);
+      if (!manager) continue;
+      // 去掉启发式里同 manager 的重复项，把 LLM 建议放到最前
+      u.suggestions = u.suggestions.filter(s => s.manager !== manager);
+      u.suggestions.unshift({ counter_party: u.counterparty, manager, source: 'llm' });
+    }
   }
 
   // 按管理人写入
@@ -691,15 +771,16 @@ export function importPricingSchedule(filePath: string, dryRun: boolean = true):
     details.push('⚠️ 以下产品未在 config/customers.json 中找到对应管理人，已跳过：');
     for (const u of unmatchedProducts) {
       const sug = u.suggestions.length > 0
-        ? `（相似产品: ${u.suggestions.map(s => `${s.counter_party}→${s.manager}`).join(', ')}）`
+        ? `（候选: ${u.suggestions.map(s => `${s.counter_party}→${s.manager}${s.source === 'llm' ? '[LLM]' : ''}`).join(', ')}）`
         : '';
       details.push(`  - ${u.counterparty}${sug}`);
     }
-    details.push('禁止直接为这些产品调用 add_client 创建新客户！产品通常属于某个已有管理人（参考相似产品对应的管理人）。');
+    details.push('禁止直接为这些产品调用 add_client 创建新客户！产品通常属于某个已有管理人（参考候选列表中的 manager）。');
     details.push('请先向用户确认：该产品属于哪个管理人？确认后由管理员在 config/customers.json 中维护产品 → 管理人映射，再重新导入。');
     actionNotes.push(
       '对 unmatched_products 绝不要直接调用 add_client。先询问用户：这些产品归属哪个已有管理人？'
-      + '参考每个 suggestion 的 manager 字段作为提示。需要管理员在 config/customers.json 中补充映射后重新导入。',
+      + '每个 suggestion 的 manager 字段为候选管理人；其中 source="llm" 为模型推断结果（高置信但仍需用户确认），source="heuristic" 为字符串相似度推断。'
+      + '确认后需管理员在 config/customers.json 中补充映射后重新导入。',
     );
   }
 
@@ -773,7 +854,7 @@ export async function handleClient(args: string): Promise<void> {
   }
 }
 
-function handleImportPricingCLI(args: string): void {
+async function handleImportPricingCLI(args: string): Promise<void> {
   const parts = args.trim().split(/\s+/);
   const filePath = parts[0];
   if (!filePath) {
@@ -781,7 +862,7 @@ function handleImportPricingCLI(args: string): void {
     return;
   }
   const confirm = parts.includes('--confirm');
-  const result = importPricingSchedule(filePath, !confirm);
+  const result = await importPricingSchedule(filePath, !confirm);
   if (!result.success) {
     log.print(`导入失败: ${result.error}`);
     return;

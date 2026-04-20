@@ -147,6 +147,7 @@ async function handleAIChat(userInput: string): Promise<string> {
 - 找不到对应 `<name>.md` 时 fallback 到 `_default.md`
 - 禁止把 prompt 硬编码到 TS 代码里，也禁止存进 DB（`agents.system_prompt` 列已删除）
 - `save_agent` 工具 / `/agent create` CLI 不支持改 prompt，需要系统管理员直接编辑 MD 文件（修改后 `reload_app` 或重启即可生效）
+- **新增 seed agent 时必须同步创建 `config/agents/<name>.md`**（末尾带上 `{{permissions}}` / `{{attachments}}` / `{{skills}}` / `{{memory}}` 占位符块），否则会静默走 `_default.md` fallback 而丢失角色个性
 
 ### Agent Skills 工具过滤机制
 每个 agent 在 DB 中通过两个字段控制工具访问：
@@ -161,6 +162,34 @@ const activeTools = agent ? getAgentTools(agent, tools) : tools;
 Tutor agent 使用 `allowlist`模式，16 个工具（知识库、skill 管理、agent 管理、记忆、系统工具），seed 数据在 `src/db/schema.ts:166-182`。
 
 详细架构见 `docs/plan/agent-skills-management.md`。
+
+### 新增 Agent Tool 时的权限矩阵规范（重要）
+
+每次新增 tool（在 `src/tools/` 下注册 `toolDefinitions`）后，**必须同步**决定它在每个 agent 的归属，不允许只加 tool 定义就收工——否则会出现 system prompt / file-hint 引导 LLM 去调，但 agent 的 `tools_list` 里没有，LLM 命中 "工具不在当前用户的允许列表中" 的错误（历史案例：`import_pricing_schedule`）。
+
+新增 tool 时**必走的 checklist**：
+
+1. **定位 tool 的业务归属**：是全 agent 通用还是某个 agent 专属？
+   - 全通用、只读类（search/query）→ 加入 `COMMON_SET`（`src/llm/agents/config.ts`），所有 `tools_mode='standard'` 的 agent 自动生效
+   - 某个 agent 专属（如 otcclaw 的 client/trade/pricing 系列）→ **不要动** `COMMON_SET`，只通过 migration 补进该 agent 的 `tools_list`
+
+2. **区分读写性质，决定 user blocklist**：
+   - 写操作（add/update/delete/import/advance/rollback 等会改 DB 的）→ **必须**同步加进该 agent 的 `user_tools_list` blocklist，让普通成员（非 agent admin）不能调用；参考 otcclaw 现有 blocklist：`add_client / update_client / import_document / import_pricing_schedule` 等
+   - 纯只读（query/view/list/search）→ 不加 user blocklist，普通成员可用
+   - 破坏性 / 高权限（`exec_cmd`、`reload_app`、`write_file`、`edit_file`）→ 必须进 user blocklist，且仅系统管理员级别可用
+
+3. **加 migration 而不是手改 DB**：
+   - 在 `src/db/schema.ts` 末尾新增 `runOnce('<agent>-add-<tool>', ...)`，幂等地补进 `tools_list` / `user_tools_list`
+   - 不要 rename 已执行过的 migration id；要调整旧结果就新加一个 migration
+   - 模板参考 `otcclaw-add-import-pricing-schedule`（[src/db/schema.ts](src/db/schema.ts)）
+
+4. **验证**：重启或 `/reload_app` 后用 SQL 确认两列都已更新
+   ```sql
+   SELECT tools_list, user_tools_list FROM agents WHERE name='<agent>';
+   ```
+   再用 agent admin / 普通成员各跑一次，确认 admin 能调、普通成员被拒。
+
+不遵循此规范的后果：新增 tool 在任何 agent 上都调不起来（agent-level 过滤兜住了），或者普通成员意外拿到写权限（user blocklist 漏补）。
 
 ### Samata 多 Agent 架构约束
 
