@@ -20,6 +20,7 @@ import * as mediaGenTools from './media-gen-tools.js';
 import * as hedgeRatioTools from './hedge-ratio-tools.js';
 import * as documentTools from './document-tools.js';
 import * as pricingQuoteTools from './pricing-quote-tools.js';
+import * as dateTools from './date-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -46,6 +47,7 @@ const modules: ToolModule[] = [
   hedgeRatioTools,
   documentTools,
   pricingQuoteTools,
+  dateTools,
 ];
 
 export function getAllNativeTools(): Anthropic.Tool[] {

@@ -4,6 +4,7 @@ import type { User } from '../../auth/rbac.js';
 import { getCurrentUser, isAgentAdmin, isAgentMember, isSystemAdmin } from '../../auth/rbac.js';
 import type { AgentConfig } from './config.js';
 import { buildMemoryBlock } from './memory.js';
+import { buildDateTimeBlock } from '../../commands/date.js';
 import { getAllSkills } from '../../commands/skill.js';
 import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
@@ -91,6 +92,7 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     attachments: ATTACHMENT_GUIDANCE,
     skills: buildSkillsBlock(agentId),
     memory: buildMemoryBlock(agentId) ?? '',
+    datetime: buildDateTimeBlock(),
   };
   return renderPrompt(template, vars);
 }

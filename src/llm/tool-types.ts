@@ -136,6 +136,19 @@ export type ListPricingQuoteDatesInput = { quote_type?: string };
 export type ImportDocumentInput = { file_path: string; title?: string };
 export type DeleteDocumentInput = { id_prefix: string };
 
+// --- Date ---
+export type CalculateDateInput = {
+  operation: 'shift' | 'diff' | 'is_trading_day' | 'now';
+  date?: string;              // shift, is_trading_day
+  days?: number;              // shift
+  months?: number;            // shift
+  years?: number;             // shift
+  skip_non_trading?: boolean; // shift
+  start_date?: string;        // diff
+  end_date?: string;          // diff
+  tz?: string;                // now
+};
+
 // --- Media Generation ---
 export type GenerateImageInput = {
   prompt: string;

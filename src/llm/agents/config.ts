@@ -29,6 +29,8 @@ export const COMMON_SET = new Set([
   'generate_image', 'generate_video',
   // Document
   'import_document', 'list_documents', 'delete_document',
+  // Date
+  'calculate_date',
 ]);
 
 /** @deprecated Kept for backward compatibility with list_tool_presets and CLI create wizard. Use COMMON_SET + allow/block instead. */
