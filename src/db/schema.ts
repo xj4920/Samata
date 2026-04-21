@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { resolve, join } from 'path';
+import { resolve, join, isAbsolute, relative, sep } from 'path';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
@@ -1411,5 +1411,76 @@ export function initSchema(): void {
     } catch (e: any) {
       console.warn(`Orphan cleanup failed: ${e.message}`);
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // Migration v2: finalize documents schema
+  //   - add documents.size_bytes column (idempotent via PRAGMA probe)
+  //   - backfill size_bytes from parsed.md on disk
+  //   - normalize documents.stored_path from absolute → relative
+  //     ("data/documents/<agent>/<docId8>"), so deployments / cwd changes
+  //     don't break the lookup.
+  //   - wrapped in a transaction; rethrows on failure so runOnce does NOT
+  //     mark this migration as done (retries on next startup).
+  // -----------------------------------------------------------------------
+  runOnce('migrate-documents-v2-cleanup', () => {
+    const documentsRoot = resolve('data/documents');
+    const packageRoot = resolve('.');
+
+    // 1. Probe and add size_bytes column if missing (outside the tx — DDL
+    //    in SQLite implicitly commits the current transaction on some
+    //    builds; doing it first keeps the data update atomic).
+    const columns = db.prepare(`PRAGMA table_info('documents')`).all() as { name: string }[];
+    const hasSizeBytes = columns.some(c => c.name === 'size_bytes');
+    if (!hasSizeBytes) {
+      db.exec(`ALTER TABLE documents ADD COLUMN size_bytes INTEGER`);
+    }
+
+    // 2. In a single transaction: walk all documents, compute size, normalize path.
+    const tx = db.transaction(() => {
+      const docs = db.prepare(
+        'SELECT id, agent_id, stored_path FROM documents',
+      ).all() as { id: string; agent_id: string | null; stored_path: string | null }[];
+
+      const updateStmt = db.prepare(
+        'UPDATE documents SET stored_path = ?, size_bytes = ? WHERE id = ?',
+      );
+
+      for (const doc of docs) {
+        // Compute absolute stored dir
+        let absDir: string | null = null;
+        if (doc.stored_path) {
+          absDir = isAbsolute(doc.stored_path)
+            ? doc.stored_path
+            : resolve(packageRoot, doc.stored_path);
+        } else if (doc.agent_id) {
+          absDir = join(documentsRoot, doc.agent_id, doc.id.slice(0, 8));
+        }
+
+        // Derive relative path for DB
+        let newStoredPath: string | null = doc.stored_path;
+        if (absDir) {
+          const rel = relative(packageRoot, absDir).split(sep).join('/');
+          if (rel && !rel.startsWith('..')) newStoredPath = rel;
+        }
+
+        // Compute size_bytes from parsed.md (skip if missing)
+        let sizeBytes: number | null = null;
+        if (absDir) {
+          const mdPath = join(absDir, 'parsed.md');
+          if (fs.existsSync(mdPath)) {
+            try {
+              sizeBytes = fs.statSync(mdPath).size;
+            } catch { /* keep null */ }
+          }
+        }
+
+        if (newStoredPath !== doc.stored_path || sizeBytes !== null) {
+          updateStmt.run(newStoredPath, sizeBytes, doc.id);
+        }
+      }
+    });
+
+    tx();
   });
 }

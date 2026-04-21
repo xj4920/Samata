@@ -6,6 +6,7 @@ import { log } from '../utils/logger.js';
 import { isInteractive, remoteInput } from '../runtime/execution-context.js';
 import { v4 as uuid } from 'uuid';
 import { grepSearchDocuments, type GrepSearchResult } from '../utils/grep-search.js';
+import { BROAD_BUSINESS_TERMS, expandCJKKeywords } from '../utils/keyword-weights.js';
 
 export interface KnowledgeItem {
   id: string;
@@ -20,6 +21,19 @@ export interface KnowledgeItem {
   relevance?: number;
 }
 
+/**
+ * Structured dual-group search output.
+ *
+ * FAQ and document scores live on different scales (DB weighted LIKE vs. grep
+ * line-count), so we deliberately keep them in separate arrays instead of
+ * mixing and globally sorting.
+ */
+export interface KnowledgeSearchResult {
+  faq: KnowledgeItem[];
+  documents: GrepSearchResult[];
+}
+
+/** @deprecated kept for type hints where older single-list form is expected. */
 export type SearchResult = KnowledgeItem | GrepSearchResult;
 
 function ensureKnowledgeWriteAccess(agentId?: string, knowledgeId?: string): { success: true } | { success: false; error: string } {
@@ -42,33 +56,6 @@ function ensureKnowledgeWriteAccess(agentId?: string, knowledgeId?: string): { s
     return { success: false, error: '权限不足：需要系统管理员权限' };
   }
   return { success: true };
-}
-
-const BROAD_BUSINESS_TERMS = new Set([
-  '场外期权', '北向极速', '北向借券', '约券', '雪球', '借券',
-]);
-
-const CJK_RE = /^[\u4e00-\u9fff]+$/;
-
-/** 对长中文关键词做 bigram 拆分，返回 { primary: 原始词[], derived: bigram词[] } */
-function expandCJKKeywords(rawKeywords: string[]): { primary: string[]; derived: string[] } {
-  const primary: string[] = [];
-  const derived = new Set<string>();
-
-  for (const kw of rawKeywords) {
-    primary.push(kw);
-    if (CJK_RE.test(kw) && kw.length > 2) {
-      for (let i = 0; i + 2 <= kw.length; i += 2) {
-        derived.add(kw.slice(i, i + 2));
-      }
-      for (let i = 1; i + 2 <= kw.length; i += 2) {
-        derived.add(kw.slice(i, i + 2));
-      }
-    }
-  }
-
-  const primarySet = new Set(primary);
-  return { primary, derived: [...derived].filter(d => !primarySet.has(d)) };
 }
 
 /** DB-only search for manual FAQ entries (document_id IS NULL) */
@@ -123,35 +110,33 @@ function searchFAQs(keyword: string, agentId?: string): KnowledgeItem[] {
   return db.prepare(sql).all(...params) as KnowledgeItem[];
 }
 
-/** Dual-engine search: FAQ (DB) + Documents (grep), merged by relevance */
-export function fetchKnowledge(keyword?: string, agentId?: string): SearchResult[] {
+const FAQ_LIMIT = 10;
+const DOC_LIMIT = 5;
+
+/**
+ * Dual-engine search.
+ *   - faq: DB weighted LIKE + CJK bigram (top 10)
+ *   - documents: ripgrep over per-agent parsed.md with frontmatter filter (top 5)
+ *
+ * Scores from the two sources intentionally remain in separate arrays (the
+ * LIKE-weighted FAQ relevance and grep line-count relevance are not on the
+ * same scale, so mixing them would silently bias ranking).
+ */
+export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeSearchResult {
   if (!keyword) {
     const db = getDb();
     const docFilter = 'WHERE k.document_id IS NULL';
-    if (agentId) {
-      return db.prepare(
-        `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) AND k.document_id IS NULL ORDER BY k.created_at DESC`
-      ).all(agentId) as KnowledgeItem[];
-    }
-    return db.prepare(`SELECT k.* FROM knowledge k ${docFilter} ORDER BY k.created_at DESC`).all() as KnowledgeItem[];
+    const faq = agentId
+      ? db.prepare(
+          `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) AND k.document_id IS NULL ORDER BY k.created_at DESC`,
+        ).all(agentId) as KnowledgeItem[]
+      : db.prepare(`SELECT k.* FROM knowledge k ${docFilter} ORDER BY k.created_at DESC`).all() as KnowledgeItem[];
+    return { faq, documents: [] };
   }
 
-  const faqResults = searchFAQs(keyword, agentId);
-  const docResults = agentId ? grepSearchDocuments(keyword, agentId) : [];
-
-  // Merge by relevance score
-  const merged: SearchResult[] = [
-    ...faqResults.map(r => ({ ...r, source: 'faq' as const, relevance: (r as any).relevance ?? 0 })),
-    ...docResults,
-  ];
-
-  merged.sort((a, b) => {
-    const ra = (a as any).relevance ?? 0;
-    const rb = (b as any).relevance ?? 0;
-    return rb - ra;
-  });
-
-  return merged.slice(0, 10);
+  const faq = searchFAQs(keyword, agentId).slice(0, FAQ_LIMIT);
+  const documents = agentId ? grepSearchDocuments(keyword, agentId, DOC_LIMIT) : [];
+  return { faq, documents };
 }
 
 export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agentId?: string, limit = 20): KnowledgeItem[] {
@@ -183,37 +168,41 @@ export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agen
 
 export function search(args: string): void {
   const keyword = args.trim();
-  const results = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
+  const { faq, documents } = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
 
-  if (results.length === 0) {
+  if (faq.length === 0 && documents.length === 0) {
     log.print('未找到相关结果');
     return;
   }
 
   const db = getDb();
-  for (const item of results) {
-    if ('source' in item && item.source === 'document') {
-      const doc = item as GrepSearchResult;
-      log.print(`  [文档 ${doc.document_id.slice(0, 8)}] ${doc.title}`);
-      log.print(`           ${doc.snippet}`);
-      if (doc.tags) log.print(`           标签: ${doc.tags}`);
-      log.print();
-    } else {
-      const faq = item as KnowledgeItem;
+
+  if (faq.length > 0) {
+    log.print(`【FAQ】共 ${faq.length} 条`);
+    for (const item of faq) {
       const agents = (db.prepare(
         `SELECT a.name FROM agents a INNER JOIN knowledge_agents ka ON ka.agent_id = a.id WHERE ka.knowledge_id = ?`
-      ).all(faq.id) as { name: string }[]).map(a => a.name);
+      ).all(item.id) as { name: string }[]).map(a => a.name);
 
-      log.print(`  [FAQ ${faq.id.slice(0, 8)}] Q: ${faq.question}`);
-      log.print(`           A: ${faq.answer}`);
-      if (faq.tags) log.print(`           标签: ${faq.tags}`);
-      if (faq.related_users) log.print(`           相关人员: ${faq.related_users}`);
+      log.print(`  [${item.id.slice(0, 8)}] Q: ${item.question}`);
+      log.print(`           A: ${item.answer}`);
+      if (item.tags) log.print(`           标签: ${item.tags}`);
+      if (item.related_users) log.print(`           相关人员: ${item.related_users}`);
       log.print(`           所属Agent: ${agents.length > 0 ? agents.join(', ') : '(全局)'}`);
-      log.print(`           创建: ${faq.created_at} | 修改: ${faq.updated_at}`);
+      log.print(`           创建: ${item.created_at} | 修改: ${item.updated_at}`);
       log.print();
     }
   }
-  log.print(`共 ${results.length} 条`);
+
+  if (documents.length > 0) {
+    log.print(`【文档】共 ${documents.length} 条`);
+    for (const doc of documents) {
+      log.print(`  [${doc.document_id.slice(0, 8)}] ${doc.title}`);
+      log.print(`           ${doc.snippet}`);
+      if (doc.tags) log.print(`           标签: ${doc.tags}`);
+      log.print();
+    }
+  }
 }
 
 export async function add(args?: string, agentId?: string): Promise<void> {

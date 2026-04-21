@@ -2,9 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ImportDocumentInput, DeleteDocumentInput } from '../llm/tool-types.js';
 import { getCurrentUser } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
-import { importDocument, deleteDocument, listDocuments } from '../commands/document-import.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import { importDocument, deleteDocument, listDocuments, formatFileSize } from '../commands/document-import.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -56,25 +54,13 @@ function handleListDocuments(): string {
   const agentId = getCurrentAgent()?.id;
   const docs = listDocuments(agentId);
   if (docs.length === 0) return JSON.stringify({ message: '暂无已导入的文档' });
-  return JSON.stringify(docs.map(d => {
-    let fileSize: string | null = null;
-    if (d.stored_path) {
-      const mdPath = path.join(d.stored_path, 'parsed.md');
-      if (fs.existsSync(mdPath)) {
-        const size = fs.statSync(mdPath).size;
-        if (size < 1024) fileSize = `${size}B`;
-        else if (size < 1024 * 1024) fileSize = `${(size / 1024).toFixed(1)}KB`;
-        else fileSize = `${(size / (1024 * 1024)).toFixed(1)}MB`;
-      }
-    }
-    return {
-      id: d.id.slice(0, 8),
-      title: d.title,
-      file_type: d.file_type,
-      file_size: fileSize,
-      created_at: d.created_at,
-    };
-  }));
+  return JSON.stringify(docs.map(d => ({
+    id: d.id.slice(0, 8),
+    title: d.title,
+    file_type: d.file_type,
+    file_size: typeof d.size_bytes === 'number' && d.size_bytes > 0 ? formatFileSize(d.size_bytes) : null,
+    created_at: d.created_at,
+  })));
 }
 
 function handleDeleteDocument(input: DeleteDocumentInput): string {

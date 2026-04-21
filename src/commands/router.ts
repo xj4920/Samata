@@ -46,6 +46,7 @@ const commands: Record<string, Command> = {
   'doc-import': { description: '导入文档为知识', usage: '/doc-import <文件路径>', requiredRole: 'agent_admin', handler: documentImport.cliImport },
   'doc-list':   { description: '已导入的文档', usage: '/doc-list', handler: documentImport.cliList },
   'doc-del':    { description: '删除文档及知识', usage: '/doc-del <文档ID>', requiredRole: 'agent_admin', handler: documentImport.cliDelete },
+  'doc-retag':  { description: '重生成文档标签', usage: '/doc-retag <文档ID|--all>', requiredRole: 'agent_admin', handler: documentImport.cliRetag },
   plugin:  { description: '插件', usage: '/plugin [list]', handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },

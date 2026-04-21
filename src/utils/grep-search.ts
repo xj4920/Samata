@@ -3,6 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from './logger.js';
+import {
+  expandCJKKeywords,
+  classifyTerms,
+  type KeywordTier,
+} from './keyword-weights.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCUMENTS_ROOT = path.resolve(__dirname, '../../data/documents');
@@ -18,9 +23,9 @@ export interface GrepSearchResult {
 }
 
 interface Frontmatter {
-  document_id: string;
-  agent_id: string;
-  title: string;
+  document_id?: string;
+  agent_id?: string;
+  title?: string;
   tags?: string;
   file_type?: string;
   created_by?: string;
@@ -29,13 +34,31 @@ interface Frontmatter {
 
 // --- Frontmatter parsing ----------------------------------------------------
 
-function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: string } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!match) return { frontmatter: {} as Frontmatter, body: content };
+/**
+ * Parse YAML frontmatter at the top of a markdown file.
+ * Also returns the inclusive line-number range (1-indexed) of the frontmatter
+ * block (including the opening/closing `---` markers) so that grep hits inside
+ * it can be classified and filtered.
+ */
+function parseFrontmatter(content: string): {
+  frontmatter: Frontmatter;
+  range: { start: number; end: number } | null;
+} {
+  const lines = content.split('\n');
+  if (lines[0] !== '---') return { frontmatter: {}, range: null };
 
-  const yaml = match[1];
+  let endIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === '---') {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) return { frontmatter: {}, range: null };
+
   const fm: Record<string, string> = {};
-  for (const line of yaml.split('\n')) {
+  for (let i = 1; i < endIdx; i++) {
+    const line = lines[i];
     const idx = line.indexOf(':');
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
@@ -44,207 +67,353 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
   }
 
   return {
-    frontmatter: fm as unknown as Frontmatter,
-    body: content.slice(match[0].length),
+    frontmatter: fm as Frontmatter,
+    range: { start: 1, end: endIdx + 1 },
   };
 }
 
-// --- Ripgrep invocation -----------------------------------------------------
+// --- Zone classification ----------------------------------------------------
+
+type Zone = 'title' | 'tags' | 'heading' | 'body' | 'meta';
+
+/**
+ * Classify a single line into a scoring zone.
+ *   - frontmatter title / tags  → score-worthy
+ *   - other frontmatter keys (document_id / agent_id / created_at / created_by / file_type) → 'meta' (dropped)
+ *   - markdown heading  `#..####`  → heading
+ *   - all other lines  → body
+ */
+function classifyLine(
+  lineText: string,
+  lineNumber: number,
+  fmRange: { start: number; end: number } | null,
+): Zone {
+  if (fmRange && lineNumber >= fmRange.start && lineNumber <= fmRange.end) {
+    const m = lineText.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
+    if (!m) return 'meta';
+    const key = m[1];
+    if (key === 'title') return 'title';
+    if (key === 'tags') return 'tags';
+    return 'meta';
+  }
+  if (/^#{1,4}\s/.test(lineText.trimStart())) return 'heading';
+  return 'body';
+}
+
+/**
+ * Weight a match in a given zone for a keyword of a given tier.
+ * Mirror of FAQ-side weighting:
+ *   normal term:          title 3 / tags 2 / heading 2 / body 1 / meta 0
+ *   broad or bigram term: title 1 / tags 1 / heading 1 / body 0 / meta 0
+ */
+function lineWeight(zone: Zone, tier: KeywordTier): number {
+  if (zone === 'meta') return 0;
+  if (tier === 'normal') {
+    if (zone === 'title') return 3;
+    if (zone === 'tags' || zone === 'heading') return 2;
+    return 1; // body
+  }
+  // broad or derived
+  if (zone === 'body') return 0;
+  return 1;
+}
+
+// --- Ripgrep ----------------------------------------------------------------
 
 function rgAvailable(): boolean {
   try {
-    execFileSync('rg', ['--version'], { timeout: 5000 });
+    execFileSync('rg', ['--version'], { timeout: 5000, stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
 }
 
-interface RgMatch {
-  type: string;
+interface RgRecord {
+  type: 'match' | 'context' | string;
   data: {
     path: { text: string };
     lines: { text: string };
     line_number: number;
-    submatches: { match: { text: string }; start: number; end: number }[];
+    submatches?: { match: { text: string }; start: number; end: number }[];
   };
 }
 
-function runRipgrep(keywords: string[], agentId: string): RgMatch[] {
-  const pattern = keywords.map(kw => kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+/**
+ * Invoke ripgrep with the ordered list of terms. Returns raw per-line records
+ * (both matches and context rows). Never throws on "no match" (exit code 1).
+ */
+function runRipgrep(terms: string[], agentId: string): RgRecord[] {
   const searchDir = path.join(DOCUMENTS_ROOT, agentId);
   if (!fs.existsSync(searchDir)) return [];
 
-  const args = [
+  const args: string[] = [
+    '-F',
+    '-i',
     '--json',
     '-C', '3',
     '--max-count', '50',
-    '--',
-    pattern,
-    searchDir,
-    // glob: only search parsed.md files
-    '-g', 'parsed.md',
+    '--glob', '**/parsed.md',
   ];
+  for (const t of terms) {
+    args.push('-e', t);
+  }
+  args.push('--', searchDir);
 
   try {
     const raw = execFileSync('rg', args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
     const lines = raw.toString().trim().split('\n').filter(Boolean);
-    const matches: RgMatch[] = [];
+    const records: RgRecord[] = [];
     for (const line of lines) {
       try {
         const obj = JSON.parse(line);
-        if (obj.type === 'match') matches.push(obj);
-      } catch { /* skip non-JSON lines */ }
+        if (obj.type === 'match' || obj.type === 'context') records.push(obj);
+      } catch { /* skip non-JSON */ }
     }
-    return matches;
+    return records;
   } catch (e: any) {
-    // rg returns exit code 1 when no matches — not an error
     if (e.status === 1) return [];
     log.warn(`ripgrep search failed: ${e.message}`);
     return [];
   }
 }
 
-// --- Fallback: Node.js file scan when rg is unavailable --------------------
+// --- Per-file aggregation ---------------------------------------------------
 
-function fallbackSearch(keywords: string[], agentId: string): { filePath: string; line_number: number; line: string; isHeading: boolean }[] {
+interface FileState {
+  /** Absolute path of the parsed.md file. */
+  filePath: string;
+  /** Line text indexed by 1-based line number (both match and context rows). */
+  lines: Map<number, string>;
+  /** 1-based line numbers of match rows (preserve insertion order). */
+  matchLines: number[];
+  /** Per-match-line submatch texts (lowercased), indexed by line number. */
+  submatchesByLine: Map<number, string[]>;
+  frontmatter: Frontmatter;
+  fmRange: { start: number; end: number } | null;
+}
+
+function readFileState(filePath: string): Pick<FileState, 'frontmatter' | 'fmRange'> {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const { frontmatter, range } = parseFrontmatter(content);
+    return { frontmatter, fmRange: range };
+  } catch {
+    return { frontmatter: {}, fmRange: null };
+  }
+}
+
+function assembleRecords(records: RgRecord[]): Map<string, FileState> {
+  const states = new Map<string, FileState>();
+
+  for (const rec of records) {
+    const filePath = rec.data.path.text;
+    const lineNumber = rec.data.line_number;
+    const lineText = rec.data.lines.text.replace(/\n$/, '');
+
+    let state = states.get(filePath);
+    if (!state) {
+      const { frontmatter, fmRange } = readFileState(filePath);
+      state = {
+        filePath,
+        lines: new Map(),
+        matchLines: [],
+        submatchesByLine: new Map(),
+        frontmatter,
+        fmRange,
+      };
+      states.set(filePath, state);
+    }
+
+    if (!state.lines.has(lineNumber)) {
+      state.lines.set(lineNumber, lineText);
+    }
+
+    if (rec.type === 'match') {
+      if (!state.submatchesByLine.has(lineNumber)) {
+        state.matchLines.push(lineNumber);
+        state.submatchesByLine.set(lineNumber, []);
+      }
+      const bucket = state.submatchesByLine.get(lineNumber)!;
+      for (const sm of rec.data.submatches ?? []) {
+        bucket.push(sm.match.text.toLowerCase());
+      }
+    }
+  }
+
+  return states;
+}
+
+// --- Scoring & snippet ------------------------------------------------------
+
+const SNIPPET_MAX_LEN = 500;
+const CONTEXT_RADIUS = 3;
+
+function buildSnippet(state: FileState, lineNumber: number): string {
+  const parts: string[] = [];
+  for (let ln = lineNumber - CONTEXT_RADIUS; ln <= lineNumber + CONTEXT_RADIUS; ln++) {
+    const text = state.lines.get(ln);
+    if (text === undefined) continue;
+    parts.push(text);
+  }
+  const joined = parts.join('\n').trim();
+  if (joined.length <= SNIPPET_MAX_LEN) return joined;
+  return joined.slice(0, SNIPPET_MAX_LEN) + '...';
+}
+
+interface ScoredFile {
+  relevance: number;
+  snippet: string;
+  frontmatter: Frontmatter;
+  filePath: string;
+}
+
+function scoreFile(
+  state: FileState,
+  termTiers: Map<string, KeywordTier>,
+): ScoredFile {
+  let relevance = 0;
+  let bestLineScore = 0;
+  let bestLine = -1;
+
+  for (const ln of state.matchLines) {
+    const lineText = state.lines.get(ln) ?? '';
+    const zone = classifyLine(lineText, ln, state.fmRange);
+    if (zone === 'meta') continue; // drop frontmatter non-whitelisted fields
+
+    let lineScore = 0;
+    const submatches = state.submatchesByLine.get(ln) ?? [];
+    for (const sm of submatches) {
+      const tier = termTiers.get(sm) ?? 'normal';
+      lineScore += lineWeight(zone, tier);
+    }
+    if (lineScore === 0) continue;
+
+    relevance += lineScore;
+    if (lineScore > bestLineScore) {
+      bestLineScore = lineScore;
+      bestLine = ln;
+    }
+  }
+
+  const snippet = bestLine > 0 ? buildSnippet(state, bestLine) : '';
+  return {
+    relevance,
+    snippet,
+    frontmatter: state.frontmatter,
+    filePath: state.filePath,
+  };
+}
+
+// --- Fallback (no ripgrep) --------------------------------------------------
+
+function fallbackScan(
+  terms: string[],
+  termTiers: Map<string, KeywordTier>,
+  agentId: string,
+): ScoredFile[] {
   const agentDir = path.join(DOCUMENTS_ROOT, agentId);
   if (!fs.existsSync(agentDir)) return [];
 
-  const hits: { filePath: string; line_number: number; line: string; isHeading: boolean }[] = [];
+  const results: ScoredFile[] = [];
   const docDirs = fs.readdirSync(agentDir);
+  const termsLower = terms.map(t => t.toLowerCase());
 
   for (const docDir of docDirs) {
     const mdPath = path.join(agentDir, docDir, 'parsed.md');
     if (!fs.existsSync(mdPath)) continue;
 
-    const content = fs.readFileSync(mdPath, 'utf-8');
+    let content: string;
+    try {
+      content = fs.readFileSync(mdPath, 'utf-8');
+    } catch { continue; }
+
+    const { frontmatter, range: fmRange } = parseFrontmatter(content);
     const lines = content.split('\n');
+
+    // Build synthetic FileState for consistent scoring
+    const state: FileState = {
+      filePath: mdPath,
+      lines: new Map(),
+      matchLines: [],
+      submatchesByLine: new Map(),
+      frontmatter,
+      fmRange,
+    };
+
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const matchCount = keywords.reduce((c, kw) => c + (line.includes(kw) ? 1 : 0), 0);
-      if (matchCount > 0) {
-        hits.push({ filePath: mdPath, line_number: i + 1, line, isHeading: /^#{1,4}\s/.test(line) });
+      state.lines.set(i + 1, lines[i]);
+      const lower = lines[i].toLowerCase();
+      const hits: string[] = [];
+      for (let t = 0; t < termsLower.length; t++) {
+        if (lower.includes(termsLower[t])) hits.push(termsLower[t]);
+      }
+      if (hits.length > 0) {
+        state.matchLines.push(i + 1);
+        state.submatchesByLine.set(i + 1, hits);
       }
     }
-  }
-  return hits;
-}
 
-// --- Scoring & aggregation -------------------------------------------------
+    if (state.matchLines.length === 0) continue;
 
-function scoreMatches(matches: RgMatch[], keywords: string[]): Map<string, { relevance: number; bestSnippet: string; frontmatter: Frontmatter }> {
-  const fileScores = new Map<string, { relevance: number; bestSnippet: string; frontmatter: Frontmatter }>();
-
-  for (const m of matches) {
-    const filePath: string = m.data.path.text;
-    const lineText: string = m.data.lines.text;
-    const isHeading = /^#{1,4}\s/.test(lineText.trimStart());
-
-    const matchCount = keywords.reduce((c, kw) => c + (lineText.includes(kw) ? 1 : 0), 0);
-    const lineScore = matchCount * (isHeading ? 2 : 1);
-
-    let entry = fileScores.get(filePath);
-    if (!entry) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const { frontmatter } = parseFrontmatter(content);
-      entry = { relevance: 0, bestSnippet: '', frontmatter };
-      fileScores.set(filePath, entry);
-    }
-
-    entry.relevance += lineScore;
-
-    // Keep the highest-scoring snippet (prefer heading matches)
-    if (lineScore > 0 && (!entry.bestSnippet || (isHeading && entry.bestSnippet && !/^#{1,4}\s/.test(entry.bestSnippet)))) {
-      // rg -C 3 already provides context, use the full matched block
-      const snippet = lineText.trim();
-      if (snippet.length <= 500) {
-        entry.bestSnippet = snippet;
-      } else {
-        entry.bestSnippet = snippet.slice(0, 500) + '...';
-      }
-    }
+    const scored = scoreFile(state, termTiers);
+    if (scored.relevance > 0) results.push(scored);
   }
 
-  return fileScores;
+  return results;
 }
 
 // --- Public API -------------------------------------------------------------
 
 /**
- * Search document parsed.md files using ripgrep (or Node.js fallback).
- * Returns results sorted by relevance descending, limited to top N.
+ * Search document parsed.md files using ripgrep (falls back to Node.js scan).
+ * Returns results sorted by relevance desc, capped at `limit`.
+ *
+ * Scoring:
+ *   - frontmatter title hit = 3, tags hit = 2, other fm keys = dropped
+ *   - markdown heading hit = 2, body hit = 1
+ *   - broad business terms or bigram-derived terms floor to 1 (body = 0)
+ *   - snippet = best-scoring match line + ±3 context lines, trimmed to 500 chars
  */
-export function grepSearchDocuments(keyword: string, agentId: string, limit = 10): GrepSearchResult[] {
-  const keywords = keyword.split(/\s+/).filter(Boolean);
-  if (keywords.length === 0) return [];
+export function grepSearchDocuments(
+  keyword: string,
+  agentId: string,
+  limit = 5,
+): GrepSearchResult[] {
+  const rawKeywords = keyword.split(/\s+/).filter(Boolean);
+  if (rawKeywords.length === 0) return [];
 
+  const { primary, derived } = expandCJKKeywords(rawKeywords);
+  const classified = classifyTerms(primary, derived);
+  const terms = classified.map(c => c.term);
+  const termTiers = new Map<string, KeywordTier>();
+  for (const c of classified) termTiers.set(c.term.toLowerCase(), c.tier);
+
+  let scored: ScoredFile[];
   if (rgAvailable()) {
-    const matches = runRipgrep(keywords, agentId);
-    const fileScores = scoreMatches(matches, keywords);
-
-    const results: GrepSearchResult[] = [];
-    for (const [filePath, { relevance, bestSnippet, frontmatter }] of fileScores) {
-      if (!frontmatter.document_id || !frontmatter.title) {
-        // Fallback: derive from file path
-        const docDir = path.basename(path.dirname(filePath));
-        frontmatter.document_id = docDir;
-        frontmatter.title = docDir;
-      }
-      results.push({
-        source: 'document',
-        document_id: frontmatter.document_id,
-        title: frontmatter.title,
-        agent_id: frontmatter.agent_id || agentId,
-        snippet: bestSnippet,
-        relevance,
-        tags: frontmatter.tags || null,
-      });
-    }
-
-    results.sort((a, b) => b.relevance - a.relevance);
-    return results.slice(0, limit);
+    const records = runRipgrep(terms, agentId);
+    const states = assembleRecords(records);
+    scored = [...states.values()]
+      .map(s => scoreFile(s, termTiers))
+      .filter(s => s.relevance > 0);
+  } else {
+    scored = fallbackScan(terms, termTiers, agentId);
   }
 
-  // Fallback: Node.js file scan
-  const hits = fallbackSearch(keywords, agentId);
-  const fileScores = new Map<string, { relevance: number; snippets: string[]; frontmatter: Frontmatter }>();
-
-  for (const hit of hits) {
-    let entry = fileScores.get(hit.filePath);
-    if (!entry) {
-      const content = fs.readFileSync(hit.filePath, 'utf-8');
-      const { frontmatter } = parseFrontmatter(content);
-      entry = { relevance: 0, snippets: [], frontmatter };
-      fileScores.set(hit.filePath, entry);
-    }
-
-    entry.relevance += hit.isHeading ? 2 : 1;
-    if (entry.snippets.length < 3) {
-      const snippet = hit.line.trim();
-      entry.snippets.push(snippet.length <= 500 ? snippet : snippet.slice(0, 500) + '...');
-    }
-  }
+  scored.sort((a, b) => b.relevance - a.relevance);
 
   const results: GrepSearchResult[] = [];
-  for (const [filePath, { relevance, snippets, frontmatter }] of fileScores) {
-    if (!frontmatter.document_id) {
-      frontmatter.document_id = path.basename(path.dirname(filePath));
-    }
-    if (!frontmatter.title) {
-      frontmatter.title = path.basename(path.dirname(filePath));
-    }
+  for (const s of scored.slice(0, limit)) {
+    const docDir = path.basename(path.dirname(s.filePath));
     results.push({
       source: 'document',
-      document_id: frontmatter.document_id,
-      title: frontmatter.title,
-      agent_id: frontmatter.agent_id || agentId,
-      snippet: snippets.join('\n'),
-      relevance,
-      tags: frontmatter.tags || null,
+      document_id: s.frontmatter.document_id || docDir,
+      title: s.frontmatter.title || docDir,
+      agent_id: s.frontmatter.agent_id || agentId,
+      snippet: s.snippet,
+      relevance: s.relevance,
+      tags: s.frontmatter.tags || null,
     });
   }
-
-  results.sort((a, b) => b.relevance - a.relevance);
-  return results.slice(0, limit);
+  return results;
 }

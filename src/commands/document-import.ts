@@ -33,7 +33,10 @@ export interface DocumentInfo {
   source_path: string;
   stored_path: string | null;
   file_type: string;
-  chunk_count: number;
+  /** Deprecated: retained for DB compatibility only; documents are no longer chunked. */
+  chunk_count?: number;
+  /** Size of parsed.md in bytes (post-migration). Null for legacy rows not yet backfilled. */
+  size_bytes?: number | null;
   agent_id: string | null;
   created_by: string;
   created_at: string;
@@ -85,22 +88,76 @@ function ensureDocWriteAccess(agentId?: string): { success: true } | { success: 
 // Tag candidates
 // ---------------------------------------------------------------------------
 
-function collectTagCandidates(agentId: string): string[] {
+/**
+ * Read only the YAML frontmatter (first `---` block) from a parsed.md file
+ * and extract its `tags:` value. Used for tag candidate collection.
+ */
+function readFrontmatterTags(parsedMdPath: string): string[] {
+  try {
+    const fh = fs.openSync(parsedMdPath, 'r');
+    try {
+      const buf = Buffer.alloc(4096);
+      const n = fs.readSync(fh, buf, 0, buf.length, 0);
+      const head = buf.slice(0, n).toString('utf-8');
+      if (!head.startsWith('---\n')) return [];
+      const rest = head.slice(4);
+      const endIdx = rest.indexOf('\n---');
+      if (endIdx === -1) return [];
+      const body = rest.slice(0, endIdx);
+      for (const line of body.split('\n')) {
+        const m = line.match(/^tags\s*:\s*(.*)$/);
+        if (!m) continue;
+        const val = m[1].trim().replace(/^"(.*)"$/, '$1');
+        if (!val) return [];
+        return val.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [];
+    } finally {
+      fs.closeSync(fh);
+    }
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Collect tag candidates for LLM tag generation, three sources merged:
+ *   1. frontmatter `tags` of every parsed.md under data/documents/<agentId>/
+ *   2. manual FAQ tags (knowledge.tags WHERE document_id IS NULL) for this agent
+ *   3. loadKnowledgeTagsFromConfig(agentId)
+ *
+ * Document-side chunks were removed by the earlier migration, so the DB can
+ * no longer be the sole source — tags must flow back from the filesystem.
+ */
+function collectTagCandidatesFromFs(agentId: string): string[] {
+  const tagSet = new Set<string>();
+
+  // 1. Frontmatter tags from existing documents
+  const agentDocDir = path.resolve(__dirname, '../../data/documents', agentId);
+  if (fs.existsSync(agentDocDir)) {
+    for (const docDir of fs.readdirSync(agentDocDir)) {
+      const parsedMd = path.join(agentDocDir, docDir, 'parsed.md');
+      if (!fs.existsSync(parsedMd)) continue;
+      for (const t of readFrontmatterTags(parsedMd)) tagSet.add(t);
+    }
+  }
+
+  // 2. Manual FAQ tags (no document link)
   const db = getDb();
-  const rows = db.prepare(
+  const faqRows = db.prepare(
     `SELECT DISTINCT k.tags FROM knowledge k
      WHERE k.tags IS NOT NULL AND k.tags != ''
+       AND k.document_id IS NULL
        AND k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?)`,
   ).all(agentId) as { tags: string }[];
-
-  const tagSet = new Set<string>();
-  for (const row of rows) {
+  for (const row of faqRows) {
     for (const t of row.tags.split(',')) {
       const trimmed = t.trim();
       if (trimmed) tagSet.add(trimmed);
     }
   }
 
+  // 3. Config-declared tags
   for (const t of loadKnowledgeTagsFromConfig(agentId)) {
     tagSet.add(t);
   }
@@ -112,8 +169,41 @@ function collectTagCandidates(agentId: string): string[] {
 // Document storage
 // ---------------------------------------------------------------------------
 
+const DOCUMENTS_ROOT_ABS = path.resolve(__dirname, '../../data/documents');
+
+/** Relative path (stored in DB) — stable across deployments / cwd changes. */
+function getDocStorageRelPath(docId: string, agentId: string): string {
+  return path.posix.join('data/documents', agentId, docId.slice(0, 8));
+}
+
+/** Absolute path (used for all FS operations). */
 function getDocStorageDir(docId: string, agentId: string): string {
-  return path.resolve(__dirname, '../../data/documents', agentId, docId.slice(0, 8));
+  return path.join(DOCUMENTS_ROOT_ABS, agentId, docId.slice(0, 8));
+}
+
+/**
+ * Convert a DB-stored `stored_path` (which should be a relative path like
+ * `data/documents/<agent>/<docId8>`) into an absolute path.
+ *
+ * For robustness we also accept absolute paths — legacy rows written before
+ * migration v2 will still resolve correctly. The returned string is an
+ * absolute path suitable for `fs.*` calls.
+ */
+export function resolveStoredPath(rel: string): string {
+  if (path.isAbsolute(rel)) return rel;
+  // Prefer resolving relative to the package root so the answer is
+  // independent of process.cwd(). `__dirname` points at .../dist/commands or
+  // .../src/commands; two levels up is the package root either way.
+  return path.resolve(__dirname, '../..', rel);
+}
+
+interface PersistOutcome {
+  /** Relative path for the `documents.stored_path` DB column. */
+  relPath: string;
+  /** Absolute path to parsed.md (for size_bytes bookkeeping). */
+  parsedMdAbs: string;
+  /** parsed.md size in bytes after write. */
+  sizeBytes: number;
 }
 
 function persistDocumentFiles(
@@ -125,14 +215,13 @@ function persistDocumentFiles(
   tags: string,
   title: string,
   createdBy: string,
-): string {
+): PersistOutcome {
   const dir = getDocStorageDir(docId, agentId);
   fs.mkdirSync(dir, { recursive: true });
 
   const ext = path.extname(sourceFilePath);
   fs.copyFileSync(sourceFilePath, path.join(dir, `original${ext}`));
 
-  // Inject YAML frontmatter into parsed content
   const frontmatter = [
     '---',
     `document_id: ${docId}`,
@@ -147,15 +236,9 @@ function persistDocumentFiles(
   ].join('\n');
 
   const fullContent = frontmatter + markdown;
-  fs.writeFileSync(path.join(dir, 'parsed.md'), fullContent, 'utf-8');
+  const parsedMdAbs = path.join(dir, 'parsed.md');
+  fs.writeFileSync(parsedMdAbs, fullContent, 'utf-8');
 
-  // For xlsx/csv, also write parsed.json for structured data access
-  if (fileType === 'xlsx' || fileType === 'csv') {
-    // The markdown is already converted to markdown table format
-    // parsed.json is no longer needed, but we keep it for backward compat if it exists
-  }
-
-  // Log images directory if it was populated during parsing
   const imgDir = path.join(dir, 'images');
   if (fs.existsSync(imgDir)) {
     const imgFiles = fs.readdirSync(imgDir).filter(f => !f.startsWith('.'));
@@ -164,7 +247,11 @@ function persistDocumentFiles(
     }
   }
 
-  return dir;
+  return {
+    relPath: getDocStorageRelPath(docId, agentId),
+    parsedMdAbs,
+    sizeBytes: fs.statSync(parsedMdAbs).size,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +443,7 @@ ${tagInstruction}
 async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: string, agentId: string): Promise<Chunk[]> {
   if (chunks.length > 1 || rawContent.length <= 500) return chunks;
 
-  const tagCandidates = collectTagCandidates(agentId);
+  const tagCandidates = collectTagCandidatesFromFs(agentId);
   const MAX_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -384,7 +471,7 @@ async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: str
 async function generateTagsWithLLM(markdown: string, docTitle: string, agentId: string): Promise<string> {
   if (markdown.length <= 500) return docTitle;
 
-  const tagCandidates = collectTagCandidates(agentId);
+  const tagCandidates = collectTagCandidatesFromFs(agentId);
   const tagInstruction = tagCandidates.length > 0
     ? `\n可选标签（从中选取 1-5 个最相关的）：\n${tagCandidates.join('、')}\n如标签列表中没有合适的，可新建一个简短标签。`
     : '\n为文档生成 1-5 个简短标签。';
@@ -647,16 +734,15 @@ export async function importDocument(
     return { success: false, error: '文档内容为空，无法导入' };
   }
 
-  const storedPath = persistDocumentFiles(docId, agentId, resolved, fileType, markdown, tags, docTitle, actorUserId);
+  const { relPath, sizeBytes } = persistDocumentFiles(docId, agentId, resolved, fileType, markdown, tags, docTitle, actorUserId);
 
   if (images && images.length > 0) {
     log.info(`  提取了 ${images.length} 张图片 → ${imageOutputDir}`);
   }
 
-  // Insert document record only (no knowledge rows)
   db.prepare(
-    'INSERT INTO documents (id, title, source_path, file_type, agent_id, created_by, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, storedPath);
+    'INSERT INTO documents (id, title, source_path, file_type, agent_id, created_by, stored_path, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, relPath, sizeBytes);
 
   recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType });
 
@@ -682,13 +768,13 @@ export function deleteDocument(docIdPrefix: string, agentId?: string): ImportRes
     return { success: false, error: '该文档不属于当前 Agent' };
   }
 
-  // Delete knowledge entries linked to this document (legacy, may not exist after migration)
   db.prepare('DELETE FROM knowledge WHERE document_id = ?').run(doc.id);
   db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
 
-  // Clean up stored files
-  const storageDir = doc.stored_path ?? getDocStorageDir(doc.id, doc.agent_id || agentId || '');
-  try { fs.rmSync(storageDir, { recursive: true, force: true }); } catch (_) {}
+  const storageDirAbs = doc.stored_path
+    ? resolveStoredPath(doc.stored_path)
+    : getDocStorageDir(doc.id, doc.agent_id || agentId || '');
+  try { fs.rmSync(storageDirAbs, { recursive: true, force: true }); } catch (_) {}
 
   recordEvent('document', doc.id, 'delete', { title: doc.title });
 
@@ -717,13 +803,13 @@ export async function reimportDocument(
   const doc = rows[0];
   const title = doc.title;
 
-  // Prefer stored original file; copy to temp before delete cleans up the dir
   let reimportPath = doc.source_path;
   if (doc.stored_path) {
     const ext = path.extname(doc.source_path);
-    const storedOriginal = path.join(doc.stored_path, `original${ext}`);
+    const storedDirAbs = resolveStoredPath(doc.stored_path);
+    const storedOriginal = path.join(storedDirAbs, `original${ext}`);
     if (fs.existsSync(storedOriginal)) {
-      const tmpCopy = path.join(path.dirname(doc.stored_path), `_reimport_${doc.id.slice(0, 8)}${ext}`);
+      const tmpCopy = path.join(path.dirname(storedDirAbs), `_reimport_${doc.id.slice(0, 8)}${ext}`);
       fs.copyFileSync(storedOriginal, tmpCopy);
       reimportPath = tmpCopy;
     }
@@ -746,21 +832,22 @@ export async function reimportDocument(
   return result;
 }
 
-export function getDocumentContent(docIdPrefix: string): { content: string; format: 'md' | 'json' } | { error: string } {
+export function getDocumentContent(docIdPrefix: string): { content: string; format: 'md' } | { error: string } {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM documents WHERE id LIKE ?').all(`${docIdPrefix}%`) as DocumentInfo[];
   if (rows.length === 0) return { error: `未找到文档: ${docIdPrefix}` };
   if (rows.length > 1) return { error: '匹配到多个文档，请提供更长的 ID 前缀' };
 
   const doc = rows[0];
-  const dir = doc.stored_path ?? getDocStorageDir(doc.id, doc.agent_id || '');
+  const dirAbs = doc.stored_path
+    ? resolveStoredPath(doc.stored_path)
+    : getDocStorageDir(doc.id, doc.agent_id || '');
 
-  for (const [file, fmt] of [['parsed.md', 'md'], ['parsed.json', 'json']] as const) {
-    const p = path.join(dir, file);
-    if (fs.existsSync(p)) return { content: fs.readFileSync(p, 'utf-8'), format: fmt };
+  const parsedMd = path.join(dirAbs, 'parsed.md');
+  if (fs.existsSync(parsedMd)) {
+    return { content: fs.readFileSync(parsedMd, 'utf-8'), format: 'md' };
   }
-
-  return { error: '未找到已存储的解析内容（可能是在持久化功能上线前导入的文档）' };
+  return { error: '未找到 parsed.md（可能是在持久化功能上线前导入的文档）' };
 }
 
 // ---------------------------------------------------------------------------
@@ -799,24 +886,140 @@ export function cliList(): void {
     return;
   }
   for (const doc of docs) {
-    // Show file size instead of chunk_count
-    let sizeInfo = '';
-    if (doc.stored_path) {
-      const mdPath = path.join(doc.stored_path, 'parsed.md');
-      if (fs.existsSync(mdPath)) {
-        const stats = fs.statSync(mdPath);
-        sizeInfo = formatFileSize(stats.size);
-      }
-    }
-    log.print(`  [${doc.id.slice(0, 8)}] ${doc.title}  (${doc.file_type}, ${sizeInfo || '未知大小'})  ${doc.created_at}`);
+    const sizeInfo = typeof doc.size_bytes === 'number' && doc.size_bytes > 0
+      ? formatFileSize(doc.size_bytes)
+      : '未知大小';
+    log.print(`  [${doc.id.slice(0, 8)}] ${doc.title}  (${doc.file_type}, ${sizeInfo})  ${doc.created_at}`);
   }
   log.print(`共 ${docs.length} 个文档`);
 }
 
-function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+// ---------------------------------------------------------------------------
+// Retag: regenerate frontmatter tags for existing documents
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-run the LLM tag generator against an already-imported document and
+ * rewrite only the `tags:` line in its parsed.md frontmatter. Used to fix
+ * documents whose tags were filled with the title by the initial migration.
+ *
+ * Other frontmatter fields (document_id, agent_id, title, file_type,
+ * created_by, created_at) are preserved verbatim. If tag generation fails,
+ * the file is left untouched.
+ */
+export async function retagDocument(
+  docIdPrefix: string,
+  agentId: string,
+): Promise<{ success: boolean; documentId?: string; title?: string; tags?: string; error?: string }> {
+  const perm = ensureDocWriteAccess(agentId);
+  if (!perm.success) return { success: false, error: perm.error };
+
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM documents WHERE id LIKE ?').all(`${docIdPrefix}%`) as DocumentInfo[];
+  if (rows.length === 0) return { success: false, error: `未找到文档: ${docIdPrefix}` };
+  if (rows.length > 1) return { success: false, error: '匹配到多个文档，请提供更长的 ID 前缀' };
+
+  const doc = rows[0];
+  if (doc.agent_id !== agentId) return { success: false, error: '该文档不属于当前 Agent' };
+
+  const dirAbs = doc.stored_path
+    ? resolveStoredPath(doc.stored_path)
+    : getDocStorageDir(doc.id, doc.agent_id || agentId);
+  const parsedMdPath = path.join(dirAbs, 'parsed.md');
+  if (!fs.existsSync(parsedMdPath)) return { success: false, error: `parsed.md 不存在: ${parsedMdPath}` };
+
+  const fullContent = fs.readFileSync(parsedMdPath, 'utf-8');
+
+  // Separate frontmatter (first `---\n...\n---\n`) from body
+  const fmMatch = fullContent.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!fmMatch) return { success: false, error: 'parsed.md 缺少 YAML frontmatter，无法重标签' };
+  const fmBlock = fmMatch[1];
+  const body = fullContent.slice(fmMatch[0].length);
+
+  const newTags = await generateTagsWithLLM(body, doc.title, agentId);
+
+  // Replace only the tags line; preserve everything else
+  const fmLines = fmBlock.split('\n');
+  let replaced = false;
+  for (let i = 0; i < fmLines.length; i++) {
+    if (/^tags\s*:/.test(fmLines[i])) {
+      fmLines[i] = `tags: ${newTags}`;
+      replaced = true;
+      break;
+    }
+  }
+  if (!replaced) {
+    fmLines.push(`tags: ${newTags}`);
+  }
+
+  const newContent = `---\n${fmLines.join('\n')}\n---\n${body}`;
+  fs.writeFileSync(parsedMdPath, newContent, 'utf-8');
+
+  // Keep size_bytes in sync with the edited file
+  try {
+    const newSize = fs.statSync(parsedMdPath).size;
+    db.prepare('UPDATE documents SET size_bytes = ? WHERE id = ?').run(newSize, doc.id);
+  } catch { /* non-fatal */ }
+
+  recordEvent('document', doc.id, 'retag', { title: doc.title, tags: newTags });
+
+  return {
+    success: true,
+    documentId: doc.id.slice(0, 8),
+    title: doc.title,
+    tags: newTags,
+  };
+}
+
+export async function cliRetag(args: string): Promise<void> {
+  const agentId = getCurrentAgent()?.id;
+  if (!agentId) {
+    log.print('请先切换到一个 Agent');
+    return;
+  }
+
+  const arg = args.trim();
+  if (!arg) {
+    log.print('用法: /doc-retag <文档ID前缀> 或 /doc-retag --all');
+    return;
+  }
+
+  if (arg === '--all') {
+    const docs = listDocuments(agentId);
+    if (docs.length === 0) {
+      log.print('当前 Agent 下无文档');
+      return;
+    }
+    log.print(`开始为 ${docs.length} 个文档重生成标签...`);
+    let ok = 0;
+    let fail = 0;
+    for (const doc of docs) {
+      const result = await retagDocument(doc.id, agentId);
+      if (result.success) {
+        ok += 1;
+        log.print(`  [${result.documentId}] ${result.title} → ${result.tags}`);
+      } else {
+        fail += 1;
+        log.print(`  [${doc.id.slice(0, 8)}] ${doc.title} 失败: ${result.error}`);
+      }
+    }
+    log.print(`完成：成功 ${ok}，失败 ${fail}`);
+    return;
+  }
+
+  const result = await retagDocument(arg, agentId);
+  if (result.success) {
+    log.print(`标签已更新: [${result.documentId}] ${result.title}`);
+    log.print(`新标签: ${result.tags}`);
+  } else {
+    log.print(result.error!);
+  }
 }
 
 export function cliDelete(args: string): void {

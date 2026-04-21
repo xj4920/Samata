@@ -2,14 +2,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
 import { isSystemAdmin } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
-import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents, type SearchResult, type KnowledgeItem } from '../commands/knowledge.js';
+import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
-import type { GrepSearchResult } from '../utils/grep-search.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索知识库，同时搜索 FAQ 和已导入文档。支持多关键词搜索（空格分隔），匹配任一即返回，全部匹配排在前面。\n\nFAQ 搜索：建议将中文长短语拆成2-4字的短词，用空格分隔传入。例如：用户问"专线怎么申请"→传入"专线 申请"；问"场外期权提前赎回"→传入"场外期权 提前赎回"。\n\n文档搜索：ripgrep 可直接匹配长中文短语，传入自然短语即可。例如：传入"雪球产品对冲策略"。\n\n如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
+    description: '同时搜索 FAQ 与文档知识，返回结构化的双分组结果：`{ faq: [...], documents: [...] }`。关键词用空格分隔，匹配任一即返回，匹配更多的条目排在前面。中文短语可直接传入（如"雪球产品对冲"），也可拆成 2-4 字短词以提高 FAQ 命中率。如果首次搜索无结果，尝试减少关键词或换用同义词。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -156,44 +155,45 @@ function extractRelevantSnippet(answer: string, keyword: string): string {
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
-  const results = fetchKnowledge(input.keyword, agentId);
-  if (results.length === 0) return JSON.stringify({ message: '未找到相关结果，建议换用更短或不同的关键词重试' });
-
-  const items: any[] = [];
-  let totalLen = 0;
-  for (const r of results) {
-    if ('source' in r && r.source === 'document') {
-      const doc = r as GrepSearchResult;
-      const item = {
-        source: 'document',
-        document_id: doc.document_id.slice(0, 8),
-        title: doc.title,
-        snippet: doc.snippet,
-        tags: doc.tags,
-        relevance: doc.relevance,
-      };
-      const itemJson = JSON.stringify(item);
-      if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
-      items.push(item);
-      totalLen += itemJson.length;
-    } else {
-      const faq = r as KnowledgeItem;
-      const answer = extractRelevantSnippet(faq.answer, input.keyword);
-      const item = {
-        source: 'faq',
-        id: faq.id.slice(0, 8),
-        question: faq.question,
-        answer,
-        tags: faq.tags,
-        relevance: faq.relevance,
-      };
-      const itemJson = JSON.stringify(item);
-      if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
-      items.push(item);
-      totalLen += itemJson.length;
-    }
+  const { faq, documents } = fetchKnowledge(input.keyword, agentId);
+  if (faq.length === 0 && documents.length === 0) {
+    return JSON.stringify({ message: '未找到相关结果，建议换用更短或不同的关键词重试' });
   }
-  return JSON.stringify(items);
+
+  const faqOut: any[] = [];
+  const docOut: any[] = [];
+  let totalLen = 0;
+
+  for (const item of faq) {
+    const shrunkAnswer = extractRelevantSnippet(item.answer, input.keyword);
+    const entry = {
+      id: item.id.slice(0, 8),
+      question: item.question,
+      answer: shrunkAnswer,
+      tags: item.tags,
+      relevance: item.relevance,
+    };
+    const size = JSON.stringify(entry).length;
+    if (totalLen + size > MAX_SEARCH_RESULT_CHARS && faqOut.length > 0) break;
+    faqOut.push(entry);
+    totalLen += size;
+  }
+
+  for (const doc of documents) {
+    const entry = {
+      document_id: doc.document_id.slice(0, 8),
+      title: doc.title,
+      snippet: doc.snippet,
+      tags: doc.tags,
+      relevance: doc.relevance,
+    };
+    const size = JSON.stringify(entry).length;
+    if (totalLen + size > MAX_SEARCH_RESULT_CHARS && docOut.length > 0) break;
+    docOut.push(entry);
+    totalLen += size;
+  }
+
+  return JSON.stringify({ faq: faqOut, documents: docOut });
 }
 
 function handleAddKnowledge(input: AddKnowledgeInput): string {
