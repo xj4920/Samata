@@ -5,6 +5,7 @@ import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
 import { isInteractive, remoteInput } from '../runtime/execution-context.js';
 import { v4 as uuid } from 'uuid';
+import { grepSearchDocuments, type GrepSearchResult } from '../utils/grep-search.js';
 
 export interface KnowledgeItem {
   id: string;
@@ -15,7 +16,11 @@ export interface KnowledgeItem {
   created_by: string;
   created_at: string;
   updated_at: string;
+  document_id?: string | null;
+  relevance?: number;
 }
+
+export type SearchResult = KnowledgeItem | GrepSearchResult;
 
 function ensureKnowledgeWriteAccess(agentId?: string, knowledgeId?: string): { success: true } | { success: false; error: string } {
   const db = getDb();
@@ -66,40 +71,32 @@ function expandCJKKeywords(rawKeywords: string[]): { primary: string[]; derived:
   return { primary, derived: [...derived].filter(d => !primarySet.has(d)) };
 }
 
-export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeItem[] {
+/** DB-only search for manual FAQ entries (document_id IS NULL) */
+function searchFAQs(keyword: string, agentId?: string): KnowledgeItem[] {
   const db = getDb();
   const agentFilter = agentId
     ? 'AND k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?)'
     : '';
-
-  if (!keyword) {
-    if (agentId) {
-      return db.prepare(
-        `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) ORDER BY k.created_at DESC`
-      ).all(agentId) as KnowledgeItem[];
-    }
-    return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
-  }
+  const docFilter = 'AND k.document_id IS NULL';
 
   const rawKeywords = keyword.split(/\s+/).filter(Boolean);
   if (rawKeywords.length === 0) {
     if (agentId) {
       return db.prepare(
-        `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) ORDER BY k.created_at DESC`
+        `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) ${docFilter} ORDER BY k.created_at DESC`
       ).all(agentId) as KnowledgeItem[];
     }
-    return db.prepare('SELECT * FROM knowledge ORDER BY created_at DESC').all() as KnowledgeItem[];
+    return db.prepare(`SELECT k.* FROM knowledge k WHERE ${docFilter.slice(4)} ORDER BY k.created_at DESC`).all() as KnowledgeItem[];
   }
 
   const { primary, derived } = expandCJKKeywords(rawKeywords);
   const allTerms = [...primary, ...derived];
 
-  // 评分权重：正常词 question+3 tags+2 answer+1，大类词降权 1/1/0，bigram 衍生词 1/1/0
   type TermWeight = { q: number; t: number; a: number };
   const weights: TermWeight[] = allTerms.map((kw, i) => {
-    if (i >= primary.length) return { q: 1, t: 1, a: 0 };           // derived bigram
-    if (BROAD_BUSINESS_TERMS.has(kw)) return { q: 1, t: 1, a: 0 };  // broad term
-    return { q: 3, t: 2, a: 1 };                                     // normal
+    if (i >= primary.length) return { q: 1, t: 1, a: 0 };
+    if (BROAD_BUSINESS_TERMS.has(kw)) return { q: 1, t: 1, a: 0 };
+    return { q: 3, t: 2, a: 1 };
   });
 
   const whereClauses = allTerms.map(() =>
@@ -112,7 +109,7 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
     `(CASE WHEN k.answer LIKE ? THEN ${w.a} ELSE 0 END)`
   ).join(' + ');
 
-  const sql = `SELECT k.*, (${scoreExpr}) as relevance FROM knowledge k WHERE (${whereClauses}) ${agentFilter} ORDER BY relevance DESC, k.created_at DESC LIMIT 10`;
+  const sql = `SELECT k.*, (${scoreExpr}) as relevance FROM knowledge k WHERE (${whereClauses}) ${docFilter} ${agentFilter} ORDER BY relevance DESC, k.created_at DESC LIMIT 10`;
 
   const params: string[] = [];
   for (const kw of allTerms) {
@@ -126,9 +123,40 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeIte
   return db.prepare(sql).all(...params) as KnowledgeItem[];
 }
 
+/** Dual-engine search: FAQ (DB) + Documents (grep), merged by relevance */
+export function fetchKnowledge(keyword?: string, agentId?: string): SearchResult[] {
+  if (!keyword) {
+    const db = getDb();
+    const docFilter = 'WHERE k.document_id IS NULL';
+    if (agentId) {
+      return db.prepare(
+        `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) AND k.document_id IS NULL ORDER BY k.created_at DESC`
+      ).all(agentId) as KnowledgeItem[];
+    }
+    return db.prepare(`SELECT k.* FROM knowledge k ${docFilter} ORDER BY k.created_at DESC`).all() as KnowledgeItem[];
+  }
+
+  const faqResults = searchFAQs(keyword, agentId);
+  const docResults = agentId ? grepSearchDocuments(keyword, agentId) : [];
+
+  // Merge by relevance score
+  const merged: SearchResult[] = [
+    ...faqResults.map(r => ({ ...r, source: 'faq' as const, relevance: (r as any).relevance ?? 0 })),
+    ...docResults,
+  ];
+
+  merged.sort((a, b) => {
+    const ra = (a as any).relevance ?? 0;
+    const rb = (b as any).relevance ?? 0;
+    return rb - ra;
+  });
+
+  return merged.slice(0, 10);
+}
+
 export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agentId?: string, limit = 20): KnowledgeItem[] {
   const db = getDb();
-  const conditions: string[] = [];
+  const conditions: string[] = ['k.document_id IS NULL'];
   const params: string[] = [];
 
   if (since) {
@@ -145,7 +173,7 @@ export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agen
     params.push(agentId);
   }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const where = `WHERE ${conditions.join(' AND ')}`;
   const cap = Math.min(Math.max(limit, 1), 50);
   const sql = `SELECT k.* FROM knowledge k ${where} ORDER BY k.updated_at DESC LIMIT ?`;
   params.push(String(cap));
@@ -155,28 +183,37 @@ export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agen
 
 export function search(args: string): void {
   const keyword = args.trim();
-  const rows = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
+  const results = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
 
-  if (rows.length === 0) {
-    log.print('未找到相关FAQ');
+  if (results.length === 0) {
+    log.print('未找到相关结果');
     return;
   }
 
   const db = getDb();
-  for (const item of rows) {
-    const agents = (db.prepare(
-      `SELECT a.name FROM agents a INNER JOIN knowledge_agents ka ON ka.agent_id = a.id WHERE ka.knowledge_id = ?`
-    ).all(item.id) as { name: string }[]).map(a => a.name);
+  for (const item of results) {
+    if ('source' in item && item.source === 'document') {
+      const doc = item as GrepSearchResult;
+      log.print(`  [文档 ${doc.document_id.slice(0, 8)}] ${doc.title}`);
+      log.print(`           ${doc.snippet}`);
+      if (doc.tags) log.print(`           标签: ${doc.tags}`);
+      log.print();
+    } else {
+      const faq = item as KnowledgeItem;
+      const agents = (db.prepare(
+        `SELECT a.name FROM agents a INNER JOIN knowledge_agents ka ON ka.agent_id = a.id WHERE ka.knowledge_id = ?`
+      ).all(faq.id) as { name: string }[]).map(a => a.name);
 
-    log.print(`  [${item.id.slice(0, 8)}] Q: ${item.question}`);
-    log.print(`           A: ${item.answer}`);
-    if (item.tags) log.print(`           标签: ${item.tags}`);
-    if (item.related_users) log.print(`           相关人员: ${item.related_users}`);
-    log.print(`           所属Agent: ${agents.length > 0 ? agents.join(', ') : '(全局)'}`);
-    log.print(`           创建: ${item.created_at} | 修改: ${item.updated_at}`);
-    log.print();
+      log.print(`  [FAQ ${faq.id.slice(0, 8)}] Q: ${faq.question}`);
+      log.print(`           A: ${faq.answer}`);
+      if (faq.tags) log.print(`           标签: ${faq.tags}`);
+      if (faq.related_users) log.print(`           相关人员: ${faq.related_users}`);
+      log.print(`           所属Agent: ${agents.length > 0 ? agents.join(', ') : '(全局)'}`);
+      log.print(`           创建: ${faq.created_at} | 修改: ${faq.updated_at}`);
+      log.print();
+    }
   }
-  log.print(`共 ${rows.length} 条`);
+  log.print(`共 ${results.length} 条`);
 }
 
 export async function add(args?: string, agentId?: string): Promise<void> {

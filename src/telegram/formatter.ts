@@ -5,7 +5,8 @@
 import { Client, STATE_LABELS } from '../models/client.js';
 import type { AuditEvent } from '../models/event.js';
 import type { TradeRow } from '../commands/trade.js';
-import type { KnowledgeItem } from '../commands/knowledge.js';
+import type { KnowledgeItem, SearchResult } from '../commands/knowledge.js';
+import type { GrepSearchResult } from '../utils/grep-search.js';
 import type { Skill } from '../commands/skill.js';
 
 export function formatClientList(clients: Client[]): string {
@@ -67,14 +68,22 @@ export function formatTrades(trades: TradeRow[]): string {
   return lines.join('\n');
 }
 
-export function formatKnowledge(items: KnowledgeItem[]): string {
-  if (items.length === 0) return '未找到相关FAQ';
+export function formatKnowledge(items: SearchResult[]): string {
+  if (items.length === 0) return '未找到相关结果';
 
   const lines = [`📚 知识库 (共 ${items.length} 条)`, ''];
   for (const item of items) {
-    lines.push(`Q: ${item.question}`);
-    lines.push(`A: ${item.answer}`);
-    if (item.tags) lines.push(`标签: ${item.tags}`);
+    if ('source' in item && item.source === 'document') {
+      const doc = item as GrepSearchResult;
+      lines.push(`📄 ${doc.title}`);
+      lines.push(`   ${doc.snippet}`);
+      if (doc.tags) lines.push(`   标签: ${doc.tags}`);
+    } else {
+      const faq = item as KnowledgeItem;
+      lines.push(`Q: ${faq.question}`);
+      lines.push(`A: ${faq.answer}`);
+      if (faq.tags) lines.push(`标签: ${faq.tags}`);
+    }
     lines.push('');
   }
   return lines.join('\n').trimEnd();

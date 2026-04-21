@@ -1309,4 +1309,107 @@ export function initSchema(): void {
       `UPDATE agents SET provider = 'minimax', model = 'MiniMax-M2.7-highspeed', updated_at = datetime('now') WHERE name NOT IN ('otcclaw', 'admin')`
     ).run();
   });
+
+  // -----------------------------------------------------------------------
+  // Migration: document knowledge from DB chunks → Markdown files + grep search
+  // -----------------------------------------------------------------------
+  runOnce('migrate-doc-knowledge-to-files', () => {
+    const documentsRoot = resolve('data/documents');
+
+    // 1. Move document directories from flat to agent-scoped structure
+    try {
+      const docs = db.prepare('SELECT id, agent_id, stored_path, title, file_type, created_by, created_at FROM documents').all() as { id: string; agent_id: string | null; stored_path: string | null; title: string; file_type: string; created_by: string; created_at: string }[];
+
+      for (const doc of docs) {
+        const agentId = doc.agent_id || 'agent-otcclaw';
+        const docId8 = doc.id.slice(0, 8);
+        const oldDir = join(documentsRoot, docId8);
+        const agentDir = join(documentsRoot, agentId);
+        const newDir = join(agentDir, docId8);
+
+        if (!fs.existsSync(oldDir)) continue;
+
+        // Create agent directory and move
+        fs.mkdirSync(agentDir, { recursive: true });
+        if (oldDir !== newDir && !fs.existsSync(newDir)) {
+          try {
+            // Copy to new location (not rename, since agentDir may not exist yet)
+            fs.cpSync(oldDir, newDir, { recursive: true });
+            // Remove old directory after successful copy
+            fs.rmSync(oldDir, { recursive: true, force: true });
+          } catch (e: any) {
+            console.warn(`Failed to move ${oldDir} → ${newDir}: ${e.message}`);
+          }
+        }
+
+        // 2. Inject YAML frontmatter into parsed.md
+        const parsedMdPath = join(newDir, 'parsed.md');
+        if (fs.existsSync(parsedMdPath)) {
+          const content = fs.readFileSync(parsedMdPath, 'utf-8');
+          // Skip if already has frontmatter
+          if (!content.startsWith('---\n')) {
+            const frontmatter = [
+              '---',
+              `document_id: ${doc.id}`,
+              `agent_id: ${agentId}`,
+              `title: "${doc.title.replace(/"/g, '\\"')}"`,
+              `tags: ${doc.title}`,
+              `file_type: ${doc.file_type}`,
+              `created_by: ${doc.created_by}`,
+              `created_at: ${doc.created_at}`,
+              '---',
+              '',
+            ].join('\n');
+            fs.writeFileSync(parsedMdPath, frontmatter + content, 'utf-8');
+          }
+        }
+
+        // 3. Update stored_path in documents table
+        db.prepare('UPDATE documents SET stored_path = ? WHERE id = ?').run(newDir, doc.id);
+      }
+    } catch (e: any) {
+      console.warn(`Document directory migration failed: ${e.message}`);
+    }
+
+    // 4. Delete knowledge rows that were document chunks (document_id IS NOT NULL)
+    try {
+      const result = db.prepare('DELETE FROM knowledge WHERE document_id IS NOT NULL').run();
+      console.log(`Deleted ${result.changes} document chunk rows from knowledge table`);
+    } catch (e: any) {
+      console.warn(`Failed to delete document knowledge rows: ${e.message}`);
+    }
+
+    // 5. Clean up orphan directories (no original/parsed files, only images)
+    try {
+      const entries = fs.readdirSync(documentsRoot);
+      for (const entry of entries) {
+        const entryPath = join(documentsRoot, entry);
+        if (!fs.statSync(entryPath).isDirectory()) continue;
+
+        // Check if it's an agent directory (starts with 'agent-')
+        if (entry.startsWith('agent-')) {
+          // Check subdirs
+          const subEntries = fs.readdirSync(entryPath);
+          for (const sub of subEntries) {
+            const subPath = join(entryPath, sub);
+            if (!fs.statSync(subPath).isDirectory()) continue;
+            const hasOriginal = fs.readdirSync(subPath).some((f: string) => f.startsWith('original'));
+            const hasParsed = fs.readdirSync(subPath).some((f: string) => f.startsWith('parsed'));
+            if (!hasOriginal && !hasParsed) {
+              fs.rmSync(subPath, { recursive: true, force: true });
+            }
+          }
+        } else {
+          // Flat directory (pre-migration style) — check for orphan dirs
+          const hasOriginal = fs.readdirSync(entryPath).some((f: string) => f.startsWith('original'));
+          const hasParsed = fs.readdirSync(entryPath).some((f: string) => f.startsWith('parsed'));
+          if (!hasOriginal && !hasParsed) {
+            fs.rmSync(entryPath, { recursive: true, force: true });
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`Orphan cleanup failed: ${e.message}`);
+    }
+  });
 }

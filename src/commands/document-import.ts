@@ -23,7 +23,6 @@ export interface ImportResult {
   success: boolean;
   documentId?: string;
   title?: string;
-  chunkCount?: number;
   topics?: string[];
   error?: string;
 }
@@ -113,28 +112,47 @@ function collectTagCandidates(agentId: string): string[] {
 // Document storage
 // ---------------------------------------------------------------------------
 
-function getDocStorageDir(docId: string): string {
-  return path.resolve(__dirname, '../../data/documents', docId.slice(0, 8));
+function getDocStorageDir(docId: string, agentId: string): string {
+  return path.resolve(__dirname, '../../data/documents', agentId, docId.slice(0, 8));
 }
 
 function persistDocumentFiles(
   docId: string,
+  agentId: string,
   sourceFilePath: string,
   fileType: string,
-  chunks: Chunk[],
+  markdown: string,
+  tags: string,
+  title: string,
+  createdBy: string,
 ): string {
-  const dir = getDocStorageDir(docId);
+  const dir = getDocStorageDir(docId, agentId);
   fs.mkdirSync(dir, { recursive: true });
 
   const ext = path.extname(sourceFilePath);
   fs.copyFileSync(sourceFilePath, path.join(dir, `original${ext}`));
 
+  // Inject YAML frontmatter into parsed content
+  const frontmatter = [
+    '---',
+    `document_id: ${docId}`,
+    `agent_id: ${agentId}`,
+    `title: "${title.replace(/"/g, '\\"')}"`,
+    `tags: ${tags}`,
+    `file_type: ${fileType}`,
+    `created_by: ${createdBy}`,
+    `created_at: ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
+    '---',
+    '',
+  ].join('\n');
+
+  const fullContent = frontmatter + markdown;
+  fs.writeFileSync(path.join(dir, 'parsed.md'), fullContent, 'utf-8');
+
+  // For xlsx/csv, also write parsed.json for structured data access
   if (fileType === 'xlsx' || fileType === 'csv') {
-    const sheetsData = chunks.map(c => ({ heading: c.heading, content: c.content }));
-    fs.writeFileSync(path.join(dir, 'parsed.json'), JSON.stringify(sheetsData, null, 2), 'utf-8');
-  } else {
-    const fullMd = chunks.map(c => `## ${c.heading}\n\n${c.content}`).join('\n\n');
-    fs.writeFileSync(path.join(dir, 'parsed.md'), fullMd, 'utf-8');
+    // The markdown is already converted to markdown table format
+    // parsed.json is no longer needed, but we keep it for backward compat if it exists
   }
 
   // Log images directory if it was populated during parsing
@@ -362,6 +380,40 @@ async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: str
   return chunks;
 }
 
+/** Generate tags for a document via LLM (replaces chunking — only produces tags now) */
+async function generateTagsWithLLM(markdown: string, docTitle: string, agentId: string): Promise<string> {
+  if (markdown.length <= 500) return docTitle;
+
+  const tagCandidates = collectTagCandidates(agentId);
+  const tagInstruction = tagCandidates.length > 0
+    ? `\n可选标签（从中选取 1-5 个最相关的）：\n${tagCandidates.join('、')}\n如标签列表中没有合适的，可新建一个简短标签。`
+    : '\n为文档生成 1-5 个简短标签。';
+
+  const excerpt = markdown.length > 2000 ? markdown.slice(0, 2000) + '…' : markdown;
+
+  try {
+    const provider = getProvider();
+    const response = await provider.createMessage({
+      model: getModelName(),
+      max_tokens: 500,
+      system: '你是一个文档标签专家。请直接返回逗号分隔的标签字符串，不要使用 markdown 代码块包裹。',
+      tools: [],
+      messages: [{
+        role: 'user',
+        content: `为以下文档生成标签。\n\n文档标题：${docTitle}\n\n文档开头：\n${excerpt}\n\n${tagInstruction}\n\n只返回逗号分隔的标签，如：场外期权,定价,雪球`,
+      }],
+    });
+
+    const text = response.content[0];
+    if (text.type !== 'text') return docTitle;
+    const tags = text.text.trim().replace(/^```.*\n?/, '').replace(/\n?```$/, '').trim();
+    return tags || docTitle;
+  } catch (e: any) {
+    log.warn(`LLM 标签生成失败，使用标题作为默认标签: ${e.message}`);
+    return docTitle;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Image description via LLM Vision
 // ---------------------------------------------------------------------------
@@ -450,8 +502,8 @@ async function describeImagesInMarkdown(
 // ---------------------------------------------------------------------------
 
 interface LoadResult {
-  chunks: Chunk[];
-  rawContent?: string;
+  markdown: string;
+  tags: string;
   images?: ExtractedImage[];
   error?: string;
 }
@@ -463,11 +515,13 @@ async function loadAndChunk(
   agentId: string,
   options?: { imageOutputDir?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<LoadResult> {
+  let markdown = '';
+  let images: ExtractedImage[] = [];
+
   switch (fileType) {
     case 'md': {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const chunks = splitMarkdownByHeadings(content, docTitle);
-      return { chunks: await tryLLMChunking(chunks, content, docTitle, agentId), rawContent: content };
+      markdown = fs.readFileSync(filePath, 'utf-8');
+      break;
     }
 
     case 'docx': {
@@ -475,14 +529,13 @@ async function loadAndChunk(
       if (options?.imageOutputDir) pluginInput.image_output_dir = options.imageOutputDir;
 
       const result = await executePluginTool('parse_word', pluginInput);
-      if (!result) return { chunks: [], error: '需要 word-parser 插件（plugins/word-parser/），请确认已安装' };
+      if (!result) return { markdown: '', tags: '', error: '需要 word-parser 插件（plugins/word-parser/），请确认已安装' };
       const parsed = JSON.parse(result);
-      if (parsed.error) return { chunks: [], error: parsed.error };
+      if (parsed.error) return { markdown: '', tags: '', error: parsed.error };
 
       let content: string = parsed.content;
-      const images: ExtractedImage[] = parsed.images || [];
+      images = parsed.images || [];
 
-      // Enrich markdown with Vision descriptions for extracted images
       if (images.length > 0 && options?.imageOutputDir) {
         const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
         if (shouldDescribe) {
@@ -492,24 +545,21 @@ async function loadAndChunk(
       }
 
       if (parsed.engine) log.dim(`  Word 解析引擎: ${parsed.engine}`);
-
-      const chunks = splitMarkdownByHeadings(content, docTitle);
-      return {
-        chunks: await tryLLMChunking(chunks, content, docTitle, agentId),
-        rawContent: content,
-        images,
-      };
+      markdown = content;
+      break;
     }
 
     case 'xlsx':
     case 'csv': {
       try {
         const chunks = splitExcelBySheets(filePath, docTitle);
-        if (chunks.length === 0) return { chunks: [], error: '文件为空或无可读数据' };
-        return { chunks };
+        if (chunks.length === 0) return { markdown: '', tags: '', error: '文件为空或无可读数据' };
+        // Convert Excel chunks to full markdown
+        markdown = chunks.map(c => `## ${c.heading}\n\n${c.content}`).join('\n\n');
       } catch (e: any) {
-        return { chunks: [], error: `Excel 解析失败: ${e.message}` };
+        return { markdown: '', tags: '', error: `Excel 解析失败: ${e.message}` };
       }
+      break;
     }
 
     case 'pdf': {
@@ -517,12 +567,12 @@ async function loadAndChunk(
       if (options?.imageOutputDir) pluginInput.image_output_dir = options.imageOutputDir;
 
       const pdfResult = await executePluginTool('parse_pdf', pluginInput);
-      if (!pdfResult) return { chunks: [], error: '需要 pdf-parser 插件（plugins/pdf-parser/），请确认已安装' };
+      if (!pdfResult) return { markdown: '', tags: '', error: '需要 pdf-parser 插件（plugins/pdf-parser/），请确认已安装' };
       const pdfParsed = JSON.parse(pdfResult);
-      if (pdfParsed.error) return { chunks: [], error: pdfParsed.error };
+      if (pdfParsed.error) return { markdown: '', tags: '', error: pdfParsed.error };
 
       let content: string = pdfParsed.content;
-      const images: ExtractedImage[] = pdfParsed.images || [];
+      images = pdfParsed.images || [];
 
       if (images.length > 0 && options?.imageOutputDir) {
         const shouldDescribe = process.env.DOC_IMPORT_DESCRIBE_IMAGES !== 'false';
@@ -532,17 +582,17 @@ async function loadAndChunk(
         }
       }
 
-      const chunks = splitMarkdownByHeadings(content, docTitle);
-      return {
-        chunks: await tryLLMChunking(chunks, content, docTitle, agentId),
-        rawContent: content,
-        images,
-      };
+      markdown = content;
+      break;
     }
 
     default:
-      return { chunks: [], error: `不支持的文件类型: ${fileType}` };
+      return { markdown: '', tags: '', error: `不支持的文件类型: ${fileType}` };
   }
+
+  // Generate tags via LLM (no chunking)
+  const tags = await generateTagsWithLLM(markdown, docTitle, agentId);
+  return { markdown, tags, images };
 }
 
 // ---------------------------------------------------------------------------
@@ -581,57 +631,40 @@ export async function importDocument(
 
   // Generate doc ID early so we can set up the image output directory before parsing
   const docId = uuid();
-  const docStorageDir = getDocStorageDir(docId);
+  const docStorageDir = getDocStorageDir(docId, agentId);
   const imageOutputDir = path.join(docStorageDir, 'images');
 
-  const { chunks, rawContent, images, error } = await loadAndChunk(resolved, fileType, docTitle, agentId, {
+  const { markdown, tags, images, error } = await loadAndChunk(resolved, fileType, docTitle, agentId, {
     imageOutputDir,
     onProgress: options?.onProgress,
   });
   if (error) {
-    // Clean up any partially created directories
     try { fs.rmSync(docStorageDir, { recursive: true, force: true }); } catch {}
     return { success: false, error };
   }
-  if (chunks.length === 0) {
+  if (!markdown.trim()) {
     try { fs.rmSync(docStorageDir, { recursive: true, force: true }); } catch {}
     return { success: false, error: '文档内容为空，无法导入' };
   }
 
-  const storedPath = persistDocumentFiles(docId, resolved, fileType, chunks);
+  const storedPath = persistDocumentFiles(docId, agentId, resolved, fileType, markdown, tags, docTitle, actorUserId);
 
   if (images && images.length > 0) {
     log.info(`  提取了 ${images.length} 张图片 → ${imageOutputDir}`);
   }
 
-  // Insert document record
+  // Insert document record only (no knowledge rows)
   db.prepare(
-    'INSERT INTO documents (id, title, source_path, file_type, chunk_count, agent_id, created_by, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(docId, docTitle, resolved, fileType, chunks.length, agentId, actorUserId, storedPath);
+    'INSERT INTO documents (id, title, source_path, file_type, agent_id, created_by, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, storedPath);
 
-  // Insert knowledge entries
-  const insKnowledge = db.prepare(
-    'INSERT INTO knowledge (id, question, answer, tags, created_by, document_id) VALUES (?, ?, ?, ?, ?, ?)',
-  );
-  const insKA = db.prepare(
-    'INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)',
-  );
-
-  for (const chunk of chunks) {
-    const kid = uuid();
-    const tags = chunk.tags || docTitle;
-    insKnowledge.run(kid, chunk.heading, chunk.content, tags, actorUserId, docId);
-    insKA.run(uuid(), kid, agentId);
-  }
-
-  recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType, chunks: chunks.length });
+  recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType });
 
   return {
     success: true,
     documentId: docId.slice(0, 8),
     title: docTitle,
-    chunkCount: chunks.length,
-    topics: chunks.map(c => c.heading),
+    topics: tags.split(',').map(t => t.trim()),
   };
 }
 
@@ -649,17 +682,17 @@ export function deleteDocument(docIdPrefix: string, agentId?: string): ImportRes
     return { success: false, error: '该文档不属于当前 Agent' };
   }
 
-  // Delete knowledge entries linked to this document (cascade handles knowledge_agents)
+  // Delete knowledge entries linked to this document (legacy, may not exist after migration)
   db.prepare('DELETE FROM knowledge WHERE document_id = ?').run(doc.id);
   db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
 
   // Clean up stored files
-  const storageDir = doc.stored_path ?? getDocStorageDir(doc.id);
+  const storageDir = doc.stored_path ?? getDocStorageDir(doc.id, doc.agent_id || agentId || '');
   try { fs.rmSync(storageDir, { recursive: true, force: true }); } catch (_) {}
 
   recordEvent('document', doc.id, 'delete', { title: doc.title });
 
-  return { success: true, documentId: doc.id.slice(0, 8), title: doc.title, chunkCount: doc.chunk_count };
+  return { success: true, documentId: doc.id.slice(0, 8), title: doc.title };
 }
 
 export function listDocuments(agentId?: string): DocumentInfo[] {
@@ -720,7 +753,7 @@ export function getDocumentContent(docIdPrefix: string): { content: string; form
   if (rows.length > 1) return { error: '匹配到多个文档，请提供更长的 ID 前缀' };
 
   const doc = rows[0];
-  const dir = doc.stored_path ?? getDocStorageDir(doc.id);
+  const dir = doc.stored_path ?? getDocStorageDir(doc.id, doc.agent_id || '');
 
   for (const [file, fmt] of [['parsed.md', 'md'], ['parsed.json', 'json']] as const) {
     const p = path.join(dir, file);
@@ -749,10 +782,9 @@ export async function cliImport(args: string): Promise<void> {
 
   const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id });
   if (result.success) {
-    log.print(`文档已导入: [${result.documentId}] ${result.title} (${result.chunkCount} 条知识)`);
-    if (result.topics && result.topics.length > 1) {
-      log.print('按主题拆分为：');
-      for (const t of result.topics) log.print(`  · ${t}`);
+    log.print(`文档已导入: [${result.documentId}] ${result.title}`);
+    if (result.topics && result.topics.length > 0) {
+      log.print(`标签: ${result.topics.join(', ')}`);
     }
   } else {
     log.print(result.error!);
@@ -767,9 +799,24 @@ export function cliList(): void {
     return;
   }
   for (const doc of docs) {
-    log.print(`  [${doc.id.slice(0, 8)}] ${doc.title}  (${doc.file_type}, ${doc.chunk_count} 条)  ${doc.created_at}`);
+    // Show file size instead of chunk_count
+    let sizeInfo = '';
+    if (doc.stored_path) {
+      const mdPath = path.join(doc.stored_path, 'parsed.md');
+      if (fs.existsSync(mdPath)) {
+        const stats = fs.statSync(mdPath);
+        sizeInfo = formatFileSize(stats.size);
+      }
+    }
+    log.print(`  [${doc.id.slice(0, 8)}] ${doc.title}  (${doc.file_type}, ${sizeInfo || '未知大小'})  ${doc.created_at}`);
   }
   log.print(`共 ${docs.length} 个文档`);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 export function cliDelete(args: string): void {
@@ -781,7 +828,7 @@ export function cliDelete(args: string): void {
   const agentId = getCurrentAgent()?.id;
   const result = deleteDocument(idPrefix, agentId);
   if (result.success) {
-    log.print(`已删除: ${result.title} (${result.chunkCount} 条知识)`);
+    log.print(`已删除: ${result.title}`);
   } else {
     log.print(result.error!);
   }

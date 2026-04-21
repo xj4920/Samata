@@ -3,11 +3,13 @@ import type { ImportDocumentInput, DeleteDocumentInput } from '../llm/tool-types
 import { getCurrentUser } from '../auth/rbac.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 import { importDocument, deleteDocument, listDocuments } from '../commands/document-import.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'import_document',
-    description: '将文件导入为知识库条目。支持 .md、.docx、.xlsx、.csv 格式。文档会按章节自动拆分为多条知识，每条可通过 search_knowledge 搜索。',
+    description: '将文件导入为知识库文档。支持 .md、.docx、.xlsx、.csv 格式。文档以完整 Markdown 存储，可通过 search_knowledge 搜索到相关内容。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -19,7 +21,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'list_documents',
-    description: '列出当前 Agent 已导入的文档。返回文档 ID、标题、类型、知识条目数等信息。',
+    description: '列出当前 Agent 已导入的文档。返回文档 ID、标题、类型、文件大小等信息。',
     input_schema: {
       type: 'object' as const,
       properties: {},
@@ -54,13 +56,25 @@ function handleListDocuments(): string {
   const agentId = getCurrentAgent()?.id;
   const docs = listDocuments(agentId);
   if (docs.length === 0) return JSON.stringify({ message: '暂无已导入的文档' });
-  return JSON.stringify(docs.map(d => ({
-    id: d.id.slice(0, 8),
-    title: d.title,
-    file_type: d.file_type,
-    chunk_count: d.chunk_count,
-    created_at: d.created_at,
-  })));
+  return JSON.stringify(docs.map(d => {
+    let fileSize: string | null = null;
+    if (d.stored_path) {
+      const mdPath = path.join(d.stored_path, 'parsed.md');
+      if (fs.existsSync(mdPath)) {
+        const size = fs.statSync(mdPath).size;
+        if (size < 1024) fileSize = `${size}B`;
+        else if (size < 1024 * 1024) fileSize = `${(size / 1024).toFixed(1)}KB`;
+        else fileSize = `${(size / (1024 * 1024)).toFixed(1)}MB`;
+      }
+    }
+    return {
+      id: d.id.slice(0, 8),
+      title: d.title,
+      file_type: d.file_type,
+      file_size: fileSize,
+      created_at: d.created_at,
+    };
+  }));
 }
 
 function handleDeleteDocument(input: DeleteDocumentInput): string {

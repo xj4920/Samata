@@ -2,13 +2,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
 import { isSystemAdmin } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
-import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
+import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents, type SearchResult, type KnowledgeItem } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
+import type { GrepSearchResult } from '../utils/grep-search.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索知识库中的FAQ。支持多关键词搜索（空格分隔），匹配任一即返回，全部匹配排在前面。重要：必须将中文长短语拆成2-4字的短词，用空格分隔传入。例如：用户问"专线怎么申请"→传入"专线 申请"；问"场外期权提前赎回"→传入"场外期权 提前赎回"；问"北向极速开通流程"→传入"北向极速 开通 流程"；问"约券召回通知时间"→传入"约券 召回 通知时间"。绝对不要把整句话当作一个关键词传入。如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
+    description: '搜索知识库，同时搜索 FAQ 和已导入文档。支持多关键词搜索（空格分隔），匹配任一即返回，全部匹配排在前面。\n\nFAQ 搜索：建议将中文长短语拆成2-4字的短词，用空格分隔传入。例如：用户问"专线怎么申请"→传入"专线 申请"；问"场外期权提前赎回"→传入"场外期权 提前赎回"。\n\n文档搜索：ripgrep 可直接匹配长中文短语，传入自然短语即可。例如：传入"雪球产品对冲策略"。\n\n如果首次搜索无结果，尝试减少关键词或换用同义词重试。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -155,24 +156,42 @@ function extractRelevantSnippet(answer: string, keyword: string): string {
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
-  const rows = fetchKnowledge(input.keyword, agentId);
-  if (rows.length === 0) return JSON.stringify({ message: '未找到相关FAQ，建议换用更短或不同的关键词重试' });
+  const results = fetchKnowledge(input.keyword, agentId);
+  if (results.length === 0) return JSON.stringify({ message: '未找到相关结果，建议换用更短或不同的关键词重试' });
 
   const items: any[] = [];
   let totalLen = 0;
-  for (const r of rows) {
-    const answer = extractRelevantSnippet(r.answer, input.keyword);
-    const item = {
-      id: r.id.slice(0, 8),
-      question: r.question,
-      answer,
-      tags: r.tags,
-      relevance: (r as any).relevance,
-    };
-    const itemJson = JSON.stringify(item);
-    if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
-    items.push(item);
-    totalLen += itemJson.length;
+  for (const r of results) {
+    if ('source' in r && r.source === 'document') {
+      const doc = r as GrepSearchResult;
+      const item = {
+        source: 'document',
+        document_id: doc.document_id.slice(0, 8),
+        title: doc.title,
+        snippet: doc.snippet,
+        tags: doc.tags,
+        relevance: doc.relevance,
+      };
+      const itemJson = JSON.stringify(item);
+      if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
+      items.push(item);
+      totalLen += itemJson.length;
+    } else {
+      const faq = r as KnowledgeItem;
+      const answer = extractRelevantSnippet(faq.answer, input.keyword);
+      const item = {
+        source: 'faq',
+        id: faq.id.slice(0, 8),
+        question: faq.question,
+        answer,
+        tags: faq.tags,
+        relevance: faq.relevance,
+      };
+      const itemJson = JSON.stringify(item);
+      if (totalLen + itemJson.length > MAX_SEARCH_RESULT_CHARS && items.length > 0) break;
+      items.push(item);
+      totalLen += itemJson.length;
+    }
   }
   return JSON.stringify(items);
 }
