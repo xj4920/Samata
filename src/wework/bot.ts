@@ -35,6 +35,8 @@ interface WeworkBotInstance {
   wsClient: WSClient;
   sessions: Map<string, WeworkSession>;
   cleanupTimer: ReturnType<typeof setInterval> | null;
+  healthTimer: ReturnType<typeof setInterval> | null;
+  lastConnectedAt: number;
 }
 
 const botInstances = new Map<string, WeworkBotInstance>();
@@ -409,12 +411,38 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
     wsClient: ws,
     sessions: new Map(),
     cleanupTimer: null,
+    healthTimer: null,
+    lastConnectedAt: Date.now(),
   };
 
-  ws.on('authenticated', () => log.success(`[企微:${name}] WebSocket 认证成功`));
+  // 认证超时检测：TCP 连接建立后 30 秒未收到认证响应，主动断开触发重连
+  let authTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+  ws.on('connected', () => {
+    authTimeoutTimer = setTimeout(() => {
+      if (!ws.isConnected) return;
+      log.warn(`[企微:${name}] 认证超时（30秒未收到认证响应），主动断开触发重连`);
+      ws.disconnect();
+    }, 30000);
+  });
+
+  ws.on('authenticated', () => {
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null; }
+    instance.lastConnectedAt = Date.now();
+    log.success(`[企微:${name}] WebSocket 认证成功`);
+  });
   ws.on('disconnected', (reason) => log.warn(`[企微:${name}] WebSocket 断开: ${reason}`));
   ws.on('reconnecting', (attempt) => log.info(`[企微:${name}] 正在重连 (第 ${attempt} 次)...`));
   ws.on('error', (err) => log.error(`[企微:${name}] WebSocket 错误: ${err.message}`));
+
+  // 被踢下线时重建连接（SDK 的 disconnected_event 设置 isManualClose=true 阻止自动重连）
+  ws.on('event.disconnected_event', () => {
+    log.warn(`[企微:${name}] 收到 disconnected_event（被踢下线），5秒后重建连接`);
+    setTimeout(() => {
+      stopWeworkBot(botId);
+      startWeworkBot(botId);
+    }, 5000);
+  });
 
   ws.on('message.text', (frame) => handleTextMessageForInstance(instance, frame).catch(err =>
     log.error(`[企微:${name}] 处理文本消息出错: ${err.message}`)
@@ -438,6 +466,15 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
     if (cleaned > 0) log.dim(`[企微:${name}] 清理过期会话: ${cleaned} 个`);
   }, 30 * 60 * 1000);
 
+  // 健康看门狗：每60秒检查连接状态，断开超过5分钟则强制重建
+  instance.healthTimer = setInterval(() => {
+    if (!ws.isConnected && Date.now() - instance.lastConnectedAt > 5 * 60 * 1000) {
+      log.warn(`[企微:${name}] 连接断开超过5分钟，强制重建`);
+      stopWeworkBot(botId);
+      startWeworkBot(botId);
+    }
+  }, 60 * 1000);
+
   botInstances.set(botId, instance);
   log.success(`[企微:${name}] Bot 已启动（WebSocket 长连接模式）`);
 }
@@ -447,6 +484,7 @@ export function stopWeworkBot(botId: string): void {
   if (!instance) return;
   instance.wsClient.disconnect();
   if (instance.cleanupTimer) clearInterval(instance.cleanupTimer);
+  if (instance.healthTimer) clearInterval(instance.healthTimer);
   botInstances.delete(botId);
   log.info(`[企微:${instance.botName}] Bot 已停止`);
 }

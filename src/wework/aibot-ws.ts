@@ -12,6 +12,7 @@ export function createWsClient(botId: string, secret: string): WSClient {
     botId,
     secret,
     maxReconnectAttempts: -1,
+    maxAuthFailureAttempts: -1,
     logger: {
       debug: (...args: any[]) => log.dim(`[企微WS:${botId.slice(-6)}] ${args.join(' ')}`),
       info:  (...args: any[]) => log.info(`[企微WS:${botId.slice(-6)}] ${args.join(' ')}`),
