@@ -102,14 +102,8 @@ async function sendViaTelegram(filePath: string, fileName: string, deliveryConte
   }
 
   const api = await createTelegramApi();
-  if (isImageFile(fileName)) {
-    const msg = await api.sendPhoto(chatId, filePath, fileName);
-    log.file(`[delivery] 实际已发送图片: ${fileName} -> telegram/${deliveryContext.targetId}`);
-    return { success: true, channel: 'telegram', filename: fileName, message_id: String(msg.message_id) };
-  }
-
   const msg = await api.sendDocument(chatId, filePath, fileName);
-  log.file(`[delivery] 实际已发送文件: ${fileName} -> telegram/${deliveryContext.targetId}`);
+  log.file(`[delivery] 实际已发送${isImageFile(fileName) ? '图片' : '文件'}(document): ${fileName} -> telegram/${deliveryContext.targetId}`);
   return { success: true, channel: 'telegram', filename: fileName, message_id: String(msg.message_id) };
 }
 

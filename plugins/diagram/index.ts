@@ -42,7 +42,7 @@ async function handleRenderDiagram(input: RenderDiagramInput): Promise<string> {
   mermaid.initialize({ startOnLoad: true, theme: '${escapeHtml(theme)}' });
 </script>
 </head>
-<body style="background:${escapeHtml(background)};margin:0;padding:20px;display:inline-block">
+<body style="background:${escapeHtml(background)};margin:0;padding:20px;display:inline-block;font-family:'Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei','Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif">
 <pre class="mermaid">${input.code}</pre>
 </body></html>`;
 

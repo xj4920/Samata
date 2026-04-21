@@ -9,12 +9,12 @@ import { getArtifactRoot } from '../commands/artifact.js';
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'markdown_to_image',
-    description: '将 Markdown 文本渲染为 PNG 图片，保存到 /tmp/samata 并返回图片路径。此工具只负责生成图片；若要发给用户，请继续调用 send_image。',
+    description: '将 Markdown 文本渲染为 PNG 图片，保存到 /tmp/samata 并返回图片路径。此工具只负责生成图片；若要发给用户，请继续调用 send_image。\n⚠️ 布局要求：内容必须纵向排列（从上到下），严禁使用多列并排的宽表格。图片会在聊天气泡中等比缩放，过宽的图片缩放后文字会极小不可读。推荐宽高比 ≤ 2:1；如果内容含多个并列板块，请拆分为多张图或纵向堆叠。',
     input_schema: {
       type: 'object' as const,
       properties: {
-        markdown: { type: 'string', description: 'Markdown 内容' },
-        width: { type: 'number', description: '图片宽度（像素），默认 800' },
+        markdown: { type: 'string', description: 'Markdown 内容（纵向排列，避免多列宽表格）' },
+        width: { type: 'number', description: '图片宽度（像素），默认 1000' },
         theme: { type: 'string', enum: ['light', 'dark'], description: '主题：light（默认）或 dark' },
       },
       required: ['markdown'],
@@ -164,7 +164,7 @@ ${mermaidScript}
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   font-size: 15px;
   line-height: 1.7;
   color: ${fg};
@@ -185,7 +185,7 @@ h1:first-child, h2:first-child { margin-top: 0; }
 p { margin: 0.75em 0; }
 a { color: ${linkColor}; text-decoration: none; }
 code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Color Emoji", monospace;
   font-size: 0.875em;
   background: ${codeBg};
   color: ${codeFg};
@@ -258,7 +258,7 @@ del { text-decoration: line-through; opacity: 0.7; }
 }
 
 async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<string> {
-  const width = input.width ?? 800;
+  const width = input.width ?? 1000;
   const theme = input.theme ?? 'light';
 
   let puppeteer: any;
@@ -288,8 +288,19 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
       );
     }
 
-    const contentHeight: number = await page.evaluate(() => document.body.scrollHeight);
-    await page.setViewport({ width, height: Math.max(contentHeight, 1), deviceScaleFactor: 2 });
+    let contentHeight: number = await page.evaluate(() => document.body.scrollHeight);
+    let effectiveWidth = width;
+
+    const MAX_ASPECT_RATIO = 2.5;
+    if (effectiveWidth / contentHeight > MAX_ASPECT_RATIO) {
+      effectiveWidth = Math.max(500, Math.round(contentHeight * MAX_ASPECT_RATIO));
+      if (effectiveWidth < width) {
+        await page.evaluate((w: number) => { document.body.style.width = w + 'px'; }, effectiveWidth);
+        contentHeight = await page.evaluate(() => document.body.scrollHeight);
+      }
+    }
+
+    await page.setViewport({ width: effectiveWidth, height: Math.max(contentHeight, 1), deviceScaleFactor: 2 });
 
     await page.screenshot({ path: tmpFile, fullPage: false });
   } finally {
