@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
+import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -45,6 +46,7 @@ export function getSession(feishuUserId: string, feishuUsername: string): Feishu
 export function resetSession(feishuUserId: string): boolean {
   const session = sessions.get(feishuUserId);
   if (session) {
+    summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
     session.history = [];
     const agent = resolveAgent('feishu', feishuUserId);
     if (agent) session.agentName = agent.name;
@@ -65,6 +67,7 @@ export function cleanupSessions(maxAgeMs = 2 * 60 * 60 * 1000): number {
   let cleaned = 0;
   for (const [id, session] of sessions) {
     if (now - session.lastActive > maxAgeMs) {
+      summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
       sessions.delete(id);
       cleaned++;
     }

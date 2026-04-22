@@ -48,4 +48,6 @@
 
 {{memory}}
 
+{{user_context}}
+
 {{datetime}}

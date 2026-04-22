@@ -4,6 +4,7 @@ import type { User } from '../auth/rbac.js';
 import { getAllUsers } from '../auth/rbac.js';
 import { getAgent, getDefaultAgent } from '../llm/agents/config.js';
 import type { CliSessionInfo, CliUserInfo } from '../shared/cli-contract.js';
+import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
 
 export interface CliSession {
   id: string;
@@ -68,6 +69,7 @@ export function updateCliSession(sessionId: string, updates: Partial<Pick<CliSes
 
 export function resetCliSession(sessionId: string): CliSession {
   const session = getCliSession(sessionId);
+  summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
   session.history = [];
   session.agentName = getDefaultAgent().name;
   session.updatedAt = Date.now();
@@ -75,7 +77,11 @@ export function resetCliSession(sessionId: string): CliSession {
 }
 
 export function destroyCliSession(sessionId: string): void {
-  sessions.delete(sessionId);
+  const session = sessions.get(sessionId);
+  if (session) {
+    summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+    sessions.delete(sessionId);
+  }
 }
 
 export function toCliSessionInfo(session: CliSession): CliSessionInfo {

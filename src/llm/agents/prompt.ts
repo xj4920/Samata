@@ -8,6 +8,7 @@ import { buildDateTimeBlock } from '../../commands/date.js';
 import { getAllSkills } from '../../commands/skill.js';
 import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
+import { loadWorkspace } from '../../session/workspace.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -92,6 +93,7 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     attachments: ATTACHMENT_GUIDANCE,
     skills: buildSkillsBlock(agentId),
     memory: buildMemoryBlock(agentId) ?? '',
+    user_context: loadWorkspace(agent.name, u.id),
     datetime: buildDateTimeBlock(),
   };
   return renderPrompt(template, vars);
