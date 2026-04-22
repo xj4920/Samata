@@ -5,7 +5,12 @@ import { getArtifactRoot } from './artifact.js';
 import { log } from '../utils/logger.js';
 
 const DEFAULT_IMAGE_MODEL = process.env.MINIMAX_IMAGE_MODEL || 'image-01';
-const DEFAULT_VIDEO_MODEL = process.env.MINIMAX_VIDEO_MODEL || 'MiniMax-Hailuo-2.3';
+const T2V_MODELS = ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02'];
+const T2V_DEFAULT = T2V_MODELS[0];
+const T2V_FALLBACK = T2V_MODELS[1];
+const I2V_MODELS = ['MiniMax-Hailuo-2.3-Fast', 'MiniMax-Hailuo-2.3'];
+const I2V_DEFAULT = process.env.MINIMAX_I2V_MODEL || I2V_MODELS[0];
+const I2V_FALLBACK = I2V_MODELS.find(m => m !== I2V_DEFAULT) ?? I2V_MODELS[1];
 const VIDEO_POLL_INTERVAL_MS = 5_000;
 const VIDEO_MAX_POLL_MS = 5 * 60_000;
 
@@ -117,6 +122,7 @@ export async function generateImage(prompt: string, opts: GenerateImageOptions =
 export interface GenerateVideoOptions {
   duration?: number;
   resolution?: string;
+  firstFrameImage?: string;
 }
 
 export interface GenerateVideoResult {
@@ -142,34 +148,110 @@ type MinimaxVideoQueryResponse = {
 };
 
 type MinimaxFileRetrieveResponse = {
-  file_id?: number;
-  download_url?: string;
+  file?: { file_id?: number; download_url?: string };
   base_resp?: { status_code?: number; status_msg?: string };
 };
 
-export async function generateVideo(prompt: string, opts: GenerateVideoOptions = {}): Promise<GenerateVideoResult> {
-  const apiKey = getMinimaxApiKey();
-  const baseUrl = getMinimaxBaseUrl();
-  const usedModel = DEFAULT_VIDEO_MODEL;
+function isQuotaOrRateError(status: number, statusMsg?: string): boolean {
+  if (status === 429 || status === 1042) return true;
+  const msg = (statusMsg || '').toLowerCase();
+  return msg.includes('rate') || msg.includes('quota') || msg.includes('limit') || msg.includes('exceeded');
+}
 
-  log.dim(`🎬 提交 MiniMax 视频生成任务 (${usedModel})...`);
+type SubmitExtra = {
+  duration?: number;
+  resolution?: string;
+  firstFrameImage?: string;
+  fallbackModel?: string;
+};
+
+async function submitVideoTask(
+  baseUrl: string, apiKey: string, prompt: string, model: string,
+  extra: SubmitExtra = {},
+): Promise<{ taskId: string; usedModel: string }> {
+  const body: Record<string, unknown> = { model, prompt };
+  if (extra.duration) body.duration = extra.duration;
+  if (extra.resolution) body.resolution = extra.resolution;
+  if (extra.firstFrameImage) body.first_frame_image = extra.firstFrameImage;
+
+  const mode = extra.firstFrameImage ? 'I2V' : 'T2V';
+  log.dim(`🎬 提交 MiniMax ${mode} 任务 (${model}, ${extra.resolution ?? '768P'}, ${extra.duration ?? 6}s)...`);
   const resp = await fetch(`${baseUrl}/video_generation`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: usedModel, prompt }),
+    body: JSON.stringify(body),
   });
 
+  const fb = extra.fallbackModel;
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
+    if (fb && model !== fb && isQuotaOrRateError(resp.status, text)) {
+      log.dim(`⚠️ ${model} 额度受限 (${resp.status})，尝试 fallback → ${fb}`);
+      return submitVideoTask(baseUrl, apiKey, prompt, fb, { ...extra, fallbackModel: undefined });
+    }
     throw new Error(`MiniMax 视频生成提交失败 (${resp.status}): ${text || resp.statusText}`);
   }
 
   const data = await resp.json() as MinimaxVideoSubmitResponse;
   if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
-    throw new Error(`MiniMax 视频生成 API 错误 (${data.base_resp.status_code}): ${data.base_resp.status_msg ?? ''}`);
+    const code = data.base_resp.status_code;
+    const msg = data.base_resp.status_msg ?? '';
+
+    // 2061/2013: plan or params don't support this resolution/duration — auto-downgrade
+    if ((code === 2061 || code === 2013) && (extra.resolution === '1080P' || (extra.duration ?? 6) > 6)) {
+      const downgraded: SubmitExtra = { ...extra };
+      if (extra.resolution === '1080P') { downgraded.resolution = '768P'; }
+      if ((extra.duration ?? 6) > 6) { downgraded.duration = 6; }
+      log.dim(`⚠️ 当前套餐不支持 ${extra.resolution ?? '768P'}/${extra.duration ?? 6}s，自动降级 → ${downgraded.resolution}/${downgraded.duration}s`);
+      return submitVideoTask(baseUrl, apiKey, prompt, model, downgraded);
+    }
+
+    if (fb && model !== fb && isQuotaOrRateError(code, msg)) {
+      log.dim(`⚠️ ${model} 额度受限 (${code}: ${msg})，尝试 fallback → ${fb}`);
+      return submitVideoTask(baseUrl, apiKey, prompt, fb, { ...extra, fallbackModel: undefined });
+    }
+    throw new Error(`MiniMax 视频生成 API 错误 (${code}): ${msg}`);
   }
   if (!data.task_id) throw new Error('MiniMax 视频生成未返回 task_id');
-  const taskId = data.task_id;
+  return { taskId: data.task_id, usedModel: model };
+}
+
+function readImageAsDataUrl(imagePath: string): string {
+  const resolved = imagePath.startsWith('~/')
+    ? path.join(process.env.HOME || '', imagePath.slice(1))
+    : path.resolve(imagePath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`首帧图片不存在: ${resolved}`);
+  }
+  const buf = fs.readFileSync(resolved);
+  if (buf.length > 20 * 1024 * 1024) {
+    throw new Error(`首帧图片超过 20MB 限制: ${(buf.length / 1024 / 1024).toFixed(1)} MB`);
+  }
+  const ext = path.extname(resolved).toLowerCase();
+  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+export async function generateVideo(prompt: string, opts: GenerateVideoOptions = {}): Promise<GenerateVideoResult> {
+  const apiKey = getMinimaxApiKey();
+  const baseUrl = getMinimaxBaseUrl();
+
+  const isI2V = !!opts.firstFrameImage;
+  let firstFrameDataUrl: string | undefined;
+  if (isI2V) {
+    firstFrameDataUrl = readImageAsDataUrl(opts.firstFrameImage!);
+    log.dim(`🖼️ 图生视频模式：首帧图片 ${path.basename(opts.firstFrameImage!)}`);
+  }
+
+  const model = isI2V ? I2V_DEFAULT : T2V_DEFAULT;
+  const fallback = isI2V ? I2V_FALLBACK : T2V_FALLBACK;
+
+  const { taskId, usedModel } = await submitVideoTask(baseUrl, apiKey, prompt, model, {
+    duration: opts.duration,
+    resolution: opts.resolution,
+    firstFrameImage: firstFrameDataUrl,
+    fallbackModel: fallback,
+  });
 
   log.dim(`📋 任务已提交: ${taskId}，开始轮询状态...`);
 
@@ -230,15 +312,16 @@ export async function generateVideo(prompt: string, opts: GenerateVideoOptions =
     }
 
     const fileData = await fileResp.json() as MinimaxFileRetrieveResponse;
-    log.dim(`📄 文件信息: file_id=${fileData.file_id}, has_url=${!!fileData.download_url}, status=${fileData.base_resp?.status_code}`);
+    const file = fileData.file;
+    log.dim(`📄 文件信息: file_id=${file?.file_id}, has_url=${!!file?.download_url}, status=${fileData.base_resp?.status_code}`);
 
     if (fileData.base_resp?.status_code && fileData.base_resp.status_code !== 0) {
       log.dim(`⚠️ 文件获取 API 错误: ${fileData.base_resp.status_msg}`);
       continue;
     }
 
-    if (fileData.download_url) {
-      downloadUrl = fileData.download_url;
+    if (file?.download_url) {
+      downloadUrl = file.download_url;
       break;
     }
   }

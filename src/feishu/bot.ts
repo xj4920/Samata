@@ -971,33 +971,40 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       }
       text = [title, ...lines].filter(Boolean).join('\n');
 
-      // 下载 post 中的图片
       if (imageKeys.length > 0) {
         images = [];
+        const savedPaths: string[] = [];
         for (const key of imageKeys) {
           try {
             const buf = await instance.api.downloadMessageResource(messageId, key);
-            images.push({ data: buf.toString('base64'), mediaType: detectImageMediaType(buf) });
-            log.dim(`[飞书:${instance.appName}] 下载 post 图片成功: ${key} (${buf.length} bytes)`);
+            const mtype = detectImageMediaType(buf);
+            images.push({ data: buf.toString('base64'), mediaType: mtype });
+            const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
+            const sp = saveUploadedFile(buf, `image${ext}`);
+            savedPaths.push(sp);
+            log.dim(`[飞书:${instance.appName}] 下载 post 图片成功: ${key} (${buf.length} bytes) -> ${sp}`);
           } catch (err: any) {
             log.error(`[飞书:${instance.appName}] 下载 post 图片失败: ${key} - ${err.message}`);
           }
         }
         if (images.length === 0) images = undefined;
+        if (savedPaths.length > 0) {
+          const pathHint = savedPaths.map(p => `已保存至 ${p}`).join('\n');
+          text = text ? `${text}\n${pathHint}` : pathHint;
+        }
         if (!text && images) text = '请描述这张图片';
       }
     } else if (messageType === 'image') {
-      // image 类型的 content 结构：{ image_key: "img_xxx" }
       const imageKey = content.image_key;
       if (imageKey) {
         try {
           const buf = await instance.api.downloadMessageResource(messageId, imageKey);
-          images = [{
-            data: buf.toString('base64'),
-            mediaType: detectImageMediaType(buf),
-          }];
-          text = '请描述这张图片';
-          log.dim(`[飞书:${instance.appName}] 下载图片成功: ${imageKey} (${buf.length} bytes)`);
+          const mtype = detectImageMediaType(buf);
+          images = [{ data: buf.toString('base64'), mediaType: mtype }];
+          const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
+          const savedPath = saveUploadedFile(buf, `image${ext}`);
+          text = `用户发送了图片，已保存至 ${savedPath}`;
+          log.dim(`[飞书:${instance.appName}] 下载图片成功: ${imageKey} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {
           log.error(`[飞书:${instance.appName}] 下载图片失败: ${err.message}`);
           text = '';

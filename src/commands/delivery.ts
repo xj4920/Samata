@@ -83,11 +83,13 @@ async function sendViaFeishu(filePath: string, fileName: string, deliveryContext
     return { success: true, channel: 'feishu', filename: fileName, message_id: messageId };
   }
 
-  const fileKey = await api.uploadFile(filePath, fileName, detectFileType(fileName));
+  const fileType = detectFileType(fileName);
+  const fileKey = await api.uploadFile(filePath, fileName, fileType);
   if (!fileKey) {
     return { success: false, error: `飞书文件上传失败: ${fileName}` };
   }
-  const messageId = await api.sendMessageTo(deliveryContext.targetId, receiveIdType, 'file', { file_key: fileKey });
+  const msgType = fileType === 'mp4' ? 'media' : fileType === 'opus' ? 'audio' : 'file';
+  const messageId = await api.sendMessageTo(deliveryContext.targetId, receiveIdType, msgType, { file_key: fileKey });
   log.file(`[delivery] 实际已发送文件: ${fileName} -> feishu/${deliveryContext.targetId}`);
   return { success: true, channel: 'feishu', filename: fileName, message_id: messageId };
 }

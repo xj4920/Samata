@@ -158,4 +158,7 @@ export type GenerateImageInput = {
 };
 export type GenerateVideoInput = {
   prompt: string;
+  duration?: number;
+  resolution?: string;
+  first_frame_image?: string;
 };

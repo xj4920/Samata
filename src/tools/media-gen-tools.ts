@@ -24,11 +24,24 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'generate_video',
-    description: '使用 MiniMax-Hailuo-2.3 文生视频模型根据文字描述生成 6 秒短视频（768P）。每天仅 3 次配额，请谨慎使用。生成耗时约 1-3 分钟，返回本地 .mp4 路径，需要发送给用户请继续调用 send_file。如果遇到配额限制或错误，不要重试，直接告知用户。',
+    description: [
+      '使用 MiniMax Hailuo 2.3 生成短视频，支持文生视频(T2V)和图生视频(I2V)两种模式。配额有限，请谨慎使用。生成耗时约 1-3 分钟，返回本地 .mp4 路径，需要发送给用户请继续调用 send_file。遇到错误不要重试，直接告知用户。',
+      '- T2V 模式：只传 prompt，使用 MiniMax-Hailuo-2.3',
+      '- I2V 模式：传 first_frame_image + prompt，使用 MiniMax-Hailuo-2.3-Fast（图片作为视频首帧，prompt 描述运动变化即可）',
+      '',
+      'Prompt 写作公式：主体 + 场景空间 + 动作/变化 + 镜头运动 + 美感氛围。',
+      '- 镜头指令用 [指令] 语法：[推进] [拉远] [左摇] [右摇] [上升] [下降] [左移] [右移] [上摇] [下摇] [变焦推近] [变焦拉远] [晃动] [跟随] [固定]',
+      '- 组合运镜：同一 [] 内多指令同时生效，如 [左摇,上升]；前后出现的指令按顺序生效',
+      '- 为镜头增加时序描述可获得更大镜头动态，如"镜头先缓缓下降，之后在下降中向右环绕"',
+      '- 加入色调/氛围词（暖色调、阴郁、写实、科幻等）可精确控制美学风格',
+    ].join('\n'),
     input_schema: {
       type: 'object' as const,
       properties: {
-        prompt: { type: 'string', description: '视频描述（最多 2000 字符），可用 [Push in]、[Pan left] 等指令控制镜头' },
+        prompt: { type: 'string', description: '视频描述（最多 2000 字符）。T2V 写法：主体+场景+动作+镜头+氛围；I2V 写法：首帧中主体+运动/变化+镜头' },
+        first_frame_image: { type: 'string', description: '本地图片路径，作为视频首帧（I2V 模式）。支持 JPG/PNG/WebP，<20MB。传入此参数自动切换为图生视频' },
+        duration: { type: 'number', enum: [6, 10], description: '视频时长（秒），默认 6。10 秒仅支持 768P' },
+        resolution: { type: 'string', enum: ['768P', '1080P'], description: '分辨率，默认 768P。1080P 仅支持 6 秒' },
       },
       required: ['prompt'],
     },
@@ -56,7 +69,11 @@ async function handleGenerateImage(input: GenerateImageInput): Promise<string> {
 
 async function handleGenerateVideo(input: GenerateVideoInput): Promise<string> {
   try {
-    const result = await generateVideo(input.prompt);
+    const result = await generateVideo(input.prompt, {
+      duration: input.duration,
+      resolution: input.resolution,
+      firstFrameImage: input.first_frame_image,
+    });
     return JSON.stringify({
       success: true,
       path: result.path,
