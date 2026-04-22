@@ -20,6 +20,8 @@ export async function fetchTrades(params: {
   party?: string;
   user?: string;
   date?: string;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
 }): Promise<TradeRow[]> {
   if (!isInfluxConfigured()) throw new Error('InfluxDB 未配置');
@@ -47,6 +49,8 @@ export async function fetchTrades(params: {
     parties,
     user: params.user,
     date: params.date,
+    date_from: params.date_from,
+    date_to: params.date_to,
     limit: params.limit,
   });
 

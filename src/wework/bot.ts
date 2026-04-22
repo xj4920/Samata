@@ -121,15 +121,35 @@ async function handleAIChat(
     const streamId = generateReqId('stream');
 
     // WeCom 长连接流式协议要求 content 是累积式（每次调用必须包含前面所有内容 + 新增）。
-    // 我们把 progress（thinking/tool_start/tool_progress）聚合进一个闭合的 <think>...</think>
-    // 块，最终答案拼接在后面，保证内容严格单调递增，且思考块始终闭合。
-    const progressLines: string[] = [];
+    // 用结构化状态替代纯追加日志，render() 每次从状态生成紧凑的聚合视图，
+    // 同名工具合并为一行（带计数和耗时），避免重复调用时的视觉噪音。
+    const toolStatus = new Map<string, { count: number; completed: number; totalMs: number }>();
+    const toolOrder: string[] = [];
+    let latestThinking = '';
     const PLACEHOLDER = '思考中...';
 
     const render = (answer: string | null): string => {
       const parts: string[] = [];
-      if (progressLines.length > 0) {
-        parts.push(`<think>\n${progressLines.join('\n')}\n</think>`);
+      const lines: string[] = [];
+
+      if (latestThinking) {
+        lines.push(`💭 ${latestThinking}`);
+        lines.push('');
+      }
+
+      for (const name of toolOrder) {
+        const s = toolStatus.get(name)!;
+        const countLabel = s.count > 1 ? ` x${s.count}` : '';
+        if (s.completed >= s.count) {
+          const timeLabel = s.totalMs > 0 ? ` (${(s.totalMs / 1000).toFixed(1)}s)` : '';
+          lines.push(`✅ ${name}${countLabel}${timeLabel}`);
+        } else {
+          lines.push(`⏳ ${name}${countLabel}...`);
+        }
+      }
+
+      if (lines.length > 0) {
+        parts.push(`<think>\n${lines.join('\n')}\n</think>`);
       }
       parts.push(answer ?? PLACEHOLDER);
       return parts.join('\n\n');
@@ -140,26 +160,37 @@ async function handleAIChat(
     const THROTTLE_MS = 800;
     let lastChunkTime = 0;
 
-    const onProgress = (event: ProgressEvent) => {
-      let line = '';
-      if (event.type === 'tool_start') {
-        line = `🔧 调用 ${event.name}`;
-      } else if (event.type === 'tool_progress') {
-        line = event.message;
-      } else if (event.type === 'thinking') {
-        const clean = event.text.replace(/<\/?think>/gi, '').trim();
-        if (!clean) return;
-        line = `💭 ${clean.slice(0, 200)}`;
-      }
-      if (!line) return;
-
-      progressLines.push(line);
-
+    const pushUpdate = () => {
       const now = Date.now();
       if (now - lastChunkTime < THROTTLE_MS) return;
       lastChunkTime = now;
-
       ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
+    };
+
+    const onProgress = (event: ProgressEvent) => {
+      if (event.type === 'tool_start') {
+        const existing = toolStatus.get(event.name);
+        if (existing) {
+          existing.count++;
+        } else {
+          toolStatus.set(event.name, { count: 1, completed: 0, totalMs: 0 });
+          toolOrder.push(event.name);
+        }
+      } else if (event.type === 'tool_end') {
+        const existing = toolStatus.get(event.name);
+        if (existing) {
+          existing.completed++;
+          existing.totalMs += event.durationMs;
+        }
+      } else if (event.type === 'tool_progress') {
+        // tool_progress is already covered by the tool's own status line
+        return;
+      } else if (event.type === 'thinking') {
+        const clean = event.text.replace(/<\/?think>/gi, '').trim();
+        if (!clean) return;
+        latestThinking = clean.slice(0, 200);
+      }
+      pushUpdate();
     };
 
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
@@ -377,7 +408,7 @@ function handleAgentCommand(instance: WeworkBotInstance, args: string, mapKey: s
 async function handleEnterChat(instance: WeworkBotInstance, frame: WsFrame<EventMessageWith<EnterChatEvent>>): Promise<void> {
   try {
     const agentConfig = resolveAgent('wework', instance.botId) ?? getDefaultAgent();
-    const welcomeText = `你好！我是${agentConfig.displayName}，有什么可以帮你的？`;
+    const welcomeText = `您好！我是${agentConfig.displayName}，有什么可以帮您的？`;
 
     await instance.wsClient.replyWelcome(frame, {
       msgtype: 'text',

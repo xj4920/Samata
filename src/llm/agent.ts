@@ -52,7 +52,7 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
 // --- History management ---
 
 const MAX_HISTORY_MESSAGES = 80;
-const MAX_TOOL_ROUNDS = 10;
+const MAX_TOOL_ROUNDS = 30;
 const MAX_TOOL_RESULT_LENGTH = 4000;
 
 function isToolResultMessage(msg: Anthropic.MessageParam): boolean {

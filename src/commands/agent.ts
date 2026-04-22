@@ -263,7 +263,7 @@ function showInfo(): void {
   const agent = getCurrentAgent();
   const globalTools = getGlobalTools();
   if (!agent) {
-    log.print('当前使用默认 Agent: 衍语助手 (otcclaw)');
+    log.print('当前使用默认 Agent: 衍语 (otcclaw)');
     log.print(`  Tools: 全部 (${globalTools.length})`);
     log.print(`  可用工具列表: ${globalTools.map(t => t.name).join(', ')}`);
     return;

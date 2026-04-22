@@ -74,11 +74,31 @@ export interface TradeQueryParams {
   parties?: string[];
   user?: string;
   date?: string;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
+}
+
+// Enumerate YYYYMM strings between fromYM and toYM (inclusive)
+function enumerateYearMonths(fromYM: string, toYM: string): string[] {
+  const result: string[] = [];
+  let y = parseInt(fromYM.slice(0, 4));
+  let m = parseInt(fromYM.slice(4, 6));
+  const endY = parseInt(toYM.slice(0, 4));
+  const endM = parseInt(toYM.slice(4, 6));
+  while (y < endY || (y === endY && m <= endM)) {
+    result.push(`${y}${String(m).padStart(2, '0')}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+    if (result.length > 24) break;
+  }
+  return result;
 }
 
 export async function queryTrades(params: TradeQueryParams = {}): Promise<TradeRecord[]> {
   const conditions: string[] = [];
+  let dateFrom: string | undefined;
+  let dateTo: string | undefined;
 
   if (params.parties && params.parties.length > 0) {
     const pattern = params.parties.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
@@ -91,13 +111,37 @@ export async function queryTrades(params: TradeQueryParams = {}): Promise<TradeR
   }
   if (params.date) {
     conditions.push(`"trade_dt" = '${params.date.replace(/'/g, "\\'")}'`);
+  } else if (params.date_from || params.date_to) {
+    dateFrom = params.date_from;
+    dateTo = params.date_to;
+    // trade_dt is an InfluxDB tag — tags only support = and =~ (regex), not >= <=.
+    // Use regex on YYYYMM prefixes to narrow results, then post-filter exact boundaries.
+    const fromYM = (dateFrom || '200001').slice(0, 6);
+    const toYM = (dateTo || '209912').slice(0, 6);
+    const months = enumerateYearMonths(fromYM, toYM);
+    if (months.length === 1) {
+      conditions.push(`"trade_dt" =~ /^${months[0]}/`);
+    } else if (months.length <= 24) {
+      conditions.push(`"trade_dt" =~ /^(${months.join('|')})/`);
+    }
   }
 
   const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
   const limit = params.limit ?? 50;
 
   const q = `SELECT * FROM "north_info"${where} ORDER BY time DESC LIMIT ${limit}`;
-  return queryInflux(q);
+  let records = await queryInflux(q);
+
+  if (dateFrom || dateTo) {
+    records = records.filter(r => {
+      const dt = r.trade_dt ?? '';
+      if (dateFrom && dt < dateFrom) return false;
+      if (dateTo && dt > dateTo) return false;
+      return true;
+    });
+  }
+
+  return records;
 }
 
 export async function queryInfluxRaw(db: string, influxQL: string): Promise<Record<string, any>[]> {

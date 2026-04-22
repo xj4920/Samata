@@ -7,15 +7,17 @@ import { loadCustomers } from '../config/customers.js';
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'query_trades',
-    description: '查询交易成交记录。支持按管理人名称(client)、交易对手(party)、用户ID(user)、日期(date)过滤。管理人与交易对手为1:N映射关系，指定client会自动展开为其下所有交易对手。返回字段说明：notional_t=T日存续名义本金，trade_amt_ft=T日成交金额，ft_net=净交易头寸（非盈亏）。',
+    description: '查询交易成交记录。支持按管理人名称(client)、交易对手(party)、用户ID(user)、日期过滤。查某段时间数据时使用 date_from/date_to 范围查询（一次调用即可），避免逐日循环调用。date 为精确匹配单日。管理人与交易对手为1:N映射关系，指定client会自动展开为其下所有交易对手。返回字段说明：notional_t=T日存续名义本金，trade_amt_ft=T日成交金额，ft_net=净交易头寸（非盈亏）。',
     input_schema: {
       type: 'object' as const,
       properties: {
         client: { type: 'string', description: '管理人名称，如 JINDE、JUPITER、JUMP 等，会自动映射到其下所有交易对手' },
         party: { type: 'string', description: '交易对手名称，精确匹配' },
         user: { type: 'string', description: '用户ID' },
-        date: { type: 'string', description: '交易日期，格式 YYYYMMDD' },
-        limit: { type: 'number', description: '返回条数上限，默认50' },
+        date: { type: 'string', description: '精确匹配单日，格式 YYYYMMDD。设置此参数时 date_from/date_to 被忽略' },
+        date_from: { type: 'string', description: '起始日期（含），格式 YYYYMMDD。与 date_to 配合做日期范围查询，查某月数据时优先用范围而非逐日调用' },
+        date_to: { type: 'string', description: '结束日期（含），格式 YYYYMMDD' },
+        limit: { type: 'number', description: '返回条数上限，默认50。日期范围查询时建议设为500' },
       },
       required: [],
     },
@@ -55,7 +57,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
-async function handleQueryTrades(input: { client?: string; party?: string; user?: string; date?: string; limit?: number }): Promise<string> {
+async function handleQueryTrades(input: { client?: string; party?: string; user?: string; date?: string; date_from?: string; date_to?: string; limit?: number }): Promise<string> {
   try {
     const rows = await fetchTrades(input);
     if (rows.length === 0) return JSON.stringify({ message: '未查询到交易数据' });

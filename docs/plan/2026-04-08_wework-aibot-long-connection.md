@@ -189,8 +189,8 @@ export function getSession(mapKey: string, weworkUsername: string): WeworkSessio
 wsClient.on('event.enter_chat', async (frame: WsFrame) => {
   const agentConfig = resolveDefaultAgent();
   const welcomeText = agentConfig
-    ? `你好！我是${agentConfig.displayName}，有什么可以帮你的？`
-    : '你好！有什么可以帮你的？';
+    ? `您好！我是${agentConfig.displayName}，有什么可以帮您的？`
+    : '您好！有什么可以帮您的？';
 
   await wsClient.replyWelcome(frame, {
     msgtype: 'text',

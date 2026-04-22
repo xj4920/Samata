@@ -84,7 +84,7 @@ export interface AgentConfig {
 const DEFAULT_AGENT: AgentConfig = {
   id: 'default',
   name: 'otcclaw',
-  displayName: '衍语助手',
+  displayName: '衍语',
   description: 'OTC 业务专家',
   toolsMode: 'standard',
   toolsList: [],

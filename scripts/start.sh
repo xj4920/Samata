@@ -3,7 +3,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="$SCRIPT_DIR/.samata.pid"
-LOG_FILE="$SCRIPT_DIR/logs/samata-$(date +%Y-%m-%d).log"
+LOG_FILE="$SCRIPT_DIR/logs/samata-$(date +%Y-%m-%d_%H%M%S).log"
 
 mkdir -p "$SCRIPT_DIR/logs"
 

@@ -18,8 +18,19 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
-function handleWriteArtifact(input: WriteArtifactInput): string {
-  return JSON.stringify(writeArtifact(input));
+function resolveInput(input: any): WriteArtifactInput {
+  if (typeof input?.filename === 'string' && typeof input?.content === 'string') return input;
+  if (typeof input?._raw === 'string') {
+    try {
+      const parsed = JSON.parse(input._raw);
+      if (typeof parsed?.filename === 'string' && typeof parsed?.content === 'string') return parsed;
+    } catch { /* fall through */ }
+  }
+  throw new Error('参数缺失：需要 filename 和 content');
+}
+
+function handleWriteArtifact(input: any): string {
+  return JSON.stringify(writeArtifact(resolveInput(input)));
 }
 
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {

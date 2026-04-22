@@ -322,7 +322,7 @@ export function initSchema(): void {
         'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
         'markdown_to_image',
       ]);
-      ins.run('agent-otcclaw', 'otcclaw', '衍语助手', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
+      ins.run('agent-otcclaw', 'otcclaw', '衍语', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
       ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
       ins.run('agent-tutor', 'tutor', '教育辅导', '孩子学习辅导、作业答疑、学习规划', 'allowlist', commonTools, 'admin-001');
       ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', alterEgoTools, 'admin-001');
@@ -1482,5 +1482,9 @@ export function initSchema(): void {
     });
 
     tx();
+  });
+
+  runOnce('otcclaw-rename-display-name', () => {
+    db.prepare("UPDATE agents SET display_name = '衍语', updated_at = datetime('now') WHERE name = 'otcclaw' AND display_name = '衍语助手'").run();
   });
 }
