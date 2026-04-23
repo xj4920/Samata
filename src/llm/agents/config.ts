@@ -34,6 +34,14 @@ export const COMMON_SET = new Set([
   'calculate_date',
 ]);
 
+/** Native tools that must only be visible to a single agent instance. */
+const AGENT_EXCLUSIVE_TOOLS: Record<string, string> = {
+  record_wrong_question: 'tutor',
+  list_wrong_questions: 'tutor',
+  mark_wrong_question_mastered: 'tutor',
+  wrong_question_report: 'tutor',
+};
+
 /** @deprecated Kept for backward compatibility with list_tool_presets and CLI create wizard. Use COMMON_SET + allow/block instead. */
 export const TOOL_PRESETS: Record<string, { description: string; tools: string[] }> = {
   common: {
@@ -384,6 +392,12 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     } else {
       effectiveNames = new Set(globalTools.map(t => t.name));
       for (const b of legacySet) effectiveNames.delete(b);
+    }
+  }
+
+  for (const [toolName, ownerAgentName] of Object.entries(AGENT_EXCLUSIVE_TOOLS)) {
+    if (agent.name !== ownerAgentName) {
+      effectiveNames.delete(toolName);
     }
   }
 

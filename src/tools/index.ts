@@ -21,6 +21,7 @@ import * as hedgeRatioTools from './hedge-ratio-tools.js';
 import * as documentTools from './document-tools.js';
 import * as pricingQuoteTools from './pricing-quote-tools.js';
 import * as dateTools from './date-tools.js';
+import * as wrongQuestionTools from './wrong-question-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -48,6 +49,7 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: documentTools,     category: '文档' },
   { module: pricingQuoteTools, category: '报价' },
   { module: dateTools,         category: '日期' },
+  { module: wrongQuestionTools, category: '错题' },
 ];
 
 const modules: ToolModule[] = moduleEntries.map(e => e.module);

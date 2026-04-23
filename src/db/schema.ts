@@ -204,6 +204,41 @@ export function initSchema(): void {
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS wrong_questions (
+      id                 TEXT PRIMARY KEY,
+      agent_id           TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject            TEXT NOT NULL CHECK(subject IN ('math', 'chinese', 'english', 'science')),
+      question_summary   TEXT NOT NULL,
+      wrong_answer       TEXT,
+      expected_direction TEXT,
+      error_type         TEXT NOT NULL DEFAULT 'knowledge' CHECK(error_type IN ('knowledge', 'logic')),
+      error_subtype      TEXT,
+      analysis           TEXT,
+      status             TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'mastered')),
+      mistake_count      INTEGER NOT NULL DEFAULT 1,
+      source_type        TEXT NOT NULL DEFAULT 'text' CHECK(source_type IN ('text', 'image', 'document')),
+      storage_dir        TEXT,
+      created_by         TEXT NOT NULL REFERENCES users(id),
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      last_wrong_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      mastered_at        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS wrong_question_assets (
+      id                TEXT PRIMARY KEY,
+      wrong_question_id TEXT NOT NULL REFERENCES wrong_questions(id) ON DELETE CASCADE,
+      asset_role        TEXT NOT NULL DEFAULT 'original'
+                          CHECK(asset_role IN ('original', 'annotated', 'cropped', 'ocr')),
+      file_name         TEXT NOT NULL,
+      file_ext          TEXT,
+      mime_type         TEXT,
+      size_bytes        INTEGER,
+      stored_path       TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS migrations (
       id         TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1495,6 +1530,75 @@ export function initSchema(): void {
     if (!list.includes('export_trades_csv')) {
       list.push('export_trades_csv');
       db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+        .run(JSON.stringify(list));
+    }
+  });
+
+  runOnce('add-wrong-questions-tables', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS wrong_questions (
+        id                 TEXT PRIMARY KEY,
+        agent_id           TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject            TEXT NOT NULL CHECK(subject IN ('math', 'chinese', 'english', 'science')),
+        question_summary   TEXT NOT NULL,
+        wrong_answer       TEXT,
+        expected_direction TEXT,
+        error_type         TEXT NOT NULL DEFAULT 'knowledge' CHECK(error_type IN ('knowledge', 'logic')),
+        error_subtype      TEXT,
+        analysis           TEXT,
+        status             TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'mastered')),
+        mistake_count      INTEGER NOT NULL DEFAULT 1,
+        source_type        TEXT NOT NULL DEFAULT 'text' CHECK(source_type IN ('text', 'image', 'document')),
+        storage_dir        TEXT,
+        created_by         TEXT NOT NULL REFERENCES users(id),
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        last_wrong_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        mastered_at        TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS wrong_question_assets (
+        id                TEXT PRIMARY KEY,
+        wrong_question_id TEXT NOT NULL REFERENCES wrong_questions(id) ON DELETE CASCADE,
+        asset_role        TEXT NOT NULL DEFAULT 'original'
+                            CHECK(asset_role IN ('original', 'annotated', 'cropped', 'ocr')),
+        file_name         TEXT NOT NULL,
+        file_ext          TEXT,
+        mime_type         TEXT,
+        size_bytes        INTEGER,
+        stored_path       TEXT NOT NULL,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wrong_questions_agent_user_status
+        ON wrong_questions(agent_id, user_id, status);
+      CREATE INDEX IF NOT EXISTS idx_wrong_questions_agent_user_subject
+        ON wrong_questions(agent_id, user_id, subject);
+      CREATE INDEX IF NOT EXISTS idx_wrong_question_assets_question_role
+        ON wrong_question_assets(wrong_question_id, asset_role);
+    `);
+  });
+
+  runOnce('tutor-add-wrong-question-tools', () => {
+    const toolNames = [
+      'record_wrong_question',
+      'list_wrong_questions',
+      'mark_wrong_question_mastered',
+      'wrong_question_report',
+    ];
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'tutor'").get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    let changed = false;
+    for (const tool of toolNames) {
+      if (!list.includes(tool)) {
+        list.push(tool);
+        changed = true;
+      }
+    }
+    if (changed) {
+      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'tutor'")
         .run(JSON.stringify(list));
     }
   });

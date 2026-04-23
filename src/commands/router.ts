@@ -12,6 +12,7 @@ import { handleSkill } from './skill.js';
 import { handleAgent, getAgentSubcommands } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
 import { handleUser } from './user.js';
+import { handleWrongQuestion } from './wrong-question.js';
 import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startAllFeishuBots, stopAllFeishuBots, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
@@ -27,6 +28,7 @@ interface Command {
   usage?: string;
   cliOnly?: boolean;
   requiredRole?: 'system_admin' | 'agent_admin';
+  visibleWhen?: () => boolean;
   handler: (args: string) => Promise<void> | void;
   subcommands?: string[];
 }
@@ -51,6 +53,13 @@ const commands: Record<string, Command> = {
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
   memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
+  wrongq:  {
+    description: 'Tutor 错题集',
+    usage: '/wrongq <list|show|mastered|report> [参数]',
+    visibleWhen: () => getCurrentAgent()?.name === 'tutor',
+    handler: handleWrongQuestion,
+    subcommands: ['list', 'show', 'mastered', 'report'],
+  },
   model:   { description: '切换模型', usage: '/model <list|anthropic|minimax|gemini|openrouter>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
   watch:   { description: '企微监测', usage: '/watch <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
@@ -153,6 +162,7 @@ function handlePlugin(args: string): void {
 function shouldShowCommand(cmd: Command, channelOverride?: AppChannel): boolean {
   const channel = channelOverride ?? getExecutionChannel();
   if (cmd.cliOnly && channel !== 'cli') return false;
+  if (cmd.visibleWhen && !cmd.visibleWhen()) return false;
   if (cmd.requiredRole === 'system_admin' && !isSystemAdmin()) return false;
   if (cmd.requiredRole === 'agent_admin') {
     const agentId = getCurrentAgent()?.id;

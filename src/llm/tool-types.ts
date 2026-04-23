@@ -120,6 +120,34 @@ export type UpdateTodoInput = {
 };
 export type DeleteTodoInput = { id: string };
 
+// --- Wrong Question ---
+export type WrongQuestionSubject = 'math' | 'chinese' | 'english' | 'science';
+export type WrongQuestionErrorType = 'knowledge' | 'logic';
+export type WrongQuestionSourceType = 'text' | 'image' | 'document';
+export type RecordWrongQuestionInput = {
+  subject: WrongQuestionSubject;
+  question_summary: string;
+  wrong_answer?: string;
+  expected_direction?: string;
+  error_type?: WrongQuestionErrorType;
+  error_subtype?: string;
+  analysis?: string;
+  file_paths?: string[];
+};
+export type ListWrongQuestionsInput = {
+  status?: 'open' | 'mastered' | 'all';
+  subject?: WrongQuestionSubject;
+  error_type?: WrongQuestionErrorType;
+  limit?: number;
+};
+export type MarkWrongQuestionMasteredInput = { id: string };
+export type WrongQuestionReportInput = {
+  status?: 'open' | 'mastered' | 'all';
+  subject?: WrongQuestionSubject;
+  error_type?: WrongQuestionErrorType;
+  limit?: number;
+};
+
 // --- Markdown ---
 export type MarkdownToImageInput = {
   markdown: string;
