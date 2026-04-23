@@ -10,7 +10,7 @@ import { getProviderForTask, getModelForTask } from '../llm/provider.js';
 import { updateWorkspace } from './workspace.js';
 import { log } from '../utils/logger.js';
 
-const MIN_HISTORY_LENGTH = 3; // summarize once a session has at least 3 messages
+const MIN_HISTORY_LENGTH = 6; // summarize once a session has at least 3 messages
 
 /**
  * Extract plain text from an Anthropic MessageParam array.
