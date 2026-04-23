@@ -148,6 +148,7 @@ async function handleAIChat(userInput: string): Promise<string> {
 - 禁止把 prompt 硬编码到 TS 代码里，也禁止存进 DB（`agents.system_prompt` 列已删除）
 - `save_agent` 工具 / `/agent create` CLI 不支持改 prompt，需要系统管理员直接编辑 MD 文件（修改后 `reload_app` 或重启即可生效）
 - **新增 seed agent 时必须同步创建 `config/agents/<name>.md`**（末尾带上 `{{permissions}}` / `{{attachments}}` / `{{skills}}` / `{{memory}}` 占位符块），否则会静默走 `_default.md` fallback 而丢失角色个性
+- **严禁在 agent md 文件中静态描述工具的能力或用法**（如"支持 .md/.docx/.xlsx/.csv"、"默认 dry_run=true 预览"等）。工具做什么由 `src/tools/*.ts` 的 `toolDefinitions[].description` 定义，LLM 通过 API 的 `tools` 参数已经看到。agent md 中只写**路由指引**（什么场景选哪个工具、什么不该做），不重复工具自身描述，避免与实现脱节
 
 ### Agent Skills 工具过滤机制
 每个 agent 在 DB 中通过两个字段控制工具访问：
