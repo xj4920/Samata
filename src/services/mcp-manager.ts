@@ -75,7 +75,7 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
     : new StdioClientTransport({
         command: (srv as McpServerStdio).command,
         args: (srv as McpServerStdio).args ?? [],
-        env: (srv as McpServerStdio).env,
+        env: { ...process.env, ...(srv as McpServerStdio).env } as Record<string, string>,
       });
 
   const client = new Client({ name: 'samata', version: '1.0.0' });
