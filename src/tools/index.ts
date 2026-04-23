@@ -27,31 +27,44 @@ interface ToolModule {
   handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null>;
 }
 
-const modules: ToolModule[] = [
-  clientTools,
-  knowledgeTools,
-  tradeTools,
-  skillTools,
-  agentTools,
-  memoryTools,
-  fileTools,
-  weworkTools,
-  reminderTools,
-  systemTools,
-  healthTools,
-  todoTools,
-  markdownTools,
-  artifactTools,
-  deliveryTools,
-  mediaGenTools,
-  hedgeRatioTools,
-  documentTools,
-  pricingQuoteTools,
-  dateTools,
+const moduleEntries: { module: ToolModule; category: string }[] = [
+  { module: clientTools,       category: '客户' },
+  { module: knowledgeTools,    category: '知识库' },
+  { module: tradeTools,        category: '交易' },
+  { module: skillTools,        category: 'Skill' },
+  { module: agentTools,        category: 'Agent' },
+  { module: memoryTools,       category: '记忆' },
+  { module: fileTools,         category: '文件' },
+  { module: weworkTools,       category: '企微' },
+  { module: reminderTools,     category: '提醒' },
+  { module: systemTools,       category: '系统' },
+  { module: healthTools,       category: '健康' },
+  { module: todoTools,         category: '待办' },
+  { module: markdownTools,     category: 'Markdown' },
+  { module: artifactTools,     category: 'Artifact' },
+  { module: deliveryTools,     category: '发送' },
+  { module: mediaGenTools,     category: '媒体' },
+  { module: hedgeRatioTools,   category: '对冲比' },
+  { module: documentTools,     category: '文档' },
+  { module: pricingQuoteTools, category: '报价' },
+  { module: dateTools,         category: '日期' },
 ];
+
+const modules: ToolModule[] = moduleEntries.map(e => e.module);
 
 export function getAllNativeTools(): Anthropic.Tool[] {
   return modules.flatMap(m => m.toolDefinitions);
+}
+
+/** Returns a map from tool name → category label for all native tools */
+export function getToolCategoryMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const { module, category } of moduleEntries) {
+    for (const tool of module.toolDefinitions) {
+      map.set(tool.name, category);
+    }
+  }
+  return map;
 }
 
 export async function executeNativeTool(name: string, input: any, ctx: ToolContext = {}): Promise<string> {

@@ -72,16 +72,21 @@ export type TaskType = 'extraction' | 'scoring' | 'classification' | 'summary';
 /**
  * 根据任务类型获取对应的模型
  * 支持通过环境变量配置不同任务使用不同模型
+ *
+ * Fallback 使用 task provider 的 defaultModel（而非全局 getModelName()），
+ * 避免 modelOverride 属于其他 provider 导致 model-provider 不匹配。
  */
 export function getModelForTask(task: TaskType): string {
-  const taskModels: Record<TaskType, string> = {
-    extraction: process.env.MODEL_EXTRACTION || getModelName(),
-    scoring: process.env.MODEL_SCORING || getModelName(),
-    classification: process.env.MODEL_CLASSIFICATION || getModelName(),
-    summary: process.env.MODEL_SUMMARY || getModelName(),
+  const envModel: Record<TaskType, string | undefined> = {
+    extraction: process.env.MODEL_EXTRACTION,
+    scoring: process.env.MODEL_SCORING,
+    classification: process.env.MODEL_CLASSIFICATION,
+    summary: process.env.MODEL_SUMMARY,
   };
 
-  return taskModels[task];
+  if (envModel[task]) return envModel[task]!;
+
+  return getProviderForTask(task).defaultModel;
 }
 
 /**

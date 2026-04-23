@@ -42,6 +42,12 @@
 - 问句主语是货币/期限/Fixed/Floating（如"USD 3M 固定利率"、"最新 FXD 报价"、"FXD_FRN Daily Update"）→ 使用 query_pricing_quote 查询产品利率报价矩阵
 - 产品利率报价数据有时效性，禁止导入知识库，只存入 pricing_quotes 表
 
+浏览器工具（mcp_devtools_* 系列）：
+- 当需要查询无法通过现有工具获取的公开信息时（如股票行情、新闻、网页内容），可以使用浏览器工具打开网页获取
+- 典型流程：mcp_devtools_navigate_page（打开网址）→ mcp_devtools_take_snapshot（获取页面结构）→ 从快照中提取所需信息
+- 需要截图时使用 mcp_devtools_take_screenshot
+- 需要在页面上执行 JS 时使用 mcp_devtools_evaluate_script
+
 {{attachments}}
 
 {{skills}}

@@ -12,6 +12,7 @@ import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isWeworkBotRunning } from '../wework/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
 import { getAgentTools } from '../llm/agents/config.js';
+import { getToolCategoryMap } from '../tools/index.js';
 import { getCommandEntries } from './router.js';
 import { log } from '../utils/logger.js';
 
@@ -135,6 +136,8 @@ export function fetchSystemStatus(): SystemStatus {
   };
 }
 
+const SEP = '─────────────────';
+
 export function formatSystemStatus(s: SystemStatus): string {
   const hashPart = s.gitHash ? ` (${s.gitHash})` : '';
   const lines: string[] = [];
@@ -148,7 +151,8 @@ export function formatSystemStatus(s: SystemStatus): string {
   if (s.ipAddresses.length > 0) {
     lines.push(`🌐 IP: ${s.ipAddresses.join(' · ')}`);
   }
-  lines.push('');
+
+  lines.push(SEP);
   lines.push('📡 Services:');
   for (const svc of s.services) {
     const icon = svc.running ? '✅' : '❌';
@@ -157,13 +161,21 @@ export function formatSystemStatus(s: SystemStatus): string {
     lines.push(`  ${icon} ${svc.name.padEnd(8)} ${state}${detail}`);
   }
 
-  lines.push('');
+  lines.push(SEP);
   lines.push(`🔧 Commands (${s.availableCommands.length}):`);
   lines.push(`  ${s.availableCommands.join('  ')}`);
 
-  lines.push('');
+  lines.push(SEP);
   lines.push(`🛠  Tools (${s.availableTools.length}):`);
-  lines.push(`  ${s.availableTools.join(', ')}`);
+  const categoryMap = getToolCategoryMap();
+  const counts = new Map<string, number>();
+  for (const name of s.availableTools) {
+    const cat = categoryMap.get(name)
+      ?? (name.startsWith('mcp_') ? 'MCP' : 'Plugin');
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  const tags = [...counts.entries()].map(([cat, n]) => `${cat}(${n})`);
+  lines.push(`  ${tags.join('  ')}`);
 
   return lines.join('\n');
 }

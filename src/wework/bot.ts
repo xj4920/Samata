@@ -71,8 +71,6 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
 
     log.dim(`[企微:${instance.botName}] ${username}: ${text.slice(0, 80)}`);
 
-    let reply = '';
-
     try {
       if (text.startsWith('/')) {
         const slashReply = await handleSlashCommand(instance, text, mapKey, userId, username);
@@ -83,17 +81,16 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
         }
       }
 
-      reply = await handleAIChat(instance, frame, text, mapKey, userId, username);
+      await handleAIChat(instance, frame, text, mapKey, userId, username);
     } catch (err: any) {
+      const logTag = `[企微:${instance.botName}]`;
       if (err instanceof AgentUnboundError) {
-        log.warn(`[企微:${instance.botName}] ${err.message}`);
-        reply = `⚠️ ${err.message}`;
+        log.warn(`${logTag} ${err.message}`);
+        const streamId = generateReqId('stream');
+        await instance.wsClient.replyStream(frame, streamId, `⚠️ ${err.message}`, true);
       } else {
-        log.error(`[企微:${instance.botName}] 处理消息出错: ${err.message}`);
-        reply = friendlyAIError(err);
+        log.error(`${logTag} 处理消息出错: ${err?.message ?? err?.errmsg ?? String(err)}`);
       }
-      const streamId = generateReqId('stream');
-      await instance.wsClient.replyStream(frame, streamId, reply, true);
     }
   });
 }
@@ -192,19 +189,34 @@ async function handleAIChat(
       pushUpdate();
     };
 
-    const textReply = await runAgenticChat(session.history, userInput, session.user, {
-      streamEnabled: false,
-      logPrefix: `[企微:${instance.botName}:${username}] `,
-      showThinking: true,
-      agentConfig,
-      images,
-      onProgress,
-      deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
-    });
+    try {
+      const textReply = await runAgenticChat(session.history, userInput, session.user, {
+        streamEnabled: false,
+        logPrefix: `[企微:${instance.botName}:${username}] `,
+        showThinking: true,
+        agentConfig,
+        images,
+        onProgress,
+        deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
+      });
 
-    const finalText = textReply || '（无回复内容）';
-    await ws.replyStream(frame, streamId, render(finalText), true);
-    return finalText;
+      const finalText = textReply || '（无回复内容）';
+      await ws.replyStream(frame, streamId, render(finalText), true);
+      return finalText;
+    } catch (err: any) {
+      const errText = friendlyAIError(err);
+      try {
+        await ws.replyStream(frame, streamId, render(errText), true);
+      } catch {
+        try {
+          const retryStreamId = generateReqId('stream');
+          await ws.replyStream(frame, retryStreamId, errText, true);
+        } catch {
+          log.error(`[企微:${instance.botName}] 错误回复也无法送达用户: ${errText}`);
+        }
+      }
+      throw err;
+    }
   });
 }
 

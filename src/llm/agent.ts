@@ -168,47 +168,81 @@ function stripThinkBlocks(text: string, showThinkingOpt: boolean): string {
   return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
+/** 判断是否为可重试的瞬态网络错误 */
+function isTransientError(err: any): boolean {
+  const msg = (err?.message ?? '').toLowerCase();
+  const cause = (err?.cause?.message ?? '').toLowerCase();
+  const combined = msg + ' ' + cause;
+  return /fetch failed|econnreset|econnrefused|etimedout|und_err_connect_timeout|network|socket hang up/.test(combined)
+    || /\b(502|503|504|520|529)\b/.test(msg);
+}
+
+const CALLLLM_MAX_RETRIES = 2;
+
 /**
- * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式
+ * 调用 LLM，优先使用流式输出（CLI 逐字显示），回退到非流式。
+ * 对瞬态网络错误自动重试（最多 CALLLLM_MAX_RETRIES 次），通过 onProgress 通知调用方。
  * 返回 { result, streamed } — streamed 表示文本已经输出到 stdout
  */
-async function callLLM(params: CreateMessageParams, streamText: boolean, showThinkingOpt: boolean = false, providerOverride?: import('./provider.js').LLMProvider, onTextChunk?: (chunk: string) => void): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+async function callLLM(
+  params: CreateMessageParams,
+  streamText: boolean,
+  showThinkingOpt: boolean = false,
+  providerOverride?: import('./provider.js').LLMProvider,
+  onTextChunk?: (chunk: string) => void,
+  onProgress?: (event: ProgressEvent) => void,
+): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = providerOverride ?? getProvider();
 
-  if (streamText && provider.createMessageStream) {
+  for (let attempt = 0; ; attempt++) {
     try {
-      let result: CreateMessageResult | null = null;
-      let buffer = '';
-      for await (const event of provider.createMessageStream(params)) {
-        throwIfAborted();
-        if (event.type === 'text_delta') {
-          buffer += event.text;
-        } else if (event.type === 'done') {
-          result = { content: event.content, stop_reason: event.stop_reason };
-        }
-      }
-      if (buffer) {
-        const clean = stripThinkBlocks(buffer, showThinkingOpt);
-        if (clean) {
-          log.print();
-          const rendered = renderMarkdown(clean);
-          const line = rendered.trimEnd() + '\n';
-          if (onTextChunk) {
-            onTextChunk(line);
-          } else {
-            process.stdout.write(line);
+      if (streamText && provider.createMessageStream) {
+        try {
+          let result: CreateMessageResult | null = null;
+          let buffer = '';
+          for await (const event of provider.createMessageStream(params)) {
+            throwIfAborted();
+            if (event.type === 'text_delta') {
+              buffer += event.text;
+            } else if (event.type === 'done') {
+              result = { content: event.content, stop_reason: event.stop_reason };
+            }
           }
+          if (buffer) {
+            const clean = stripThinkBlocks(buffer, showThinkingOpt);
+            if (clean) {
+              log.print();
+              const rendered = renderMarkdown(clean);
+              const line = rendered.trimEnd() + '\n';
+              if (onTextChunk) {
+                onTextChunk(line);
+              } else {
+                process.stdout.write(line);
+              }
+            }
+          }
+          if (!result) throw new Error('Stream ended without done event');
+          return { result, streamed: !!buffer };
+        } catch (err: any) {
+          if (isTransientError(err)) throw err;
+          log.dim(`流式请求失败 (${err.message})，回退到非流式...`);
         }
       }
-      if (!result) throw new Error('Stream ended without done event');
-      return { result, streamed: !!buffer };
+
+      throwIfAborted();
+      return { result: await provider.createMessage(params), streamed: false };
     } catch (err: any) {
-      log.dim(`流式请求失败 (${err.message})，回退到非流式...`);
+      if (attempt < CALLLLM_MAX_RETRIES && isTransientError(err)) {
+        throwIfAborted();
+        const delay = 1000 * (attempt + 1);
+        log.warn(`LLM 网络抖动 (${err.message})，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...`);
+        onProgress?.({ type: 'tool_progress', message: `⚠️ 网络抖动，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...` });
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
     }
   }
-
-  throwIfAborted();
-  return { result: await provider.createMessage(params), streamed: false };
 }
 
 export type ProgressEvent =
@@ -314,7 +348,7 @@ export async function runAgenticChat(
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
+    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
   } catch (err: any) {
     if (isOrphanToolError(err) && historyLenBefore > 0) {
       log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
@@ -322,7 +356,7 @@ export async function runAgenticChat(
       sanitizeToolPairs(history);
       history.push({ role: 'user', content: processedInput });
       try {
-        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
+        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
       } catch (retryErr: any) {
         log.error(`${logPrefix}AI 请求失败: ${retryErr?.message ?? String(retryErr)}`);
         history.length = historyLenBefore;
@@ -393,7 +427,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
+      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
     } catch (err: any) {
       if (isContextOverflowError(err) && history.length > historyLenBefore + 4) {
         log.warn(`${logPrefix}上下文溢出，截断历史后重试...`);
@@ -402,7 +436,7 @@ export async function runAgenticChat(
         history.splice(historyLenBefore + 1, keepFromTurn - historyLenBefore - 1);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
           round += 1;
           continue;
         } catch (retryErr: any) {
@@ -415,7 +449,7 @@ export async function runAgenticChat(
         log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk));
+          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
           round += 1;
           continue;
         } catch (retryErr: any) {
