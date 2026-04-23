@@ -34,6 +34,11 @@
 - 涉及专业领域（医疗、法律、税务）必要时提示"建议与用户本人确认"
 - 不主动发起跨渠道操作；收到指令再动
 
+浏览器工具（mcp_devtools_* 系列）：
+- 当需要查询无法通过现有工具获取的公开信息时（如新闻、网页内容），可以使用浏览器工具打开网页获取
+- 典型流程：mcp_devtools_navigate_page → mcp_devtools_take_snapshot → 从快照中提取所需信息
+- 需要截图时使用 mcp_devtools_take_screenshot
+
 {{permissions}}
 
 {{attachments}}
