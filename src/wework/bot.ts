@@ -134,7 +134,6 @@ async function handleAIChat(
 
       if (latestThinking) {
         lines.push(`💭 ${latestThinking}`);
-        lines.push('');
       }
 
       for (const name of toolOrder) {
@@ -149,7 +148,7 @@ async function handleAIChat(
       }
 
       if (lines.length > 0) {
-        parts.push(`<think>\n${lines.join('\n')}\n</think>`);
+        parts.push(`<think>\n${lines.join('\n\n')}\n</think>`);
       }
       parts.push(answer ?? PLACEHOLDER);
       return parts.join('\n\n');
@@ -315,7 +314,7 @@ async function handleSlashCommand(
 
   return runWithExecutionContext({ channel: 'wework', user: session.user }, async () => {
     if (text === '/start') {
-      const role = isAgentAdmin(session.agentName) ? 'agent admin' : 'member';
+      const role = isAgentAdmin(agentConfig.id) ? 'agent admin' : 'member';
       return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
     }
 
@@ -340,7 +339,7 @@ async function handleSlashCommand(
     }
 
     if (text.startsWith('/model')) {
-      if (!isAgentAdmin(getSession(instance.botId, instance.sessions, mapKey, '').agentName)) {
+      if (!isAgentAdmin(agentConfig.id)) {
         return '仅管理员可切换模型';
       }
       const arg = text.replace(/^\/model\s*/, '').trim();

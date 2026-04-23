@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "minimax-coding-plan": {
-      "command": "/Users/simon/source/OtcClaw/venv/bin/minimax-coding-plan-mcp",
-      "env": {
-        "MINIMAX_API_KEY": "sk-cp-MESHwqWwcYDq48UMytFyH89xq_4piWoB6WndJ9xq0UNhFvoQHsEVVnw_EIiP9RGPlwACNUptA2UsfGvKcJIEICFkZkCnVE79EsSx3_QL3-zmUowTtbXjzbY",
-        "MINIMAX_API_HOST": "https://api.minimaxi.com"
-      }
-    }
-  }
+  "mcpServers": {}
 }

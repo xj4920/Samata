@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 import { getPluginTools } from '../../plugins/registry.js';
+import { getMcpTools } from '../../services/mcp-manager.js';
 
 /**
  * Base tool set shared by all agents in 'standard' mode.
@@ -40,24 +41,21 @@ export const TOOL_PRESETS: Record<string, { description: string; tools: string[]
     tools: [...COMMON_SET],
   },
   browser: {
-    description: '浏览器助手：通过 Playwright MCP 进行网页浏览、截图、内容提取',
+    description: '浏览器助手：通过 Chrome DevTools MCP 进行网页浏览、调试、性能分析',
     tools: [
-      'mcp_browser_browser_navigate',
-      'mcp_browser_browser_take_screenshot',
-      'mcp_browser_browser_snapshot',
-      'mcp_browser_browser_click',
-      'mcp_browser_browser_type',
-      'mcp_browser_browser_fill_form',
-      'mcp_browser_browser_evaluate',
-      'mcp_browser_browser_press_key',
-      'mcp_browser_browser_wait_for',
-      'mcp_browser_browser_navigate_back',
-      'mcp_browser_browser_tabs',
-      'mcp_browser_browser_close',
-      'mcp_browser_browser_console_messages',
-      'mcp_browser_browser_network_requests',
-      'search_knowledge',
-      'get_status_summary',
+      'mcp_devtools_navigate_page', 'mcp_devtools_list_pages', 'mcp_devtools_select_page',
+      'mcp_devtools_new_page', 'mcp_devtools_close_page', 'mcp_devtools_wait_for',
+      'mcp_devtools_click', 'mcp_devtools_fill', 'mcp_devtools_fill_form',
+      'mcp_devtools_type_text', 'mcp_devtools_press_key', 'mcp_devtools_hover',
+      'mcp_devtools_take_screenshot', 'mcp_devtools_take_snapshot',
+      'mcp_devtools_evaluate_script', 'mcp_devtools_list_console_messages',
+      'mcp_devtools_get_console_message', 'mcp_devtools_lighthouse_audit',
+      'mcp_devtools_list_network_requests', 'mcp_devtools_get_network_request',
+      'mcp_devtools_performance_start_trace', 'mcp_devtools_performance_stop_trace',
+      'mcp_devtools_performance_analyze_insight',
+      'mcp_devtools_take_memory_snapshot',
+      'mcp_devtools_emulate', 'mcp_devtools_resize_page',
+      'search_knowledge', 'get_status_summary',
     ],
   },
 };
@@ -374,7 +372,8 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
     const pluginToolNames = getPluginTools().map(t => t.name);
-    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...pluginToolNames]);
+    const mcpToolNames = getMcpTools().map(t => t.name);
+    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...pluginToolNames, ...mcpToolNames]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else {
     // Legacy allowlist/blocklist (backward compat for un-migrated agents)

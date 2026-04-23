@@ -305,7 +305,7 @@ export async function runAgenticChat(
 
   const makeParams = (): CreateMessageParams => ({
     model: agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName()),
-    max_tokens: 4096,
+    max_tokens: 16384,
     system: systemPrompt,
     tools: activeTools,
     messages: history,

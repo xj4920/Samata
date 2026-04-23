@@ -1487,4 +1487,15 @@ export function initSchema(): void {
   runOnce('otcclaw-rename-display-name', () => {
     db.prepare("UPDATE agents SET display_name = '衍语', updated_at = datetime('now') WHERE name = 'otcclaw' AND display_name = '衍语助手'").run();
   });
+
+  runOnce('otcclaw-add-export-trades-csv', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    if (!list.includes('export_trades_csv')) {
+      list.push('export_trades_csv');
+      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+        .run(JSON.stringify(list));
+    }
+  });
 }
