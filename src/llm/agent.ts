@@ -15,6 +15,7 @@ import { renderMarkdown } from '../utils/markdown.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getExecutionChannel } from '../runtime/execution-context.js';
+import { startTurn, recordLLM, recordTool, endTurn } from '../telemetry/emitter.js';
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
@@ -36,6 +37,46 @@ export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
   if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
       buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
   return 'image/png'; // fallback
+}
+
+/**
+ * 依次尝试 primary → minimax → anthropic 进行图片描述。
+ * 只要某一个成功就返回结果，全部失败才抛最后一个错误。
+ * 供 runAgenticChat 及 document-import 等复用。
+ */
+export async function describeImageWithFallback(
+  primary: import('./provider.js').LLMProvider | undefined,
+  imageDataUrl: string,
+  prompt: string,
+  logPrefix = '',
+): Promise<{ desc: string; providerName: string }> {
+  const chain: import('./provider.js').LLMProvider[] = [];
+  const seen = new Set<string>();
+  const add = (p: import('./provider.js').LLMProvider | undefined) => {
+    if (p && p.describeImage && !seen.has(p.name)) {
+      chain.push(p);
+      seen.add(p.name);
+    }
+  };
+  add(primary);
+  add(getProviderByName('minimax'));
+  add(getProviderByName('anthropic'));
+
+  if (chain.length === 0) {
+    throw new Error('无可用的图片描述 provider（需启用 gf/minimax/anthropic 之一）');
+  }
+
+  let lastErr: unknown;
+  for (const p of chain) {
+    try {
+      const desc = await p.describeImage!(imageDataUrl, prompt);
+      return { desc, providerName: p.name };
+    } catch (e: any) {
+      lastErr = e;
+      log.warn(`${logPrefix}图片描述失败 [${p.name}]: ${e?.message ?? e}`);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 export async function executeTool(name: string, input: any, deliveryContext?: DeliveryContext, onProgress?: (event: { type: 'tool_progress'; message: string }) => void): Promise<string> {
@@ -67,7 +108,7 @@ function isContextOverflowError(err: any): boolean {
 
 function isOrphanToolError(err: any): boolean {
   const msg = err?.message ?? '';
-  return /tool.result.*tool.id.*not found|tool_call_id.*not found|tool call result does not follow tool call/i.test(msg);
+  return /tool.result.*tool.id.*not found|tool_call_id.*not found|tool call result does not follow tool call|insufficient.*tool.*messages.*following.*tool_calls/i.test(msg);
 }
 
 /**
@@ -205,7 +246,7 @@ async function callLLM(
             if (event.type === 'text_delta') {
               buffer += event.text;
             } else if (event.type === 'done') {
-              result = { content: event.content, stop_reason: event.stop_reason };
+              result = { content: event.content, stop_reason: event.stop_reason, usage: event.usage };
             }
           }
           if (buffer) {
@@ -286,6 +327,34 @@ export async function runAgenticChat(
   const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
   const systemPrompt = buildSystemPrompt(agent ?? getDefaultAgent(), user);
 
+  // Telemetry: start turn
+  const ctxStartTime = Date.now();
+  const telemetrySessionId = user.id;
+  const telemetryAgentId = agent?.id ?? getDefaultAgent()?.id ?? 'unknown';
+  startTurn(telemetrySessionId, telemetryAgentId);
+
+  // Helper: wrap callLLM with telemetry recording
+  async function trackedCallLLM(
+    round: number,
+    stream: boolean,
+    showTh: boolean,
+    provOverride?: import('./provider.js').LLMProvider,
+    onChunk?: (chunk: string) => void,
+    onProg?: (event: ProgressEvent) => void,
+  ): Promise<{ result: CreateMessageResult; streamed: boolean }> {
+    const llmStart = Date.now();
+    const r = await callLLM(makeParams(), stream, showTh, provOverride, onChunk, onProg);
+    recordLLM(telemetrySessionId, {
+      round,
+      model: provOverride?.defaultModel ?? getModelName(),
+      input_tokens: r.result.usage?.input_tokens ?? 0,
+      output_tokens: r.result.usage?.output_tokens ?? 0,
+      stop_reason: r.result.stop_reason,
+      duration_ms: Date.now() - llmStart,
+    });
+    return r;
+  }
+
   // 设置当前 agent 上下文，供 tool handler（如 search_knowledge）按 agent 过滤数据
   const prevAgent = getCurrentAgent();
   if (agent) setCurrentAgent(agent);
@@ -296,24 +365,31 @@ export async function runAgenticChat(
 
   if (images && images.length > 0) {
     const activeProvider = agentProviderOverride ?? getProvider();
-    const describer = activeProvider.describeImage
-      ? activeProvider
-      : getProviderByName('anthropic');
+    const hasAnyDescriber = !!(activeProvider.describeImage
+      || getProviderByName('minimax')?.describeImage
+      || getProviderByName('anthropic')?.describeImage);
 
-    if (describer?.describeImage) {
-      log.dim(`${logPrefix}📷 使用 ${describer.name} 描述图片...`);
+    if (hasAnyDescriber) {
       const descriptions: string[] = [];
+      const usedProviders: string[] = [];
       for (const img of images) {
         const dataUrl = `data:${img.mediaType};base64,${img.data}`;
-        const desc = await describer.describeImage(dataUrl, userInput || '请描述这张图片的内容');
+        const { desc, providerName } = await describeImageWithFallback(
+          activeProvider,
+          dataUrl,
+          userInput || '请描述这张图片的内容',
+          logPrefix,
+        );
         descriptions.push(desc);
+        usedProviders.push(providerName);
       }
       const descText = descriptions.map((d, i) => `[图片${i + 1}]\n${d}`).join('\n\n');
       processedInput = `${descText}\n\n${userInput}`.trim();
       processedImages = undefined;
-      log.dim(`${logPrefix}✅ 图片已转为文字描述`);
+      const uniq = [...new Set(usedProviders)].join('+');
+      log.dim(`${logPrefix}📷 图片已转为文字描述 (via ${uniq})`);
     }
-    // 若 describer 不存在（anthropic 未配置），保留原图进 chat（仅当前 provider 是 anthropic 时有效）
+    // 若无任何 describer，保留原图进 chat（仅当前 provider 原生支持多模态时有效）
   }
 
   trimHistory(history, maxHistory);
@@ -345,18 +421,22 @@ export async function runAgenticChat(
     messages: history,
   });
 
+  // Record context prep time
+  const ctx_ms = Date.now() - ctxStartTime;
+
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
-    ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+    ({ result: response, streamed } = await trackedCallLLM(1, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
   } catch (err: any) {
+    endTurn(telemetrySessionId, { loop_rounds: 1, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
     if (isOrphanToolError(err) && historyLenBefore > 0) {
       log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
       history.length = historyLenBefore;
       sanitizeToolPairs(history);
       history.push({ role: 'user', content: processedInput });
       try {
-        ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+        ({ result: response, streamed } = await trackedCallLLM(1, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
       } catch (retryErr: any) {
         log.error(`${logPrefix}AI 请求失败: ${retryErr?.message ?? String(retryErr)}`);
         history.length = historyLenBefore;
@@ -376,6 +456,13 @@ export async function runAgenticChat(
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
+      // Strip unanswered tool_use blocks so session.history does not carry
+      // orphan tool_calls into the next turn (breaks OpenAI-compat gateways).
+      response = {
+        ...response,
+        content: response.content.filter(b => b.type !== 'tool_use'),
+        stop_reason: 'end_turn',
+      };
       break;
     }
 
@@ -403,19 +490,33 @@ export async function runAgenticChat(
         throwIfAborted();
         const toolStartedAt = Date.now();
         let result: string;
+        let toolError: string | undefined;
         if (!activeToolNames.has(block.name)) {
-          result = JSON.stringify({ error: `权限不足：工具 "${block.name}" 不在当前用户的允许列表中` });
+          const errMsg = `权限不足：工具 "${block.name}" 不在当前用户的允许列表中`;
+          result = JSON.stringify({ error: errMsg });
+          toolError = errMsg;
         } else {
           try {
             result = await executeTool(block.name, block.input, deliveryContext, onProgress);
           } catch (err: any) {
-            result = JSON.stringify({ error: `工具执行异常: ${err.message}` });
+            const errMsg = `工具执行异常: ${err.message}`;
+            result = JSON.stringify({ error: errMsg });
+            toolError = errMsg;
           }
         }
         if (result.length > MAX_TOOL_RESULT_LENGTH) {
           result = result.slice(0, MAX_TOOL_RESULT_LENGTH) + `\n...(truncated, ${result.length} chars total)`;
         }
-        onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: Date.now() - toolStartedAt });
+        const toolDuration = Date.now() - toolStartedAt;
+        recordTool(telemetrySessionId, {
+          name: block.name,
+          round,
+          duration_ms: toolDuration,
+          success: !toolError,
+          bytes: Buffer.byteLength(result, 'utf-8'),
+          error: toolError,
+        });
+        onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: toolDuration });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -427,7 +528,7 @@ export async function runAgenticChat(
     history.push({ role: 'user', content: toolResults });
 
     try {
-      ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+      ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
     } catch (err: any) {
       if (isContextOverflowError(err) && history.length > historyLenBefore + 4) {
         log.warn(`${logPrefix}上下文溢出，截断历史后重试...`);
@@ -436,12 +537,13 @@ export async function runAgenticChat(
         history.splice(historyLenBefore + 1, keepFromTurn - historyLenBefore - 1);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+          ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
           round += 1;
           continue;
         } catch (retryErr: any) {
           log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
           history.length = historyLenBefore;
+          endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
           throw retryErr;
         }
       }
@@ -449,17 +551,19 @@ export async function runAgenticChat(
         log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
         sanitizeToolPairs(history);
         try {
-          ({ result: response, streamed } = await callLLM(makeParams(), streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+          ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
           round += 1;
           continue;
         } catch (retryErr: any) {
           log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
           history.length = historyLenBefore;
+          endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
           throw retryErr;
         }
       }
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
       history.length = historyLenBefore;
+      endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
       throw err;
     }
     round += 1;
@@ -476,6 +580,7 @@ export async function runAgenticChat(
     }
   }
 
+  const renderStart = Date.now();
   // 非流式回退时，文本未在 callLLM 中输出，这里兜底渲染
   if (!streamed && textReply) {
     const clean = stripThinkBlocks(textReply, showThinkingOpt);
@@ -490,6 +595,16 @@ export async function runAgenticChat(
       }
     }
   }
+  const render_ms = Date.now() - renderStart;
+
+  // Telemetry: end turn
+  endTurn(telemetrySessionId, {
+    loop_rounds: round,
+    stop_reason: response.stop_reason,
+    answer_preview: textReply,
+    ctx_ms,
+    render_ms,
+  });
 
   // 延迟执行 reload：等 agentic loop 结束、回复渲染完毕后再重启
   if (isPendingReload()) {

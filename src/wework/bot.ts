@@ -14,7 +14,7 @@ import { getSession, resetSession, cleanupSessions, type WeworkSession } from '.
 import { isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
-import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
+import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { buildFileHint } from '../runtime/file-hint.js';
 import { log } from '../utils/logger.js';
@@ -25,7 +25,7 @@ import { getAllSkills } from '../commands/skill.js';
 import {
   formatKnowledge, formatSkillList,
 } from './formatter.js';
-import { getProviderName, getModelName, switchProvider, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { handleModelCommand } from '../commands/model-cmd.js';
 import { getDb } from '../db/connection.js';
 import { saveUploadedFile } from '../commands/artifact.js';
 
@@ -59,7 +59,7 @@ async function downloadWeworkImage(
 // --- Message Handling (instance-scoped) ---
 
 function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<TextMessage>): Promise<void> {
-  return runWithExecutionContext({ channel: 'wework' }, async () => {
+  return runWithExecutionContext({ channel: 'wework', appId: instance.botId }, async () => {
     const body = frame.body!;
     const userId = body.from.userid;
     const isGroup = body.chattype === 'group';
@@ -106,13 +106,12 @@ async function handleAIChat(
 ): Promise<string> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
 
-  return runWithExecutionContext({ channel: 'wework', user: session.user }, async () => {
-    const agentConfig = getAgent(session.agentName);
-
-    const MAX_HISTORY = 20;
-    while (session.history.length > MAX_HISTORY * 2) {
-      session.history.shift();
-    }
+  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId }, async () => {
+    const baseAgentConfig = getAgent(session.agentName);
+    const botLLM = getBotAppLLM(instance.botId);
+    const agentConfig = (botLLM.provider || botLLM.model)
+      ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+      : baseAgentConfig;
 
     const ws = instance.wsClient;
     const streamId = generateReqId('stream');
@@ -221,7 +220,7 @@ async function handleAIChat(
 }
 
 function handleImageMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<ImageMessage>): Promise<void> {
-  return runWithExecutionContext({ channel: 'wework' }, async () => {
+  return runWithExecutionContext({ channel: 'wework', appId: instance.botId }, async () => {
     const body = frame.body!;
     const userId = body.from.userid;
     const isGroup = body.chattype === 'group';
@@ -248,7 +247,7 @@ function handleImageMessageForInstance(instance: WeworkBotInstance, frame: WsFra
 }
 
 function handleMixedMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<MixedMessage>): Promise<void> {
-  return runWithExecutionContext({ channel: 'wework' }, async () => {
+  return runWithExecutionContext({ channel: 'wework', appId: instance.botId }, async () => {
     const body = frame.body!;
     const userId = body.from.userid;
     const isGroup = body.chattype === 'group';
@@ -284,7 +283,7 @@ function handleMixedMessageForInstance(instance: WeworkBotInstance, frame: WsFra
 }
 
 function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<FileMessage>): Promise<void> {
-  return runWithExecutionContext({ channel: 'wework' }, async () => {
+  return runWithExecutionContext({ channel: 'wework', appId: instance.botId }, async () => {
     const body = frame.body!;
     const userId = body.from.userid;
     const isGroup = body.chattype === 'group';
@@ -324,7 +323,7 @@ async function handleSlashCommand(
   const agentConfig = getAgent(session.agentName);
   setCurrentAgent(agentConfig);
 
-  return runWithExecutionContext({ channel: 'wework', user: session.user }, async () => {
+  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId }, async () => {
     if (text === '/start') {
       const role = isAgentAdmin(agentConfig.id) ? 'agent admin' : 'member';
       return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
@@ -354,17 +353,8 @@ async function handleSlashCommand(
       if (!isAgentAdmin(agentConfig.id)) {
         return '仅管理员可切换模型';
       }
-      const arg = text.replace(/^\/model\s*/, '').trim();
-      if (!arg || arg === 'list') {
-        const available = getAvailableProviders();
-        const current = getProviderName();
-        const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-        return `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`;
-      }
-      const ok = switchProvider(arg as ProviderName);
-      return ok
-        ? `已切换到 ${getProviderName()} / ${getModelName()}`
-        : `未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`;
+      const arg = text.replace(/^\/model\s*/, '');
+      return handleModelCommand(arg, { scope: 'bot', botAppId: instance.botId });
     }
 
     const cleaned = text.trim();
