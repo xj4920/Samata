@@ -44,6 +44,7 @@
 
 浏览器工具（mcp_devtools_* 系列）：
 - 当需要查询无法通过现有工具获取的公开信息时（如股票行情、新闻、网页内容），可以使用浏览器工具打开网页获取
+- **禁止使用 Google（google.com）搜索**，网络不通。需要搜索引擎时请使用 **bing.cn** 或 **baidu.com**
 - 典型流程：mcp_devtools_navigate_page → mcp_devtools_take_snapshot → 从快照中提取所需信息
 - 需要截图时使用 mcp_devtools_take_screenshot
 - 需要在页面上执行 JS 时使用 mcp_devtools_evaluate_script

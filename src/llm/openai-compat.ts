@@ -124,7 +124,7 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
         content: textParts.join('\n') || null,
       };
       if (toolCalls.length > 0) am.tool_calls = toolCalls;
-      if (reasoning) am.reasoning_content = reasoning;
+      am.reasoning_content = reasoning;
       result.push(am);
     }
   }

@@ -29,8 +29,12 @@ let lastSeenTime: string | null = null;
 
 function loadConfig(): MonitorConfig {
   if (config) return config;
-  const file = resolve(process.cwd(), 'config/monitor.json');
-  config = JSON.parse(readFileSync(file, 'utf-8')) as MonitorConfig;
+  try {
+    const file = resolve(process.cwd(), 'config/monitor.json');
+    config = JSON.parse(readFileSync(file, 'utf-8')) as MonitorConfig;
+  } catch {
+    config = {};
+  }
   return config;
 }
 

@@ -4,6 +4,15 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# 使用 nvm default 指向的 Node（避免 cursor-server 内置 Node 版本过低导致
+# better-sqlite3 ABI 不匹配、chrome-devtools-mcp EBADENGINE 等问题）
+if [ -f "$HOME/.nvm/alias/default" ]; then
+  NVM_DEFAULT=$(cat "$HOME/.nvm/alias/default" | tr -d '[:space:]')
+  if [ -n "$NVM_DEFAULT" ] && [ -d "$HOME/.nvm/versions/node/$NVM_DEFAULT/bin" ]; then
+    export PATH="$HOME/.nvm/versions/node/$NVM_DEFAULT/bin:$PATH"
+  fi
+fi
+
 # 如果 node_modules 不存在，先安装依赖
 if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   echo "node_modules 不存在，正在安装依赖..."

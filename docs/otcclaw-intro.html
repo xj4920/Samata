@@ -876,6 +876,275 @@
     color: rgba(180,200,240,0.55);
     margin-top: 4px;
   }
+
+  /* ===== Slide 3.5: Multi-Instance Architecture ===== */
+  .multi-slide .bottom { overflow-y: auto; }
+
+  .arch-top-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 8px;
+  }
+
+  .arch-shared {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 0 1 auto;
+  }
+
+  .arch-shared-label {
+    font-size: 10.5px;
+    color: rgba(180,200,240,0.55);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .arch-shared-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: linear-gradient(135deg, rgba(96,165,250,0.12) 0%, rgba(167,139,250,0.14) 100%);
+    border: 1.5px solid rgba(167,139,250,0.35);
+    border-radius: 10px;
+  }
+
+  .arch-file-icon { font-size: 18px; }
+
+  .arch-file-name {
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    font-size: 15px;
+    font-weight: 600;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .arch-shared-detail {
+    font-size: 11px;
+    color: rgba(180,200,240,0.6);
+  }
+
+  /* Shared Infra box with four items */
+  .arch-infra-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: linear-gradient(135deg, rgba(125,211,252,0.08) 0%, rgba(96,165,250,0.10) 100%);
+    border: 1.5px solid rgba(125,211,252,0.30);
+    border-radius: 10px;
+  }
+
+  .arch-infra-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: rgba(125,211,252,0.08);
+    border: 1px solid rgba(125,211,252,0.20);
+    border-radius: 6px;
+  }
+
+  .arch-infra-icon { font-size: 15px; }
+
+  .arch-infra-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cfe0ff;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  }
+
+  /* Vertical arrow */
+  .arch-v-arrow {
+    text-align: center;
+    font-size: 12px;
+    color: rgba(167,139,250,0.55);
+    padding: 6px 0;
+    letter-spacing: 1px;
+  }
+
+  /* Agent instances row */
+  .arch-instances {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+
+  .arch-instance {
+    flex: 0 0 190px;
+    background: rgba(96,165,250,0.05);
+    border: 1px solid rgba(96,165,250,0.20);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .arch-inst-head {
+    text-align: center;
+    padding: 8px 0;
+    font-size: 14px;
+    font-weight: 700;
+    background: rgba(96,165,250,0.10);
+    color: #93bbff;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(96,165,250,0.12);
+  }
+
+  .arch-inst-ctx {
+    flex: 1;
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .arch-ctx-label {
+    font-size: 10px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    color: #a78bfa;
+    background: rgba(167,139,250,0.12);
+    padding: 1px 8px;
+    border-radius: 3px;
+    display: inline-block;
+    align-self: flex-start;
+    letter-spacing: 0.5px;
+  }
+
+  .arch-ctx-content {
+    font-size: 10.5px;
+    color: rgba(200,215,245,0.7);
+    line-height: 1.5;
+  }
+
+  .arch-inst-tag {
+    text-align: center;
+    padding: 4px 0;
+    font-size: 10px;
+    color: rgba(180,200,240,0.45);
+    border-top: 1px solid rgba(96,165,250,0.10);
+  }
+
+  .arch-inst-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: rgba(180,200,240,0.3);
+    padding: 0 4px;
+    letter-spacing: 6px;
+  }
+
+  /* Feishu bot layer */
+  .arch-bot-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+
+  .arch-bot-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    background: rgba(125,211,252,0.08);
+    border: 1.5px solid rgba(125,211,252,0.30);
+    border-radius: 22px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #cfe0ff;
+  }
+
+  .arch-bot-desc {
+    font-size: 11px;
+    color: rgba(180,200,240,0.6);
+  }
+
+  /* Users arrows */
+  .arch-users-arrows {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    font-size: 16px;
+    color: rgba(167,139,250,0.4);
+    padding: 2px 0;
+  }
+
+  .arch-users-arrows span { margin: 0 52px; }
+
+  /* Users row */
+  .arch-users {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 14px;
+  }
+
+  .arch-user {
+    flex: 0 0 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 8px;
+    background: rgba(96,165,250,0.04);
+    border: 1px solid rgba(96,165,250,0.15);
+    border-radius: 8px;
+  }
+
+  .arch-user-avatar {
+    font-size: 22px;
+    opacity: 0.7;
+  }
+
+  .arch-user-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #e0e6f0;
+  }
+
+  .arch-user-role {
+    font-size: 10.5px;
+    color: rgba(180,200,240,0.55);
+  }
+
+  /* Annotation bar */
+  .arch-annotation {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin-top: 6px;
+    padding: 10px 0;
+    border-top: 1px solid rgba(100,160,255,0.10);
+  }
+
+  .arch-anno-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: rgba(200,215,245,0.7);
+  }
+
+  .arch-anno-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .arch-anno-item strong {
+    color: #cfe0ff;
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -1384,6 +1653,156 @@
 
   </div><!-- /bottom -->
 </div><!-- /slide 3 -->
+
+<!-- ==================== SLIDE 3.5: Multi-Instance Architecture ==================== -->
+<div class="slide multi-slide">
+
+  <!-- TOP -->
+  <div class="top">
+    <div class="brand">
+      <span class="brand-name">多实例部署</span>
+      <span class="brand-cn">同一灵魂 · 千人千面</span>
+    </div>
+    <div class="tagline">所有 OTCClaw 实例<em>【共享同一套】</em>灵魂与基础设施</div>
+    <div class="subtitle">
+      唯一的差异：<code>{{user_context}}</code> 注入的<strong>「用户 × Agent 工作区」</strong>不同
+    </div>
+  </div>
+
+  <!-- BOTTOM: Architecture Diagram -->
+  <div class="bottom" style="flex-direction: column; padding: 18px 48px 24px; gap: 0;">
+
+    <!-- Top: Shared Soul + Shared Infra, side by side -->
+    <div class="arch-top-row">
+      <!-- Shared Soul -->
+      <div class="arch-shared">
+        <div class="arch-shared-label">共享灵魂</div>
+        <div class="arch-shared-box">
+          <span class="arch-file-icon">📄</span>
+          <span class="arch-file-name">otcclaw.md</span>
+        </div>
+        <div class="arch-shared-detail">身份定位 · 能力描述 · 回答风格 · 工具路由规则</div>
+      </div>
+
+      <!-- Shared Infra -->
+      <div class="arch-shared">
+        <div class="arch-shared-label">共享基础设施</div>
+        <div class="arch-infra-box">
+          <div class="arch-infra-item">
+            <span class="arch-infra-icon">🧰</span>
+            <span class="arch-infra-name">Tools</span>
+          </div>
+          <div class="arch-infra-item">
+            <span class="arch-infra-icon">📚</span>
+            <span class="arch-infra-name">Knowledge</span>
+          </div>
+          <div class="arch-infra-item">
+            <span class="arch-infra-icon">🧠</span>
+            <span class="arch-infra-name">Memory</span>
+          </div>
+          <div class="arch-infra-item">
+            <span class="arch-infra-icon">⚙️</span>
+            <span class="arch-infra-name">Skills</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Down arrow from shared to instances -->
+    <div class="arch-v-arrow">▼ 运行时注入 {{user_context}}</div>
+
+    <!-- Agent Instances Row -->
+    <div class="arch-instances">
+      <div class="arch-instance">
+        <div class="arch-inst-head">OTCClaw</div>
+        <div class="arch-inst-ctx">
+          <div class="arch-ctx-label">user_context</div>
+          <div class="arch-ctx-content">用户 A 的工作区</div>
+        </div>
+        <div class="arch-inst-tag">实例 #1</div>
+      </div>
+
+      <div class="arch-instance">
+        <div class="arch-inst-head">OTCClaw</div>
+        <div class="arch-inst-ctx">
+          <div class="arch-ctx-label">user_context</div>
+          <div class="arch-ctx-content">用户 B 的工作区</div>
+        </div>
+        <div class="arch-inst-tag">实例 #2</div>
+      </div>
+
+      <div class="arch-instance">
+        <div class="arch-inst-head">OTCClaw</div>
+        <div class="arch-inst-ctx">
+          <div class="arch-ctx-label">user_context</div>
+          <div class="arch-ctx-content">用户 C 的工作区</div>
+        </div>
+        <div class="arch-inst-tag">实例 #3</div>
+      </div>
+
+      <div class="arch-inst-dots">…</div>
+
+      <div class="arch-instance">
+        <div class="arch-inst-head">OTCClaw</div>
+        <div class="arch-inst-ctx">
+          <div class="arch-ctx-label">user_context</div>
+          <div class="arch-ctx-content">用户 N 的工作区</div>
+        </div>
+        <div class="arch-inst-tag">实例 #N</div>
+      </div>
+    </div>
+
+    <!-- Down arrow to WeWork bot -->
+    <div class="arch-v-arrow">▼ 统一通信层</div>
+
+    <!-- WeWork Bot Layer -->
+    <div class="arch-bot-row">
+      <div class="arch-bot-box">
+        <span style="font-size: 18px;">🤖</span>
+        <span>企微 Bot</span>
+      </div>
+      <div class="arch-bot-desc">消息路由 → 用户识别 → 匹配对应 user_context → 注入当前实例</div>
+    </div>
+
+    <!-- Down arrows to users -->
+    <div class="arch-users-arrows">
+      <span>▼</span><span>▼</span><span>▼</span><span>▼</span>
+    </div>
+
+    <!-- Users Row -->
+    <div class="arch-users">
+      <div class="arch-user">
+        <div class="arch-user-avatar">👤</div>
+        <div class="arch-user-name">用户 A</div>
+        <div class="arch-user-role">销售 · 华东区</div>
+      </div>
+      <div class="arch-user">
+        <div class="arch-user-avatar">👤</div>
+        <div class="arch-user-name">用户 B</div>
+        <div class="arch-user-role">销售 · 华南区</div>
+      </div>
+      <div class="arch-user">
+        <div class="arch-user-avatar">👤</div>
+        <div class="arch-user-name">用户 C</div>
+        <div class="arch-user-role">交易员</div>
+      </div>
+      <div class="arch-user">
+        <div class="arch-user-avatar">👤</div>
+        <div class="arch-user-name">用户 N</div>
+        <div class="arch-user-role">产品经理</div>
+      </div>
+    </div>
+
+    <!-- Bottom annotation -->
+    <div class="arch-annotation">
+      <div class="arch-anno-item">
+        <div class="arch-anno-dot" style="background:#a78bfa;"></div>
+        <span><strong>独立</strong>：{{user_context}} · 对话历史 · 个人偏好摘要</span>
+      </div>
+    </div>
+
+  </div><!-- /bottom -->
+</div><!-- /slide 3.5 -->
 
 <!-- ==================== SLIDE 4: Tuning / Observability ==================== -->
 <div class="slide tune-slide">
