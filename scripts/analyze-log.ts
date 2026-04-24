@@ -17,9 +17,22 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { basename, join, resolve } from 'path';
 
 type Channel = 'wework' | 'feishu' | 'telegram' | 'cli';
+type DataSource = 'auto' | 'telemetry' | 'app';
 type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 type LatencyMode = 'precise' | 'best_effort' | 'missing';
 type ActorEventKind = 'tool_start' | 'tool_result' | 'thinking' | 'error' | 'other';
+
+interface TelemetryJsonTurn {
+  turn_id: string; session_id: string; user_id: string; agent_id: string;
+  channel: string; started_at: number; ended_at: number;
+  ctx_ms: number; llm_total_ms: number; tool_total_ms: number; render_ms: number;
+  loop_rounds: number; total_tool_calls: number; stop_reason: string;
+  model: string; input_tokens: number; output_tokens: number;
+  tools: { name: string; round: number; duration_ms: number; success: boolean; bytes: number; error?: string }[];
+  llm_calls: { round: number; model: string; input_tokens: number; output_tokens: number; stop_reason: string; duration_ms: number }[];
+  knowledge_hits: { keyword: string; hits: number; agent_id: string }[];
+  answer_preview: string;
+}
 
 interface UserMessage {
   time: string;
@@ -48,6 +61,20 @@ interface TurnRecord extends UserMessage {
   latencySource?: string;
   endIso?: string;
   failed: boolean;
+  // Telemetry-only extensions (undefined when parsed from app logs)
+  inputTokens?: number;
+  outputTokens?: number;
+  ctxMs?: number;
+  llmTotalMs?: number;
+  toolTotalMs?: number;
+  renderMs?: number;
+  loopRounds?: number;
+  stopReason?: string;
+  knowledgeHitsTotal?: number;
+  knowledgeZeroHitCount?: number;
+  toolSuccessCount?: number;
+  toolFailCount?: number;
+  model?: string;
 }
 
 interface FeishuBlock {
@@ -122,7 +149,7 @@ function enumerateDateRange(from: string, to: string): string[] {
   return dates;
 }
 
-function resolveLogPaths(args: string[]): string[] {
+function resolveLogPaths(args: string[], source: DataSource): { paths: string[]; source: DataSource } {
   const root = process.cwd();
   const filePath = args.find(a => !a.startsWith('--'));
   if (filePath) {
@@ -131,38 +158,45 @@ function resolveLogPaths(args: string[]): string[] {
       console.error(`文件不存在: ${p}`);
       process.exit(1);
     }
-    return [p];
+    const detected = p.includes('telemetry') ? 'telemetry' : 'app';
+    return { paths: [p], source: source === 'auto' ? detected : source };
   }
 
   const fromDate = parseArg(args, '--from=');
   const toDate = parseArg(args, '--to=');
 
-  if (fromDate || toDate) {
-    const today = new Date();
-    today.setHours(today.getHours() + 8);
-    const todayStr = today.toISOString().slice(0, 10);
-    const from = fromDate || todayStr;
-    const to = toDate || todayStr;
-    const dates = enumerateDateRange(from, to);
-    const paths = dates
-      .map(d => join(root, 'logs', `app-${d}.log`))
-      .filter(p => existsSync(p));
-    if (paths.length === 0) {
-      console.error(`日期范围 ${from} ~ ${to} 内无日志文件`);
-      process.exit(1);
-    }
-    return paths;
-  }
-
   const today = new Date();
   today.setHours(today.getHours() + 8);
-  const dateStr = today.toISOString().slice(0, 10);
-  const defaultPath = join(root, 'logs', `app-${dateStr}.log`);
-  if (!existsSync(defaultPath)) {
-    console.error(`今日日志不存在: ${defaultPath}`);
+  const todayStr = today.toISOString().slice(0, 10);
+  const from = fromDate || todayStr;
+  const to = toDate || todayStr;
+  const dates = enumerateDateRange(from, to);
+
+  // Auto-detect: prefer telemetry over app log
+  if (source === 'auto') {
+    const telemPaths = dates
+      .map(d => join(root, 'logs', `telemetry-${d}.jsonl`))
+      .filter(p => existsSync(p));
+    if (telemPaths.length > 0) return { paths: telemPaths, source: 'telemetry' as DataSource };
+    const appPaths = dates
+      .map(d => join(root, 'logs', `app-${d}.log`))
+      .filter(p => existsSync(p));
+    if (appPaths.length > 0) return { paths: appPaths, source: 'app' as DataSource };
+    console.error(`日期范围 ${from} ~ ${to} 内无 telemetry 或 app 日志文件`);
+    process.exit(1);
+    return { paths: [], source: 'app' };
+  }
+
+  const suffix = source === 'telemetry' ? 'telemetry' : 'app';
+  const ext = source === 'telemetry' ? '.jsonl' : '.log';
+  const paths = dates
+    .map(d => join(root, 'logs', `${suffix}-${d}${ext}`))
+    .filter(p => existsSync(p));
+  if (paths.length === 0) {
+    console.error(`日期范围 ${from} ~ ${to} 内无 ${suffix} 日志文件`);
     process.exit(1);
   }
-  return [defaultPath];
+  return { paths, source };
 }
 
 function truncate(s: string, max: number): string {
@@ -462,6 +496,62 @@ function parseAllTurns(rawLines: string[]): TurnRecord[] {
   return turns;
 }
 
+function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
+  const turns: TurnRecord[] = [];
+  let skipped = 0;
+
+  for (const p of filePaths) {
+    const lines = readFileSync(p, 'utf8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      let t: TelemetryJsonTurn;
+      try { t = JSON.parse(line); } catch { skipped++; continue; }
+
+      const totalMs = t.ctx_ms + t.llm_total_ms + t.tool_total_ms + t.render_ms;
+      const knowledgeZeroHits = t.knowledge_hits.filter(h => h.hits === 0).length;
+      const toolSucceeds = t.tools.filter(tc => tc.success).length;
+      const toolFails = t.tools.length - toolSucceeds;
+      const userSuffix = t.user_id.slice(-8);
+
+      turns.push({
+        time: toUTC8(new Date(t.started_at).toISOString()),
+        startIso: new Date(t.started_at).toISOString(),
+        userid: `${t.channel}_${userSuffix}`,
+        channel: (VALID_CHANNELS.includes(t.channel as Channel) ? t.channel : 'cli') as Channel,
+        chattype: t.channel === 'cli' ? 'CLI' : '私聊',
+        msgtype: 'text',
+        agent: t.agent_id,
+        content: t.answer_preview || '(无文本回复)',
+        toolCalls: t.tools.map(tc => ({ name: tc.name, durationMs: tc.duration_ms, round: tc.round })),
+        toolCount: t.total_tool_calls,
+        latencyMode: 'precise',
+        latencyMs: totalMs,
+        latencySource: 'telemetry 分段耗时合计',
+        endIso: new Date(t.ended_at).toISOString(),
+        failed: t.stop_reason === 'error' || t.tools.some(tc => !!tc.error),
+        actorKey: `${t.channel}:${userSuffix}`,
+        // Telemetry extensions
+        inputTokens: t.input_tokens,
+        outputTokens: t.output_tokens,
+        ctxMs: t.ctx_ms,
+        llmTotalMs: t.llm_total_ms,
+        toolTotalMs: t.tool_total_ms,
+        renderMs: t.render_ms,
+        loopRounds: t.loop_rounds,
+        stopReason: t.stop_reason,
+        knowledgeHitsTotal: t.knowledge_hits.reduce((s, h) => s + h.hits, 0),
+        knowledgeZeroHitCount: knowledgeZeroHits,
+        toolSuccessCount: toolSucceeds,
+        toolFailCount: toolFails,
+        model: t.model,
+      });
+    }
+  }
+
+  if (skipped > 0) console.warn(`Telemetry: 跳过 ${skipped} 行无法解析的 JSON 行`);
+  turns.sort((a, b) => a.startIso.localeCompare(b.startIso));
+  return turns;
+}
+
 function applyBestEffortAnalysis(turns: TurnRecord[], actorEvents: Map<string, ActorEvent[]>): void {
   const turnsByActor = new Map<string, TurnRecord[]>();
   for (const turn of turns) {
@@ -595,7 +685,10 @@ function buildLatencyMetricRow(label: string, turns: TurnRecord[], modeLabel?: s
   const values = turns.map(turn => turn.latencyMs).filter((value): value is number => value !== undefined);
   if (values.length === 0) return null;
   const mode = modeLabel ?? (turns.every(turn => turn.latencyMode === 'precise') ? '精确' : turns.every(turn => turn.latencyMode === 'best_effort') ? '近似' : '混合');
-  return `| ${label} | ${values.length} | ${mode} | ${formatMs(average(values))} | ${formatMs(percentile(values, 0.5))} | ${formatMs(percentile(values, 0.9))} | ${formatMs(Math.max(...values))} | ${formatMs(Math.min(...values))} |`;
+  const p90 = formatMs(percentile(values, 0.9));
+  const p95 = formatMs(percentile(values, 0.95));
+  const pDisplay = reportSource === 'telemetry' ? `${p90} / ${p95}` : p90;
+  return `| ${label} | ${values.length} | ${mode} | ${formatMs(average(values))} | ${formatMs(percentile(values, 0.5))} | ${pDisplay} | ${formatMs(Math.max(...values))} | ${formatMs(Math.min(...values))} |`;
 }
 
 function formatTurnToolSummary(turn: TurnRecord): string {
@@ -629,6 +722,112 @@ function formatTurnLatency(turn: TurnRecord): string {
   if (turn.latencyMs === undefined) return '—';
   const modeLabel = turn.latencyMode === 'precise' ? '精确' : turn.latencyMode === 'best_effort' ? '近似' : '缺失';
   return `${formatMs(turn.latencyMs)} (${modeLabel})`;
+}
+
+function formatToken(n?: number): string {
+  if (n === undefined) return '—';
+  if (n < 1000) return `${n}`;
+  return `${(n / 1000).toFixed(1)}k`;
+}
+
+function buildTelemetrySections(turns: TurnRecord[]): string[] {
+  const lines: string[] = [];
+
+  // --- Token 用量 ---
+  const withTokens = turns.filter(t => t.inputTokens !== undefined && t.outputTokens !== undefined);
+  if (withTokens.length > 0) {
+    lines.push('### Token 用量');
+    lines.push('');
+    const inputVals = withTokens.map(t => t.inputTokens!);
+    const outputVals = withTokens.map(t => t.outputTokens!);
+    const totalInput = inputVals.reduce((a, b) => a + b, 0);
+    const totalOutput = outputVals.reduce((a, b) => a + b, 0);
+
+    lines.push(`- 会话数: ${withTokens.length}`);
+    lines.push(`- 总输入 token: ${formatToken(totalInput)}`);
+    lines.push(`- 总输出 token: ${formatToken(totalOutput)}`);
+    lines.push(`- 输入 P50 / P95 / P99: ${formatToken(percentile(inputVals, 0.5))} / ${formatToken(percentile(inputVals, 0.95))} / ${formatToken(percentile(inputVals, 0.99))}`);
+    lines.push(`- 输出 P50 / P95 / P99: ${formatToken(percentile(outputVals, 0.5))} / ${formatToken(percentile(outputVals, 0.95))} / ${formatToken(percentile(outputVals, 0.99))}`);
+    lines.push(`- 平均每会话输入: ${formatToken(average(inputVals))} / 输出: ${formatToken(average(outputVals))}`);
+
+    // Per-model breakdown
+    const modelMap = new Map<string, { count: number; inputTokens: number[]; outputTokens: number[] }>();
+    for (const t of withTokens) {
+      const mdl = t.model || 'unknown';
+      const entry = modelMap.get(mdl) ?? { count: 0, inputTokens: [], outputTokens: [] };
+      entry.count++;
+      entry.inputTokens.push(t.inputTokens!);
+      entry.outputTokens.push(t.outputTokens!);
+      modelMap.set(mdl, entry);
+    }
+    if (modelMap.size > 0) {
+      lines.push('');
+      lines.push('| Model | 会话数 | 平均输入 | 平均输出 | P95 输入 | P95 输出 |');
+      lines.push('|-------|--------|---------|---------|----------|---------|');
+      for (const [mdl, entry] of [...modelMap.entries()].sort((a, b) => b[1].count - a[1].count)) {
+        lines.push(`| ${mdl} | ${entry.count} | ${formatToken(average(entry.inputTokens))} | ${formatToken(average(entry.outputTokens))} | ${formatToken(percentile(entry.inputTokens, 0.95))} | ${formatToken(percentile(entry.outputTokens, 0.95))} |`);
+      }
+    }
+    lines.push('');
+  }
+
+  // --- 分段耗时 ---
+  const withSegments = turns.filter(t => t.ctxMs !== undefined);
+  if (withSegments.length > 0) {
+    lines.push('### 分段耗时拆解');
+    lines.push('');
+    const avgCtx = average(withSegments.map(t => t.ctxMs!)) ?? 0;
+    const avgLlm = average(withSegments.map(t => t.llmTotalMs!)) ?? 0;
+    const avgTool = average(withSegments.map(t => t.toolTotalMs!)) ?? 0;
+    const avgRender = average(withSegments.map(t => t.renderMs!)) ?? 0;
+    const avgTotal = avgCtx + avgLlm + avgTool + avgRender;
+
+    const pct = (v: number) => avgTotal > 0 ? `${((v / avgTotal) * 100).toFixed(0)}%` : '—';
+
+    lines.push(`| 阶段 | 平均耗时 | 占比 | P50 | P95 |`);
+    lines.push(`|------|---------|------|-----|-----|`);
+    lines.push(`| ctx (上下文准备) | ${formatMs(avgCtx)} | ${pct(avgCtx)} | ${formatMs(percentile(withSegments.map(t => t.ctxMs!), 0.5))} | ${formatMs(percentile(withSegments.map(t => t.ctxMs!), 0.95))} |`);
+    lines.push(`| LLM 调用 | ${formatMs(avgLlm)} | ${pct(avgLlm)} | ${formatMs(percentile(withSegments.map(t => t.llmTotalMs!), 0.5))} | ${formatMs(percentile(withSegments.map(t => t.llmTotalMs!), 0.95))} |`);
+    lines.push(`| 工具执行 | ${formatMs(avgTool)} | ${pct(avgTool)} | ${formatMs(percentile(withSegments.map(t => t.toolTotalMs!), 0.5))} | ${formatMs(percentile(withSegments.map(t => t.toolTotalMs!), 0.95))} |`);
+    lines.push(`| render | ${formatMs(avgRender)} | ${pct(avgRender)} | ${formatMs(percentile(withSegments.map(t => t.renderMs!), 0.5))} | ${formatMs(percentile(withSegments.map(t => t.renderMs!), 0.95))} |`);
+    lines.push(`| **合计** | **${formatMs(avgTotal)}** | — | — | — |`);
+    lines.push('');
+  }
+
+  // --- 知识库命中率 ---
+  const withKnowledge = turns.filter(t => t.knowledgeHitsTotal !== undefined);
+  if (withKnowledge.length > 0) {
+    const totalSearches = withKnowledge.reduce((s, t) => s + (t.knowledgeHitsTotal ?? 0), 0);
+    const searchedSessions = withKnowledge.filter(t => (t.knowledgeHitsTotal ?? 0) > 0).length;
+    const zeroHitSessions = withKnowledge.filter(t => t.knowledgeZeroHitCount !== undefined && t.knowledgeZeroHitCount > 0).length;
+
+    lines.push('### 知识库命中');
+    lines.push('');
+    lines.push(`- 搜索过的会话: ${searchedSessions} / ${withKnowledge.length}`);
+    lines.push(`- 总命中数: ${totalSearches}`);
+    lines.push(`- 至少一次零命中的会话: ${zeroHitSessions} (${searchedSessions > 0 ? ((zeroHitSessions / searchedSessions) * 100).toFixed(1) : 0}%)`);
+
+    const allHits = withKnowledge.map(t => t.knowledgeHitsTotal ?? 0);
+    lines.push(`- 每会话命中 P50 / P95: ${percentile(allHits, 0.5)?.toFixed(0)} / ${percentile(allHits, 0.95)?.toFixed(0)}`);
+    lines.push('');
+  }
+
+  // --- 工具成功率 ---
+  const withToolStats = turns.filter(t => t.toolSuccessCount !== undefined);
+  if (withToolStats.length > 0) {
+    const totalSuccess = withToolStats.reduce((s, t) => s + (t.toolSuccessCount ?? 0), 0);
+    const totalFail = withToolStats.reduce((s, t) => s + (t.toolFailCount ?? 0), 0);
+    const totalTools = totalSuccess + totalFail;
+    const failRate = totalTools > 0 ? ((totalFail / totalTools) * 100).toFixed(1) : '0';
+
+    lines.push('### 工具调用成功率');
+    lines.push('');
+    lines.push(`- 成功: ${totalSuccess} / 失败: ${totalFail} / 总计: ${totalTools}`);
+    lines.push(`- 失败率: ${failRate}%`);
+    lines.push('');
+  }
+
+  return lines;
 }
 
 function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
@@ -750,8 +949,9 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
 
   if (latencySummary.analyzed.length > 0) {
     lines.push('');
-    lines.push('| 范围 | 会话数 | 口径 | 平均 | 中位数 | P90 | 最慢 | 最快 |');
-    lines.push('|------|--------|------|------|--------|-----|------|------|');
+    const rangeHeader = reportSource === 'telemetry' ? 'P90 / P95' : 'P90';
+    lines.push(`| 范围 | 会话数 | 口径 | 平均 | 中位数 | ${rangeHeader} | 最慢 | 最快 |`);
+    lines.push(`|------|--------|------|------|--------|${rangeHeader === 'P90' ? '-----' : '----------'}|------|------|`);
     const overallRow = buildLatencyMetricRow('总体', latencySummary.analyzed);
     if (overallRow) lines.push(overallRow);
     const preciseRow = buildLatencyMetricRow('仅精确值', turns.filter(turn => turn.latencyMode === 'precise'), '精确');
@@ -760,12 +960,17 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
     if (bestEffortRow) lines.push(bestEffortRow);
 
     lines.push('');
-    lines.push('| 渠道 | 会话数 | 口径 | 平均 | 中位数 | P90 | 最慢 | 最快 |');
-    lines.push('|------|--------|------|------|--------|-----|------|------|');
+    lines.push(`| 渠道 | 会话数 | 口径 | 平均 | 中位数 | ${rangeHeader} | 最慢 | 最快 |`);
+    lines.push(`|------|--------|------|------|--------|${rangeHeader === 'P90' ? '-----' : '----------'}|------|------|`);
     for (const channel of ['wework', 'feishu', 'telegram', 'cli'] as Channel[]) {
       const row = buildLatencyMetricRow(CHANNEL_LABEL[channel], turns.filter(turn => turn.channel === channel && turn.latencyMs !== undefined));
       if (row) lines.push(row);
     }
+  }
+
+  // Telemetry-only sections
+  if (reportSource === 'telemetry') {
+    lines.push(...buildTelemetrySections(turns));
   }
 
   lines.push('');
@@ -776,46 +981,83 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
   lines.push('- best-effort 延时不等同于客户端真正收包时间，更适合做趋势观察，不适合做严格 SLA。');
   lines.push('- 工具调用排行优先统计可识别工具名；若飞书完成 block 只展开前 8 个工具，其余调用记为 `（未展开工具）`。');
 
+  if (reportSource === 'telemetry') {
+    lines.push('- **数据来源**: telemetry JSONL，延时为 ctx + llm + tool + render 四段精确合计。');
+    lines.push('- token 用量来自各 provider SDK 原始返回，不同模型的 tokenizer 口径不完全可比。');
+    lines.push('- 知识库命中统计：仅计入 search_knowledge 工具调用，不包含文档 grep 搜索。');
+  }
+
   lines.push('');
   return lines.join('\n');
 }
 
 function buildCSV(turns: TurnRecord[]): string {
-  const lines: string[] = ['序号,时间,用户,渠道,Agent,聊天类型,消息类型,问题'];
+  const isTelemetry = reportSource === 'telemetry';
+  const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '工具数', '耗时ms'];
+  const telemetryHeaders = ['输入token', '输出token', 'ctx_ms', 'llm_ms', 'tool_ms', 'render_ms', 'loop轮次', 'stop_reason', 'knowledge命中', '工具成功', '工具失败'];
+  const headers = isTelemetry ? [...baseHeaders, ...telemetryHeaders] : baseHeaders;
+  const lines: string[] = [headers.join(',')];
+
   turns.forEach((turn, i) => {
     const content = turn.content.replace(/"/g, '""').replace(/\n/g, ' ');
     const ch = CHANNEL_LABEL[turn.channel];
     const agent = turn.agent || '';
-    lines.push(`${i + 1},"${turn.time}","${turn.userid}","${ch}","${agent}","${turn.chattype}","${turn.msgtype}","${content}"`);
+    const baseFields = [
+      i + 1, `"${turn.time}"`, `"${turn.userid}"`, `"${ch}"`, `"${agent}"`,
+      `"${turn.chattype}"`, `"${turn.msgtype}"`, `"${content}"`,
+      turn.toolCount, turn.latencyMs ?? '',
+    ];
+    if (isTelemetry) {
+      baseFields.push(
+        turn.inputTokens ?? '', turn.outputTokens ?? '',
+        turn.ctxMs ?? '', turn.llmTotalMs ?? '', turn.toolTotalMs ?? '', turn.renderMs ?? '',
+        turn.loopRounds ?? '', turn.stopReason ?? '',
+        turn.knowledgeHitsTotal ?? '',
+        turn.toolSuccessCount ?? '', turn.toolFailCount ?? '',
+      );
+    }
+    lines.push(baseFields.join(','));
   });
   return lines.join('\n') + '\n';
 }
 
 function extractDateFromPath(logPath: string): string {
-  const m = basename(logPath).match(/app-(\d{4}-\d{2}-\d{2})\.log/);
+  const m = basename(logPath).match(/(?:app|telemetry)-(\d{4}-\d{2}-\d{2})\.(?:log|jsonl)/);
   return m ? m[1] : new Date().toISOString().slice(0, 10);
 }
 
 const VALID_CHANNELS: Channel[] = ['wework', 'feishu', 'telegram', 'cli'];
+let reportSource: DataSource = 'app'; // set in main, used by buildMarkdown
 
 // --- main ---
 const args = process.argv.slice(2);
 const csvMode = args.includes('--csv');
 const channelArg = parseArg(args, '--channel=') as Channel | undefined;
+const sourceArg = (parseArg(args, '--source=') as DataSource) ?? 'auto';
 
 if (channelArg && !VALID_CHANNELS.includes(channelArg)) {
   console.error(`无效渠道: ${channelArg}，可选: ${VALID_CHANNELS.join(', ')}`);
   process.exit(1);
 }
-
-const logPaths = resolveLogPaths(args);
-
-const allLines: string[] = [];
-for (const p of logPaths) {
-  allLines.push(...readFileSync(p, 'utf8').split('\n'));
+if (sourceArg && !['auto', 'telemetry', 'app'].includes(sourceArg)) {
+  console.error(`无效 source: ${sourceArg}，可选: auto, telemetry, app`);
+  process.exit(1);
 }
 
-let turns = parseAllTurns(allLines);
+const { paths, source } = resolveLogPaths(args, sourceArg);
+reportSource = source;
+
+let turns: TurnRecord[];
+if (source === 'telemetry') {
+  turns = parseTelemetryTurns(paths);
+} else {
+  const allLines: string[] = [];
+  for (const p of paths) {
+    allLines.push(...readFileSync(p, 'utf8').split('\n'));
+  }
+  turns = parseAllTurns(allLines);
+}
+
 if (channelArg) {
   turns = turns.filter(turn => turn.channel === channelArg);
 }
@@ -826,21 +1068,23 @@ if (turns.length === 0) {
   process.exit(0);
 }
 
-const dates = logPaths.map(extractDateFromPath);
+const dates = paths.map(extractDateFromPath);
 const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
 const fileTag = dates.length === 1 ? dates[0] : `${dates[0]}_${dates[dates.length - 1]}`;
 
+const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
 const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
 const output = csvMode
   ? buildCSV(turns)
-  : buildMarkdown(turns, dateLabel + channelSuffix);
+  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix);
 console.log(output);
 
 const outDir = join(process.cwd(), 'logs', 'daily_usage');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 const ext = csvMode ? 'csv' : 'md';
+const srcFileTag = source === 'telemetry' ? '_telemetry' : '';
 const channelFileTag = channelArg ? `_${channelArg}` : '';
-const outFile = join(outDir, `${fileTag}${channelFileTag}.${ext}`);
+const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}.${ext}`);
 writeFileSync(outFile, output, 'utf8');
 console.log(`\n=> 已写入 ${outFile}`);

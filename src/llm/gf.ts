@@ -2,24 +2,37 @@ import type { LLMProvider, StreamEvent } from './provider.js';
 import { convertTools, convertMessages, convertResponse, parseSSEStream } from './openai-compat.js';
 
 /* ----------------------------------------------------------------
- * GLM Provider 工厂
- * 使用 OpenAI 协议兼容 API
+ * GF Provider 工厂
+ * 广发内部 LLM 网关（OpenAI 协议兼容）
  * Base URL: http://llm.smart-zone-dev.gf.com.cn/api/oai/v1
- * 文本模型: external-glm-5-turbo
+ * 可选模型:
+ *   - external-glm-5-turbo
+ *   - external-glm-5.1
+ *   - external-deepseek-v4-pro
+ *   - external-kimi-k2.6
  * 视觉模型: external-glm-4.5v
  * ---------------------------------------------------------------- */
 
-export function createGlmProvider(): LLMProvider | null {
-  const apiKey = process.env.GLM_API_KEY;
+export const GF_AVAILABLE_MODELS = [
+  'external-glm-5-turbo',
+  'external-glm-5.1',
+  'external-deepseek-v4-pro',
+  'external-deepseek-v4-flash',
+  'external-kimi-k2.6',
+];
+
+export function createGfProvider(): LLMProvider | null {
+  const apiKey = process.env.GF_API_KEY;
   if (!apiKey) return null;
 
-  const baseUrl = (process.env.GLM_BASE_URL || 'http://llm.smart-zone-dev.gf.com.cn/api/oai/v1').replace(/\/+$/, '');
-  const defaultModel = process.env.GLM_MODEL || 'external-glm-5-turbo';
-  const visionModel = process.env.GLM_VISION_MODEL || 'external-glm-4.5v';
+  const baseUrl = (process.env.GF_BASE_URL || 'http://llm.smart-zone-dev.gf.com.cn/api/oai/v1').replace(/\/+$/, '');
+  const defaultModel = process.env.GF_MODEL || 'external-glm-5-turbo';
+  const visionModel = process.env.GF_VISION_MODEL || 'external-glm-4.5v';
 
   return {
-    name: 'glm',
+    name: 'gf',
     defaultModel,
+    availableModels: GF_AVAILABLE_MODELS,
 
     async createMessage(params) {
       const body: Record<string, unknown> = {
@@ -43,16 +56,16 @@ export function createGlmProvider(): LLMProvider | null {
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`GLM API ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`GF API ${res.status}: ${text.slice(0, 500)}`);
       }
 
       const data = await res.json();
 
       if (data.error) {
-        throw new Error(`GLM error: ${JSON.stringify(data.error)}`);
+        throw new Error(`GF error: ${JSON.stringify(data.error)}`);
       }
 
-      return convertResponse(data, 'GLM');
+      return convertResponse(data, 'GF');
     },
 
     async *createMessageStream(params): AsyncGenerator<StreamEvent> {
@@ -78,12 +91,12 @@ export function createGlmProvider(): LLMProvider | null {
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`GLM API ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`GF API ${res.status}: ${text.slice(0, 500)}`);
       }
 
-      if (!res.body) throw new Error('GLM stream: no response body');
+      if (!res.body) throw new Error('GF stream: no response body');
 
-      yield* parseSSEStream(res.body as AsyncIterable<Uint8Array>, 'GLM');
+      yield* parseSSEStream(res.body as AsyncIterable<Uint8Array>, 'GF');
     },
 
     async describeImage(imageDataUrl: string, prompt: string): Promise<string> {
@@ -108,13 +121,13 @@ export function createGlmProvider(): LLMProvider | null {
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`GLM Vision API ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`GF Vision API ${res.status}: ${text.slice(0, 500)}`);
       }
 
       const data = await res.json();
 
       if (data.error) {
-        throw new Error(`GLM Vision error: ${JSON.stringify(data.error)}`);
+        throw new Error(`GF Vision error: ${JSON.stringify(data.error)}`);
       }
 
       return data.choices?.[0]?.message?.content || '';

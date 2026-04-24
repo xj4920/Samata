@@ -22,11 +22,12 @@ import axios from 'axios';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isImageFile } from './api.js';
 import { buildCard, buildThinkingCard } from './card.js';
-import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { getProvider } from '../llm/provider.js';
+import { handleModelCommand } from '../commands/model-cmd.js';
 import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
-import { getAgent, resolveAgent, AgentUnboundError, type BotAppRow } from '../llm/agents/config.js';
+import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { buildFileHint } from '../runtime/file-hint.js';
 import { getDb } from '../db/connection.js';
@@ -328,7 +329,7 @@ async function handleAIChat(
 ): Promise<{ text: string; mediaPaths?: string[] }> {
   const session = await getSessionForInstance(instance, feishuUserId, feishuUsername);
 
-  return runWithExecutionContext({ channel: 'feishu', user: session.user }, async () => {
+  return runWithExecutionContext({ channel: 'feishu', user: session.user, appId: instance.appId }, async () => {
   const showThinkingEnabled = instance.config.showThinking !== false;
   const traceId = replyOpts?.traceId ?? createTraceId();
   const interactionTrace: InteractionTrace = {
@@ -371,7 +372,11 @@ async function handleAIChat(
     await sendProgressCard('🤔 思考中...');
   }
 
-  const agentConfig = getAgent(session.agentName);
+  const baseAgentConfig = getAgent(session.agentName);
+  const botLLM = getBotAppLLM(instance.appId);
+  const agentConfig = (botLLM.provider || botLLM.model)
+    ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+    : baseAgentConfig;
   logTraceBlock(instance, traceId, 'AI 对话开始', [
     `user=${session.user.username} (${session.user.role})`,
     `agent=${agentConfig.displayName} (${agentConfig.name})`,
@@ -928,7 +933,7 @@ async function handleAgentCommand(instance: FeishuBotInstance, args: string, fei
  * 处理飞书消息事件（FeishuMessage 已统一为 v2 结构）
  */
 async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): Promise<void> {
-  return runWithExecutionContext({ channel: 'feishu' }, async () => {
+  return runWithExecutionContext({ channel: 'feishu', appId: instance.appId }, async () => {
   const chatId = event.message.chat_id;
   const chatType = event.message.chat_type;  // "p2p" | "group"
   const messageType = event.message.message_type;
@@ -1168,27 +1173,16 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       return;
     }
 
-    // /model 命令：查看或切换 LLM provider
+    // /model 命令：查看或切换 LLM provider/model（bot 级绑定）
     if (text.startsWith('/model')) {
       const modelSession = await getSessionForInstance(instance, senderId, '');
       if (!isAgentAdmin(getAgent(modelSession.agentName).id)) {
         await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
       }
-      const arg = text.replace(/^\/model\s*/, '').trim();
-      if (!arg || arg === 'list') {
-        const available = getAvailableProviders();
-        const current = getProviderName();
-        const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-        await sendFeishuReply(instance, chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`, replyOpts);
-      } else {
-        const ok = switchProvider(arg as ProviderName);
-        if (ok) {
-          await sendFeishuReply(instance, chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`, replyOpts);
-        } else {
-          await sendFeishuReply(instance, chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`, replyOpts);
-        }
-      }
+      const arg = text.replace(/^\/model\s*/, '');
+      const reply = handleModelCommand(arg, { scope: 'bot', botAppId: instance.appId });
+      await sendFeishuReply(instance, chatId, reply, replyOpts);
       return;
     }
 
@@ -1206,7 +1200,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       let reply: string | null;
       try {
         reply = await runWithExecutionContext(
-          { channel: 'feishu', user: session.user },
+          { channel: 'feishu', user: session.user, appId: instance.appId },
           () => handleCommand(instance, cmd, args, senderId),
         );
       } finally {

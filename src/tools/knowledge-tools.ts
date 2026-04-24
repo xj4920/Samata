@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
-import { isSystemAdmin } from '../auth/rbac.js';
+import { isSystemAdmin, getCurrentUser } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
 import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
+import { recordKnowledge as recordKnowledgeTelemetry } from '../telemetry/emitter.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -156,6 +157,15 @@ function extractRelevantSnippet(answer: string, keyword: string): string {
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
   const { faq, documents } = fetchKnowledge(input.keyword, agentId);
+
+  // Record knowledge search hit for telemetry
+  const totalHits = faq.length + documents.length;
+  recordKnowledgeTelemetry(getCurrentUser()?.id ?? 'unknown', {
+    keyword: input.keyword,
+    hits: totalHits,
+    agent_id: agentId ?? 'unknown',
+  });
+
   if (faq.length === 0 && documents.length === 0) {
     return JSON.stringify({ message: '未找到相关结果，建议换用更短或不同的关键词重试' });
   }

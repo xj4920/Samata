@@ -35,6 +35,37 @@ interface McpSession {
 }
 
 const sessions = new Map<string, McpSession>();
+const serverConfigs = new Map<string, McpServerConfig>();
+const inflightConnects = new Map<string, Promise<void>>();
+const lastFailedAt = new Map<string, number>();
+const RECONNECT_COOLDOWN_MS = 10_000;
+const BACKGROUND_RETRY_INTERVAL_MS = 30_000;
+let retryTimer: NodeJS.Timeout | null = null;
+
+async function ensureConnected(name: string): Promise<boolean> {
+  if (sessions.has(name)) return true;
+  const srv = serverConfigs.get(name);
+  if (!srv) return false;
+  if (Date.now() - (lastFailedAt.get(name) ?? 0) < RECONNECT_COOLDOWN_MS) return false;
+
+  let p = inflightConnects.get(name);
+  if (!p) {
+    p = (async () => {
+      try {
+        await connectServer(name, srv);
+        lastFailedAt.delete(name);
+      } catch (err: any) {
+        lastFailedAt.set(name, Date.now());
+        log.warn(`⚠️  MCP [${name}]: 重连失败 — ${err.message}`);
+        throw err;
+      } finally {
+        inflightConnects.delete(name);
+      }
+    })();
+    inflightConnects.set(name, p);
+  }
+  try { await p; return true; } catch { return false; }
+}
 
 function loadConfig(): McpServersConfig {
   const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -79,7 +110,7 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
       });
 
   const client = new Client({ name: 'samata', version: '1.0.0' });
-  await client.connect(transport);
+  await client.connect(transport, { timeout: 120_000 });
 
   const { tools } = await client.listTools();
   const allowSet = srv.tools ? new Set(srv.tools) : null;
@@ -99,12 +130,21 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
 export async function initMcpServers(): Promise<void> {
   const config = loadConfig();
   for (const [name, srv] of Object.entries(config.servers)) {
+    serverConfigs.set(name, srv);
     try {
       await connectServer(name, srv);
     } catch (err: any) {
+      lastFailedAt.set(name, Date.now());
       log.warn(`⚠️  MCP [${name}]: 连接失败 — ${err.message}`);
     }
   }
+  if (retryTimer) clearInterval(retryTimer);
+  retryTimer = setInterval(() => {
+    for (const name of serverConfigs.keys()) {
+      if (!sessions.has(name)) ensureConnected(name).catch(() => {});
+    }
+  }, BACKGROUND_RETRY_INTERVAL_MS);
+  retryTimer.unref?.();
 }
 
 export function getMcpTools(): Anthropic.Tool[] {
@@ -117,24 +157,45 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
   if (!match) return JSON.stringify({ error: `无效的 MCP 工具名: ${toolName}` });
 
   const [, serverName, originalName] = match;
-  const session = sessions.get(serverName);
-  if (!session) return JSON.stringify({ error: `MCP 服务器未连接: ${serverName}` });
 
-  try {
-    const result = await session.client.callTool({ name: originalName, arguments: input });
-    if (result.isError) {
-      return JSON.stringify({ error: result.content });
-    }
+  if (!sessions.has(serverName)) {
+    const ok = await ensureConnected(serverName);
+    if (!ok) return JSON.stringify({ error: `MCP 服务器未连接: ${serverName}` });
+  }
+
+  const invoke = async () => {
+    const session = sessions.get(serverName)!;
+    return session.client.callTool({ name: originalName, arguments: input });
+  };
+
+  const formatResult = (result: Awaited<ReturnType<typeof invoke>>): string => {
+    if (result.isError) return JSON.stringify({ error: result.content });
     const texts = (result.content as any[])
       .filter(c => c.type === 'text')
       .map(c => c.text as string);
     return texts.join('\n') || JSON.stringify(result.content);
+  };
+
+  try {
+    return formatResult(await invoke());
   } catch (err: any) {
-    return JSON.stringify({ error: `MCP 工具调用失败: ${err.message}` });
+    // transport 可能已断：丢弃 session，重连一次，重试一次
+    try { await sessions.get(serverName)?.client.close(); } catch {}
+    sessions.delete(serverName);
+    lastFailedAt.delete(serverName);
+    const ok = await ensureConnected(serverName);
+    if (!ok) return JSON.stringify({ error: `MCP 工具调用失败: ${err.message}` });
+    try {
+      return formatResult(await invoke());
+    } catch (err2: any) {
+      return JSON.stringify({ error: `MCP 工具调用失败（重试后）: ${err2.message}` });
+    }
   }
 }
 
 export async function stopMcpServers(): Promise<void> {
+  if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+  inflightConnects.clear();
   for (const [name, session] of sessions) {
     try {
       await session.client.close();

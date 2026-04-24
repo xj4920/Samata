@@ -62,6 +62,7 @@ export function createAnthropicProvider(): LLMProvider | null {
       return {
         content: resp.content,
         stop_reason: resp.stop_reason ?? 'end_turn',
+        usage: resp.usage ? { input_tokens: resp.usage.input_tokens, output_tokens: resp.usage.output_tokens } : undefined,
       };
     },
     async describeImage(imageDataUrl: string, prompt: string): Promise<string> {
@@ -110,7 +111,12 @@ export function createAnthropicProvider(): LLMProvider | null {
       }
 
       const final = await stream.finalMessage();
-      yield { type: 'done', content: final.content, stop_reason: final.stop_reason ?? stopReason };
+      yield {
+        type: 'done',
+        content: final.content,
+        stop_reason: final.stop_reason ?? stopReason,
+        usage: final.usage ? { input_tokens: final.usage.input_tokens, output_tokens: final.usage.output_tokens } : undefined,
+      };
     },
   };
 }

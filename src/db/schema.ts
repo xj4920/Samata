@@ -1602,4 +1602,41 @@ export function initSchema(): void {
         .run(JSON.stringify(list));
     }
   });
+
+  runOnce('agents-rename-glm-to-gf', () => {
+    db.prepare("UPDATE agents SET provider = 'gf', updated_at = datetime('now') WHERE provider = 'glm'").run();
+  });
+
+  runOnce('add-telemetry-turn-table', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS telemetry_turn (
+        turn_id         TEXT PRIMARY KEY,
+        session_id      TEXT NOT NULL,
+        user_id         TEXT NOT NULL,
+        agent_id        TEXT NOT NULL,
+        channel         TEXT NOT NULL,
+        started_at      INTEGER NOT NULL,
+        ended_at        INTEGER NOT NULL,
+        ctx_ms          INTEGER NOT NULL DEFAULT 0,
+        llm_total_ms    INTEGER NOT NULL DEFAULT 0,
+        tool_total_ms   INTEGER NOT NULL DEFAULT 0,
+        render_ms       INTEGER NOT NULL DEFAULT 0,
+        loop_rounds     INTEGER NOT NULL DEFAULT 1,
+        total_tool_calls INTEGER NOT NULL DEFAULT 0,
+        stop_reason     TEXT NOT NULL DEFAULT '',
+        model           TEXT NOT NULL DEFAULT '',
+        input_tokens    INTEGER NOT NULL DEFAULT 0,
+        output_tokens   INTEGER NOT NULL DEFAULT 0,
+        tools_json      TEXT NOT NULL DEFAULT '[]',
+        llm_calls_json  TEXT NOT NULL DEFAULT '[]',
+        knowledge_hits_json TEXT NOT NULL DEFAULT '[]',
+        answer_preview  TEXT NOT NULL DEFAULT '',
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_telemetry_turn_session ON telemetry_turn(session_id);
+      CREATE INDEX IF NOT EXISTS idx_telemetry_turn_agent ON telemetry_turn(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_telemetry_turn_started ON telemetry_turn(started_at);
+      CREATE INDEX IF NOT EXISTS idx_telemetry_turn_channel ON telemetry_turn(channel);
+    `);
+  });
 }

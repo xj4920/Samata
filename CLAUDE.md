@@ -245,3 +245,23 @@ Agent 实例管理人 (isAgentAdmin(agentId))
 **Agent 实例权限初始值**
 - 新建 agent 时，其 `tools_mode` 和 `tools_list` 参考对应角色的默认值（见 seed 数据）
 - 创建者自动成为该 agent 的 admin（`agent_members` 表，role='admin'）
+
+### LLM Provider / Model 绑定
+
+**全局默认** 通过 `.env` 的 `LLM_PROVIDER` 与每个 provider 的 `*_MODEL` 决定；支持的 provider：`anthropic`、`minimax`、`gemini`、`openrouter`、`gf`（广发内部 LLM 网关）。GF provider 的可选模型白名单在 `src/llm/gf.ts` 的 `GF_AVAILABLE_MODELS`，新加模型只需补这个数组。
+
+**Agent 级覆盖**：`agents.provider / agents.model` 列若非空，则该 agent 的对话走自己的 provider/model（`src/llm/agent.ts` 里已由 `runAgenticChat` 自动处理）。
+
+**Bot 实例级覆盖**（企微 / 飞书 / Telegram）：
+- 存储：`bot_apps.config` JSON 的 `llm` 子对象，格式 `{"llm":{"provider":"gf","model":"external-kimi-k2.6"}}`，不加 schema migration
+- 读写：`getBotAppLLM(app|id)` 与 `setBotAppLLM(id, patch)`（`src/llm/agents/config.ts`）
+- 注入：每个 bot 的 `handleAIChat` 在调用 `runAgenticChat` 前，把 bot 级绑定 shallow merge 到 `agentConfig`（provider/model 字段），优先级高于 agent 默认
+
+**/model 命令语法**（CLI 与三个 bot 共用 `src/commands/model-cmd.ts`，`handleModelCommand`）：
+- `/model` 或 `/model list`：列出当前绑定 + 所有 provider 与 `availableModels`
+- `/model <provider>`：切 provider，模型回该 provider 的 `defaultModel`
+- `/model <provider>/<model>`：同时设 provider + model
+- `/model <model>`：命中某 provider 的 `availableModels` 时只换模型（否则报错并提示用完整前缀）
+- `/model reset`：清空 bot 级绑定，回退全局默认（CLI 下清空 `modelOverride`）
+
+CLI 改全局 `switchProvider + setModelOverride`；bot 改 `bot_apps.config.llm`。权限校验（`isAgentAdmin`）留在各入口，不在共享 handler 内。

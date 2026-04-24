@@ -7,7 +7,7 @@ import * as documentImport from './document-import.js';
 import * as monitorCmd from './monitor.js';
 import { getLoadedPlugins } from '../plugins/registry.js';
 import { chat, resetConversation, getCurrentAgent } from '../llm/agent.js';
-import { switchProvider, getProviderName, getModelName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { handleModelCommand } from './model-cmd.js';
 import { handleSkill } from './skill.js';
 import { handleAgent, getAgentSubcommands } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
@@ -60,7 +60,7 @@ const commands: Record<string, Command> = {
     handler: handleWrongQuestion,
     subcommands: ['list', 'show', 'mastered', 'report'],
   },
-  model:   { description: '切换模型', usage: '/model <list|anthropic|minimax|gemini|openrouter>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'anthropic', 'minimax', 'gemini', 'openrouter'] },
+  model:   { description: '切换模型', usage: '/model <list|<provider>|<provider>/<model>|reset>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'reset', 'anthropic', 'minimax', 'gemini', 'openrouter', 'gf'] },
   watch:   { description: '企微监测', usage: '/watch <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
   user:    { description: '系统用户', usage: '/user <list|add|update|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
@@ -122,23 +122,7 @@ async function handleBot(args: string): Promise<void> {
 }
 
 function handleModel(args: string): void {
-  const sub = args.trim().toLowerCase();
-  if (!sub || sub === 'list') {
-    const available = getAvailableProviders();
-    const current = getProviderName();
-    log.print(`当前: ${current} / ${getModelName()}`);
-    log.print('可用 provider:');
-    for (const p of available) {
-      log.print(`  ${p === current ? '▶' : ' '} ${p}`);
-    }
-  } else {
-    const ok = switchProvider(sub as ProviderName);
-    if (ok) {
-      log.print(`已切换到 ${getProviderName()} / ${getModelName()}`);
-    } else {
-      log.print(`未知 provider: ${sub}，可用: ${getAvailableProviders().join(', ')}`);
-    }
-  }
+  log.print(handleModelCommand(args, { scope: 'cli' }));
 }
 
 function handlePlugin(args: string): void {

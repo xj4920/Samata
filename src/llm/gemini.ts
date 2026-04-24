@@ -142,9 +142,14 @@ export function createGeminiProvider(): LLMProvider | null {
 
       const textOutput = data.candidates[0].content?.parts?.[0]?.text || '';
 
+      const usage = data.usageMetadata
+        ? { input_tokens: data.usageMetadata.promptTokenCount ?? 0, output_tokens: data.usageMetadata.candidatesTokenCount ?? 0 }
+        : undefined;
+
       return {
           content: [{ type: 'text', text: textOutput, citations: null } as any],
           stop_reason: 'end_turn',
+          usage,
       };
     },
 
@@ -214,7 +219,7 @@ export function createGeminiProvider(): LLMProvider | null {
           }
         }
       }
-      yield { type: 'done', content: [{ type: 'text', text: fullText, citations: null } as any], stop_reason: 'end_turn' };
+      yield { type: 'done', content: [{ type: 'text', text: fullText, citations: null } as any], stop_reason: 'end_turn', usage: undefined };
     },
   };
 }

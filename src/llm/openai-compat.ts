@@ -21,6 +21,12 @@ export interface OAIMessage {
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+  /**
+   * Reasoning-model output (GLM/DeepSeek thinking mode etc.).
+   * When echoed back on the assistant turn, the GF gateway requires this field
+   * to be present, otherwise it returns 400 "reasoning_content must be passed back".
+   */
+  reasoning_content?: string;
 }
 
 export interface OAIContentPart {
@@ -90,6 +96,7 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
     } else if (msg.role === 'assistant') {
       const textParts: string[] = [];
       const toolCalls: NonNullable<OAIMessage['tool_calls']> = [];
+      let reasoning = '';
 
       if (Array.isArray(msg.content)) {
         for (const block of msg.content as Anthropic.ContentBlock[]) {
@@ -104,6 +111,8 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
                 arguments: JSON.stringify(block.input),
               },
             });
+          } else if ((block as any).type === 'thinking') {
+            reasoning += (block as any).thinking ?? '';
           }
         }
       } else if (typeof msg.content === 'string') {
@@ -115,19 +124,45 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
         content: textParts.join('\n') || null,
       };
       if (toolCalls.length > 0) am.tool_calls = toolCalls;
+      if (reasoning) am.reasoning_content = reasoning;
       result.push(am);
     }
   }
 
-  // Final defense: drop any 'tool' message whose preceding message is not an
-  // assistant carrying a matching tool_calls entry. Prevents providers like
-  // MiniMax from rejecting the request with "tool call result does not follow tool call".
+  // Collect all tool_call_ids answered by subsequent tool messages so we can
+  // strip any assistant.tool_calls entries that would otherwise be orphaned.
+  const answeredToolCallIds = new Set<string>();
+  for (const m of result) {
+    if (m.role === 'tool' && m.tool_call_id) answeredToolCallIds.add(m.tool_call_id);
+  }
+
+  // Final defense: keep a 'tool' message only if the nearest non-tool ancestor
+  // is an assistant carrying a matching tool_calls entry. Skipping over
+  // preceding tool messages is essential for parallel tool-calls (multiple
+  // tool responses for a single assistant turn), otherwise the gateway
+  // rejects the request with "insufficient tool messages following tool_calls".
   const cleaned: OAIMessage[] = [];
   for (const m of result) {
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      const keptCalls = m.tool_calls.filter(tc => answeredToolCallIds.has(tc.id));
+      if (keptCalls.length === m.tool_calls.length) {
+        cleaned.push(m);
+      } else if (keptCalls.length > 0) {
+        cleaned.push({ ...m, tool_calls: keptCalls });
+      } else {
+        // No tool call has a response; drop tool_calls entirely but keep any text.
+        const { tool_calls: _tc, ...rest } = m;
+        if (rest.content) cleaned.push(rest);
+      }
+      continue;
+    }
     if (m.role === 'tool') {
-      const prev = cleaned[cleaned.length - 1];
-      const hasMatch = prev?.role === 'assistant'
-        && prev.tool_calls?.some(tc => tc.id === m.tool_call_id);
+      let anchor: OAIMessage | undefined;
+      for (let i = cleaned.length - 1; i >= 0; i--) {
+        if (cleaned[i].role !== 'tool') { anchor = cleaned[i]; break; }
+      }
+      const hasMatch = anchor?.role === 'assistant'
+        && anchor.tool_calls?.some(tc => tc.id === m.tool_call_id);
       if (!hasMatch) continue;
     }
     cleaned.push(m);
@@ -142,11 +177,24 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
 export function convertResponse(data: any, providerLabel: string): {
   content: Anthropic.ContentBlock[];
   stop_reason: string;
+  usage?: { input_tokens: number; output_tokens: number };
 } {
   const choice = data.choices?.[0];
   if (!choice) throw new Error(`${providerLabel} 返回空 choices`);
 
+  const usage = data.usage
+    ? { input_tokens: data.usage.prompt_tokens ?? 0, output_tokens: data.usage.completion_tokens ?? 0 }
+    : undefined;
+
   const content: Anthropic.ContentBlock[] = [];
+
+  if (choice.message?.reasoning_content) {
+    content.push({
+      type: 'thinking',
+      thinking: choice.message.reasoning_content,
+      signature: '',
+    } as unknown as Anthropic.ContentBlock);
+  }
 
   if (choice.message?.content) {
     content.push({ type: 'text', text: choice.message.content } as Anthropic.TextBlock);
@@ -174,7 +222,7 @@ export function convertResponse(data: any, providerLabel: string): {
   }
 
   const stop_reason = choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
-  return { content, stop_reason };
+  return { content, stop_reason, usage };
 }
 
 /* ----------------------------------------------------------------
@@ -189,6 +237,7 @@ export async function* parseSSEStream(
 ): AsyncGenerator<StreamEvent> {
   const content: Anthropic.ContentBlock[] = [];
   let fullText = '';
+  let fullReasoning = '';
   const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
 
   const decoder = new TextDecoder();
@@ -211,6 +260,10 @@ export async function* parseSSEStream(
       const delta = data.choices?.[0]?.delta;
       if (!delta) continue;
 
+      if (delta.reasoning_content) {
+        fullReasoning += delta.reasoning_content;
+      }
+
       if (delta.content) {
         fullText += delta.content;
         yield { type: 'text_delta', text: delta.content };
@@ -231,6 +284,13 @@ export async function* parseSSEStream(
 
       const finish = data.choices?.[0]?.finish_reason;
       if (finish) {
+        if (fullReasoning) {
+          content.push({
+            type: 'thinking',
+            thinking: fullReasoning,
+            signature: '',
+          } as unknown as Anthropic.ContentBlock);
+        }
         if (fullText) {
           content.push({ type: 'text', text: fullText } as Anthropic.TextBlock);
         }
@@ -245,13 +305,23 @@ export async function* parseSSEStream(
           content.push({ type: 'text', text: '' } as Anthropic.TextBlock);
         }
         const stop_reason = finish === 'tool_calls' ? 'tool_use' : 'end_turn';
-        yield { type: 'done', content, stop_reason };
+        const usage = data.usage
+          ? { input_tokens: data.usage.prompt_tokens ?? 0, output_tokens: data.usage.completion_tokens ?? 0 }
+          : undefined;
+        yield { type: 'done', content, stop_reason, usage };
         return;
       }
     }
   }
 
   // 流结束但没收到 finish_reason（兜底）
+  if (fullReasoning) {
+    content.push({
+      type: 'thinking',
+      thinking: fullReasoning,
+      signature: '',
+    } as unknown as Anthropic.ContentBlock);
+  }
   if (fullText) content.push({ type: 'text', text: fullText } as Anthropic.TextBlock);
   for (const [, tc] of toolCallsMap) {
     let input: Record<string, unknown>;
@@ -262,5 +332,5 @@ export async function* parseSSEStream(
   }
   if (content.length === 0) content.push({ type: 'text', text: '' } as Anthropic.TextBlock);
   const stop_reason = toolCallsMap.size > 0 ? 'tool_use' : 'end_turn';
-  yield { type: 'done', content, stop_reason };
+  yield { type: 'done', content, stop_reason, usage: undefined };
 }

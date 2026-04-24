@@ -582,6 +582,72 @@ export function getBotAppByAgentName(agentName: string, channel?: string): BotAp
   `).get(agentName) as BotAppRow | null;
 }
 
+/**
+ * bot_apps.config.llm 读写：每个 bot 实例可以在 config JSON 的 llm 字段里
+ * 绑定 provider + model，覆盖全局默认。
+ */
+export interface BotAppLLM {
+  provider?: string;
+  model?: string;
+}
+
+function parseBotAppConfig(raw: string | null | undefined): Record<string, any> {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getBotAppLLM(app: BotAppRow | { config?: string | null } | string): BotAppLLM {
+  let raw: string | null | undefined;
+  if (typeof app === 'string') {
+    const row = getBotApp(app);
+    raw = row?.config;
+  } else {
+    raw = app.config;
+  }
+  const cfg = parseBotAppConfig(raw);
+  const llm = cfg.llm;
+  if (!llm || typeof llm !== 'object') return {};
+  const out: BotAppLLM = {};
+  if (typeof llm.provider === 'string' && llm.provider) out.provider = llm.provider;
+  if (typeof llm.model === 'string' && llm.model) out.model = llm.model;
+  return out;
+}
+
+/**
+ * 更新 bot_apps.config.llm。
+ * patch.provider / patch.model 传 undefined 视为不变；传 null 视为删除。
+ * 若 llm 子对象最终为空，从 config 中删除 llm 键。
+ */
+export function setBotAppLLM(
+  appId: string,
+  patch: { provider?: string | null; model?: string | null },
+): void {
+  const db = getDb();
+  const row = db.prepare('SELECT config FROM bot_apps WHERE id = ?').get(appId) as { config: string | null } | undefined;
+  if (!row) throw new Error(`bot_apps not found: ${appId}`);
+  const cfg = parseBotAppConfig(row.config);
+  const llm: BotAppLLM = { ...(cfg.llm && typeof cfg.llm === 'object' ? cfg.llm : {}) };
+
+  if (patch.provider === null) delete llm.provider;
+  else if (typeof patch.provider === 'string') llm.provider = patch.provider;
+
+  if (patch.model === null) delete llm.model;
+  else if (typeof patch.model === 'string') llm.model = patch.model;
+
+  if (!llm.provider && !llm.model) {
+    delete cfg.llm;
+  } else {
+    cfg.llm = llm;
+  }
+
+  db.prepare('UPDATE bot_apps SET config = ? WHERE id = ?').run(JSON.stringify(cfg), appId);
+}
+
 /** @deprecated Use getBotApp */
 export function getFeishuApp(appId: string): BotAppRow | null {
   return getBotApp(appId);

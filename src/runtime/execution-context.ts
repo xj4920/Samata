@@ -19,6 +19,8 @@ export interface ContextUser {
 export interface ExecutionContext {
   channel: AppChannel;
   user?: ContextUser;
+  /** bot_apps.id for feishu/wework/telegram bot instances; undefined in CLI/system */
+  appId?: string;
   interactive?: boolean;
   promptFn?: PromptFn;
   outputCapture?: OutputCapture;

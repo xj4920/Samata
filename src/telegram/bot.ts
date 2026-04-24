@@ -12,11 +12,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { TelegramAPI, type TgMessage } from './api.js';
 import { getSession, resetSession, cleanupSessions } from './session.js';
-import { getProvider, getModelName, switchProvider, getProviderName, getAvailableProviders, type ProviderName } from '../llm/provider.js';
+import { getProvider } from '../llm/provider.js';
+import { handleModelCommand } from '../commands/model-cmd.js';
 import { type User, isAgentAdmin } from '../auth/rbac.js';
 import { runAgenticChat, setCurrentAgent, type DeliveryContext } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
-import { getAgent, AgentUnboundError } from '../llm/agents/config.js';
+import { getAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { log } from '../utils/logger.js';
 import { getCommandEntries } from '../commands/router.js';
@@ -44,14 +45,25 @@ let api: TelegramAPI;
 let running = false;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Telegram 只有单个 bot 实例，取 bot_apps 里第一条 channel='telegram' 作为 botAppId */
+function getTelegramBotAppId(): string | null {
+  const apps = getBotAppsByChannel('telegram');
+  return apps[0]?.id ?? null;
+}
+
 /**
  * 处理 AI 对话（含 tool use 循环）
  */
 async function handleAIChat(chatId: number, userInput: string, telegramUserId: number, telegramUsername: string): Promise<string> {
   const session = getSession(telegramUserId, telegramUsername);
+  const botAppId = getTelegramBotAppId();
 
-  return runWithExecutionContext({ channel: 'telegram', user: session.user }, async () => {
-    const agentConfig = getAgent(session.agentName);
+  return runWithExecutionContext({ channel: 'telegram', user: session.user, appId: botAppId ?? undefined }, async () => {
+    const baseAgentConfig = getAgent(session.agentName);
+    const botLLM = botAppId ? getBotAppLLM(botAppId) : {};
+    const agentConfig = (botLLM.provider || botLLM.model)
+      ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+      : baseAgentConfig;
 
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
@@ -167,26 +179,18 @@ async function handleMessage(msg: TgMessage): Promise<void> {
       return;
     }
 
-    // /model 命令：查看或切换 LLM provider
+    // /model 命令：查看或切换 LLM provider/model（bot 级绑定）
     if (text.startsWith('/model')) {
       if (!isAgentAdmin(getSession(userId, '').agentName)) {
         await api.sendMessage(chatId, '❌ 仅管理员可切换模型');
         return;
       }
-      const arg = text.replace(/^\/model\s*/, '').trim();
-      if (!arg || arg === 'list') {
-        const available = getAvailableProviders();
-        const current = getProviderName();
-        const lines = available.map(p => `${p === current ? '▶ ' : '  '}${p}`);
-        await api.sendMessage(chatId, `当前: ${current} / ${getModelName()}\n\n可用 provider:\n${lines.join('\n')}`);
-      } else {
-        const ok = switchProvider(arg as ProviderName);
-        if (ok) {
-          await api.sendMessage(chatId, `✅ 已切换到 ${getProviderName()} / ${getModelName()}`);
-        } else {
-          await api.sendMessage(chatId, `❌ 未知 provider: ${arg}\n可用: ${getAvailableProviders().join(', ')}`);
-        }
-      }
+      const arg = text.replace(/^\/model\s*/, '');
+      const botAppId = getTelegramBotAppId();
+      const reply = botAppId
+        ? handleModelCommand(arg, { scope: 'bot', botAppId })
+        : '❌ 未找到 telegram bot_apps 记录，无法绑定 bot 级模型';
+      await api.sendMessage(chatId, reply);
       return;
     }
 
@@ -200,7 +204,12 @@ async function handleMessage(msg: TgMessage): Promise<void> {
       const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-      const reply = await handleCommand(cmd, args, userId);
+      const session = getSession(userId, username);
+      const botAppId = getTelegramBotAppId();
+      const reply = await runWithExecutionContext(
+        { channel: 'telegram', user: session.user, appId: botAppId ?? undefined },
+        () => handleCommand(cmd, args, userId),
+      );
       if (reply !== null) {
         await api.sendMessage(chatId, reply);
         return;

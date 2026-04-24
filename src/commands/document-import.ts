@@ -519,13 +519,19 @@ async function describeImagesInMarkdown(
   if (images.length === 0) return content;
 
   let provider: import('../llm/provider.js').LLMProvider;
+  let describeImageWithFallback: typeof import('../llm/agent.js').describeImageWithFallback;
   try {
     const { getProvider } = await import('../llm/provider.js');
     provider = getProvider();
+    ({ describeImageWithFallback } = await import('../llm/agent.js'));
   } catch {
     return content;
   }
-  if (!provider.describeImage) return content;
+  const { getProviderByName } = await import('../llm/provider.js');
+  const anyDescriber = !!(provider.describeImage
+    || getProviderByName('minimax')?.describeImage
+    || getProviderByName('anthropic')?.describeImage);
+  if (!anyDescriber) return content;
 
   const described = new Map<string, string>();
   const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -551,7 +557,11 @@ async function describeImagesInMarkdown(
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const desc = await provider.describeImage!(dataUrl, '用一两句中文简要描述这张图片的内容，重点说明图中的关键信息（如数据、流程、结构等）。');
+        const { desc } = await describeImageWithFallback(
+          provider,
+          dataUrl,
+          '用一两句中文简要描述这张图片的内容，重点说明图中的关键信息（如数据、流程、结构等）。',
+        );
         if (desc) described.set(img.relativePath, desc);
         break;
       } catch (e: any) {

@@ -4,7 +4,7 @@ import { log } from '../utils/logger.js';
 /** 流式事件 */
 export type StreamEvent =
   | { type: 'text_delta'; text: string }
-  | { type: 'done'; content: Anthropic.ContentBlock[]; stop_reason: string };
+  | { type: 'done'; content: Anthropic.ContentBlock[]; stop_reason: string; usage?: { input_tokens: number; output_tokens: number } };
 
 /** 统一 LLM Provider 接口，内部格式复用 Anthropic 类型 */
 export interface CreateMessageParams {
@@ -18,18 +18,21 @@ export interface CreateMessageParams {
 export interface CreateMessageResult {
   content: Anthropic.ContentBlock[];
   stop_reason: string;
+  usage?: { input_tokens: number; output_tokens: number };
 }
 
 export interface LLMProvider {
   name: string;
   defaultModel: string;
+  /** 可供 /model 命令枚举的模型白名单，可选 */
+  availableModels?: string[];
   createMessage(params: CreateMessageParams): Promise<CreateMessageResult>;
   createMessageStream?(params: CreateMessageParams): AsyncGenerator<StreamEvent>;
   /** 将图片转为文字描述，imageDataUrl 格式为 data:image/xxx;base64,... */
   describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }
 
-export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'glm';
+export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'gf';
 
 const providers = new Map<ProviderName, LLMProvider>();
 let currentName: ProviderName = 'anthropic';
@@ -118,6 +121,20 @@ export function getProviderByName(name: ProviderName): LLMProvider | undefined {
   return providers.get(name);
 }
 
+/**
+ * 在所有已注册 provider 中搜索包含该 model 的 provider。
+ * 只查 availableModels 白名单；未声明白名单的 provider 不参与匹配。
+ * 命中返回 { provider, model }；无命中返回 null。
+ */
+export function getProviderForModel(modelName: string): { provider: LLMProvider; model: string } | null {
+  for (const p of providers.values()) {
+    if (p.availableModels && p.availableModels.includes(modelName)) {
+      return { provider: p, model: modelName };
+    }
+  }
+  return null;
+}
+
 let _initialized = false;
 
 /**
@@ -133,7 +150,7 @@ export async function initProviders(): Promise<boolean> {
   const { createMinimaxProvider } = await import('./minimax.js');
   const { createGeminiProvider } = await import('./gemini.js');
   const { createOpenRouterProvider } = await import('./openrouter.js');
-  const { createGlmProvider } = await import('./glm.js');
+  const { createGfProvider } = await import('./gf.js');
 
   // 尝试初始化 Anthropic
   const anthropic = createAnthropicProvider();
@@ -163,11 +180,11 @@ export async function initProviders(): Promise<boolean> {
     log.dim('  OpenRouter provider 已注册');
   }
 
-  // 尝试初始化 GLM
-  const glm = createGlmProvider();
-  if (glm) {
-    registerProvider('glm', glm);
-    log.dim('  GLM provider 已注册');
+  // 尝试初始化 GF（广发内部 LLM 网关）
+  const gf = createGfProvider();
+  if (gf) {
+    registerProvider('gf', gf);
+    log.dim('  GF provider 已注册');
   }
 
   if (providers.size === 0) return false;
