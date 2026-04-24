@@ -204,3 +204,11 @@ src/
 ## License
 
 ISC
+
+
+
+## local claude
+
+1. npm run claude-proxy 
+2. claude
+
