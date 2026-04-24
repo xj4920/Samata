@@ -7,7 +7,7 @@ import { getCurrentUser, isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { getExecutionChannel } from '../runtime/execution-context.js';
 import { getProviderName, getModelName, getProviderByName, type ProviderName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
-import { isFeishuBotRunning } from '../feishu/bot.js';
+import { isFeishuBotRunning, listFeishuBotHealth, type FeishuBotHealth } from '../feishu/bot.js';
 import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isWeworkBotRunning } from '../wework/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
@@ -51,6 +51,7 @@ export interface SystemStatus {
     detail?: string;          // e.g. "(ws)"
     agentId?: string;         // if set, only shown when current agent matches
   }[];
+  feishuBots: FeishuBotHealth[];
 }
 
 function formatUptime(): string {
@@ -133,7 +134,18 @@ export function fetchSystemStatus(): SystemStatus {
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
     ].filter(svc => !svc.agentId || svc.agentId === agent?.name),
+    feishuBots: channel === 'cli' ? listFeishuBotHealth() : [],
   };
+}
+
+function formatAgoMs(ms: number): string {
+  if (ms < 0) return 'just now';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ago`;
 }
 
 const SEP = '─────────────────';
@@ -159,6 +171,17 @@ export function formatSystemStatus(s: SystemStatus): string {
     const state = svc.running ? '运行中' : '未启动';
     const detail = svc.detail ? ` (${svc.detail})` : '';
     lines.push(`  ${icon} ${svc.name.padEnd(8)} ${state}${detail}`);
+  }
+
+  if (s.feishuBots.length > 0) {
+    lines.push('  飞书 Bots:');
+    const nameWidth = Math.max(...s.feishuBots.map(b => b.appName.length), 4);
+    for (const b of s.feishuBots) {
+      const icon = b.restarting ? '♻️' : (b.healthy ? '✅' : '⚠️');
+      const state = b.restarting ? 'RESTARTING' : (b.healthy ? 'healthy' : 'DEGRADED');
+      const ago = formatAgoMs(b.msSinceHealthy);
+      lines.push(`    ${icon} ${b.appName.padEnd(nameWidth)}  ${state}  (last ok ${ago})`);
+    }
   }
 
   lines.push(SEP);

@@ -6,7 +6,7 @@
  * via MODEL_SUMMARY / PROVIDER_SUMMARY env vars.
  */
 import type Anthropic from '@anthropic-ai/sdk';
-import { getProviderForTask, getModelForTask } from '../llm/provider.js';
+import { getProvider, getProviderForTask, getModelForTask, getModelName } from '../llm/provider.js';
 import { updateWorkspace } from './workspace.js';
 import { log } from '../utils/logger.js';
 
@@ -52,10 +52,25 @@ interface SummarizeResult {
   preferences: string[];
 }
 
-async function callSummarizer(text: string): Promise<SummarizeResult> {
-  const provider = getProviderForTask('summary');
-  const model = getModelForTask('summary');
+function parseSummarizeResult(raw: string): SummarizeResult {
+  try {
+    const cleaned = raw.replace(/```json\s*|```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned) as SummarizeResult;
+    return {
+      summary: parsed.summary || '（无摘要）',
+      preferences: Array.isArray(parsed.preferences) ? parsed.preferences : [],
+    };
+  } catch {
+    log.warn(`[Workspace] 摘要 JSON 解析失败，原始输出: ${raw.slice(0, 200)}`);
+    return { summary: raw.slice(0, 30), preferences: [] };
+  }
+}
 
+async function requestSummary(
+  provider: ReturnType<typeof getProviderForTask>,
+  model: string,
+  text: string,
+): Promise<SummarizeResult> {
   const result = await provider.createMessage({
     model,
     max_tokens: 256,
@@ -69,16 +84,39 @@ async function callSummarizer(text: string): Promise<SummarizeResult> {
     .map(b => b.text)
     .join('');
 
+  return parseSummarizeResult(raw);
+}
+
+async function callSummarizer(text: string): Promise<SummarizeResult> {
+  const summaryProvider = getProviderForTask('summary');
+  const summaryModel = getModelForTask('summary');
+
   try {
-    const cleaned = raw.replace(/```json\s*|```\s*/g, '').trim();
-    const parsed = JSON.parse(cleaned) as SummarizeResult;
-    return {
-      summary: parsed.summary || '（无摘要）',
-      preferences: Array.isArray(parsed.preferences) ? parsed.preferences : [],
-    };
-  } catch {
-    log.warn(`[Workspace] 摘要 JSON 解析失败，原始输出: ${raw.slice(0, 200)}`);
-    return { summary: raw.slice(0, 30), preferences: [] };
+    return await requestSummary(summaryProvider, summaryModel, text);
+  } catch (summaryErr: any) {
+    const globalProvider = getProvider();
+    const globalModel = getModelName();
+    const shouldFallback =
+      summaryProvider.name !== globalProvider.name || summaryModel !== globalModel;
+
+    if (!shouldFallback) throw summaryErr;
+
+    log.warn(
+      `[Workspace] 摘要模型失败，切换全局 LLM 重试: ${summaryProvider.name}/${summaryModel} -> ${globalProvider.name}/${globalModel}: ${summaryErr.message}`,
+    );
+
+    try {
+      const fallbackResult = await requestSummary(globalProvider, globalModel, text);
+      log.dim(`[Workspace] 摘要 fallback 成功: ${globalProvider.name}/${globalModel}`);
+      return fallbackResult;
+    } catch (fallbackErr: any) {
+      log.warn(
+        `[Workspace] 摘要 fallback 失败: ${globalProvider.name}/${globalModel}: ${fallbackErr.message}`,
+      );
+      throw new Error(
+        `summary=${summaryProvider.name}/${summaryModel}: ${summaryErr.message}; global=${globalProvider.name}/${globalModel}: ${fallbackErr.message}`,
+      );
+    }
   }
 }
 

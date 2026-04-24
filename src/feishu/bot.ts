@@ -49,6 +49,7 @@ type FeishuAppConfig = {
   verificationToken: string;
   encryptKey: string;
   showThinking?: boolean;
+  proxy?: string;
 };
 
 interface FeishuSession {
@@ -71,7 +72,20 @@ interface FeishuBotInstance {
   httpServer: ReturnType<typeof createServer> | null;
   botOpenId: string;
   cleanupTimer: ReturnType<typeof setInterval> | null;
+  healthTimer: ReturnType<typeof setInterval> | null;
   sessions: Map<string, FeishuSession>;
+  lastHealthyAt: number;
+  lastProbeErrorAt: number;
+  restarting: boolean;
+}
+
+export interface FeishuBotHealth {
+  appId: string;
+  appName: string;
+  healthy: boolean;
+  lastHealthyAt: number;
+  msSinceHealthy: number;
+  restarting: boolean;
 }
 
 const botInstances = new Map<string, FeishuBotInstance>();
@@ -136,6 +150,7 @@ function botAppToFeishuConfig(row: BotAppRow): FeishuAppConfig {
     verificationToken: cfg.verification_token || '',
     encryptKey: cfg.encrypt_key || '',
     showThinking: row.show_thinking === 1,
+    proxy: cfg.proxy || process.env.FEISHU_PROXY || undefined,
   };
 }
 
@@ -1331,32 +1346,63 @@ export async function handleWebhookRequest(
 }
 
 /**
+ * 构造一个（可选）走代理的 axios 实例和 WS agent。
+ * 代理未配置时：axios 完全不走代理（阻断 HTTP_PROXY 等环境变量），agent=undefined。
+ */
+async function buildHttpAndWsAgent(proxy?: string): Promise<{ httpInstance: any; wsAgent: any }> {
+  if (!proxy) {
+    const noProxyAxios = axios.create({ proxy: false });
+    noProxyAxios.interceptors.response.use((resp) => resp.data);
+    return { httpInstance: noProxyAxios, wsAgent: undefined };
+  }
+
+  let wsAgent: any = undefined;
+  try {
+    const mod = await import('https-proxy-agent');
+    const HttpsProxyAgent = (mod as any).HttpsProxyAgent;
+    wsAgent = new HttpsProxyAgent(proxy);
+  } catch (err: any) {
+    log.warn(`[飞书] 加载 https-proxy-agent 失败，WS 将不走代理: ${err.message}`);
+  }
+
+  const proxyAxios = axios.create({
+    proxy: false,
+    httpsAgent: wsAgent,
+    httpAgent: wsAgent,
+  });
+  proxyAxios.interceptors.response.use((resp) => resp.data);
+  return { httpInstance: proxyAxios, wsAgent };
+}
+
+/**
  * 启动 WebSocket 长连接（实例级）
  */
-function startWSClientForInstance(instance: FeishuBotInstance): void {
+async function startWSClientForInstance(instance: FeishuBotInstance): Promise<void> {
   const eventDispatcher = new Lark.EventDispatcher({ loggerLevel: Lark.LoggerLevel.error }).register({
     'im.message.receive_v1': async (data: any) => {
       const event = data as FeishuMessage;
+      instance.lastHealthyAt = Date.now();
       handleEvent(instance, event).catch(err => {
         log.error(`[飞书:${instance.appName}] WS 处理事件出错: ${err.message}`);
       });
     },
     'im.message.message_read_v1': async () => {
-      // 已读回执，无需处理
+      instance.lastHealthyAt = Date.now();
     },
   });
 
-  // 显式禁用代理，防止 axios 读取系统/环境代理配置导致 502
-  // 需要复制 SDK 默认的 response interceptor（返回 resp.data 而非整个 resp）
-  const noProxyAxios = axios.create({ proxy: false });
-  noProxyAxios.interceptors.response.use((resp) => resp.data);
+  const { httpInstance, wsAgent } = await buildHttpAndWsAgent(instance.config.proxy);
+  if (instance.config.proxy) {
+    log.info(`[飞书:${instance.appName}] 使用代理: ${instance.config.proxy}`);
+  }
 
   instance.wsClient = new Lark.WSClient({
     appId: instance.config.appId,
     appSecret: instance.config.appSecret,
     loggerLevel: Lark.LoggerLevel.info,
-    httpInstance: noProxyAxios,
-  });
+    httpInstance,
+    ...(wsAgent ? { agent: wsAgent } : {}),
+  } as any);
 
   instance.wsClient.start({ eventDispatcher });
   log.info(`[飞书:${instance.appName}] WebSocket 长连接已启动`);
@@ -1447,7 +1493,11 @@ export async function startFeishuBot(
     httpServer: null,
     botOpenId: '',
     cleanupTimer: null,
+    healthTimer: null,
     sessions: new Map(),
+    lastHealthyAt: Date.now(),
+    lastProbeErrorAt: 0,
+    restarting: false,
   };
 
   // 验证连接
@@ -1463,6 +1513,7 @@ export async function startFeishuBot(
   try {
     const botInfo = await instance.api.getBotInfo();
     instance.botOpenId = botInfo.open_id;
+    instance.lastHealthyAt = Date.now();
     log.info(`[飞书:${appConfig.appName}] 机器人 open_id: ${instance.botOpenId} (${botInfo.app_name})`);
   } catch (err: any) {
     log.warn(`[飞书:${appConfig.appName}] 获取机器人信息失败，群聊 @mention 检测将使用宽松模式: ${err.message}`);
@@ -1476,13 +1527,81 @@ export async function startFeishuBot(
 
   // 启动连接
   if (mode === 'ws') {
-    startWSClientForInstance(instance);
+    await startWSClientForInstance(instance);
+    scheduleReadyProbe(instance);
+    instance.healthTimer = setInterval(() => {
+      runHealthProbe(instance).catch(() => { /* ignore */ });
+    }, 60 * 1000);
   } else {
     startWebhookForInstance(instance, options?.httpPort ?? 3001);
   }
 
   botInstances.set(appId, instance);
   log.success(`[飞书:${appConfig.appName}] Bot 已启动 (模式: ${mode})`);
+}
+
+/**
+ * 启动后 10 秒做一次真实 API 探活，失败则把 lastHealthyAt 置为较早时间，
+ * 让下一次 healthTimer 立刻触发重建。
+ */
+function scheduleReadyProbe(instance: FeishuBotInstance): void {
+  setTimeout(async () => {
+    if (!botInstances.has(instance.appId)) return; // 已停止
+    try {
+      await instance.api.getBotInfo();
+      instance.lastHealthyAt = Date.now();
+      log.dim(`[飞书:${instance.appName}] ready probe 通过`);
+    } catch (err: any) {
+      instance.lastProbeErrorAt = Date.now();
+      // 把 lastHealthyAt 倒拨到 6 分钟前，让看门狗下一轮立即触发重建
+      instance.lastHealthyAt = Date.now() - 6 * 60 * 1000;
+      log.warn(`[飞书:${instance.appName}] ready probe 失败，将触发重建: ${err.message}`);
+    }
+  }, 10 * 1000);
+}
+
+/**
+ * 周期性探活，连续失败超 5 分钟强制重建。
+ */
+async function runHealthProbe(instance: FeishuBotInstance): Promise<void> {
+  if (instance.restarting) return;
+  try {
+    await instance.api.getBotInfo();
+    instance.lastHealthyAt = Date.now();
+    return;
+  } catch (err: any) {
+    instance.lastProbeErrorAt = Date.now();
+    const unhealthyMs = Date.now() - instance.lastHealthyAt;
+    log.warn(`[飞书:${instance.appName}] 探活失败（已 ${Math.floor(unhealthyMs / 1000)}s 未通过）: ${err.message}`);
+    if (unhealthyMs > 5 * 60 * 1000) {
+      log.warn(`[飞书:${instance.appName}] 连接不健康超过 5 分钟，强制重建`);
+      instance.restarting = true;
+      try {
+        stopFeishuBot(instance.appId);
+        await startFeishuBot(instance.appId);
+      } catch (e: any) {
+        log.error(`[飞书:${instance.appName}] 强制重建失败: ${e.message}`);
+      }
+    }
+  }
+}
+
+/**
+ * 列出所有运行中的飞书 bot 的健康状态（供 /status 使用）
+ */
+export function listFeishuBotHealth(): FeishuBotHealth[] {
+  const now = Date.now();
+  return Array.from(botInstances.values()).map(inst => {
+    const msSinceHealthy = now - inst.lastHealthyAt;
+    return {
+      appId: inst.appId,
+      appName: inst.appName,
+      healthy: msSinceHealthy < 5 * 60 * 1000,
+      lastHealthyAt: inst.lastHealthyAt,
+      msSinceHealthy,
+      restarting: inst.restarting,
+    };
+  });
 }
 
 /**
@@ -1523,6 +1642,10 @@ export function stopFeishuBot(appId: string): void {
   if (instance.cleanupTimer) {
     clearInterval(instance.cleanupTimer);
     instance.cleanupTimer = null;
+  }
+  if (instance.healthTimer) {
+    clearInterval(instance.healthTimer);
+    instance.healthTimer = null;
   }
 
   botInstances.delete(appId);
