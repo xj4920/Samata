@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from './logger.js';
+import { getAgentFsName } from '../commands/document-import.js';
 import {
   expandCJKKeywords,
   classifyTerms,
@@ -144,7 +145,7 @@ interface RgRecord {
  * (both matches and context rows). Never throws on "no match" (exit code 1).
  */
 function runRipgrep(terms: string[], agentId: string): RgRecord[] {
-  const searchDir = path.join(DOCUMENTS_ROOT, agentId);
+  const searchDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
   if (!fs.existsSync(searchDir)) return [];
 
   const args: string[] = [
@@ -312,7 +313,7 @@ function fallbackScan(
   termTiers: Map<string, KeywordTier>,
   agentId: string,
 ): ScoredFile[] {
-  const agentDir = path.join(DOCUMENTS_ROOT, agentId);
+  const agentDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
   if (!fs.existsSync(agentDir)) return [];
 
   const results: ScoredFile[] = [];

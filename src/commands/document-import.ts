@@ -9,7 +9,8 @@ import * as path from 'path';
 import XLSX from 'xlsx';
 import { fileURLToPath } from 'url';
 import { executePluginTool } from '../plugins/registry.js';
-import { getProvider, getModelName } from '../llm/provider.js';
+import { getProvider, getModelName, getProviderByName } from '../llm/provider.js';
+import { describeImageWithFallback } from '../llm/agent.js';
 import { parseLLMJsonArray } from '../utils/json-repair.js';
 import { loadKnowledgeTagsFromConfig } from './knowledge-tag-audit.js';
 
@@ -66,6 +67,7 @@ function detectFileType(filePath: string): string | null {
     '.docx': 'docx',
     '.xlsx': 'xlsx', '.xls': 'xlsx', '.csv': 'csv',
     '.pdf': 'pdf',
+    '.png': 'png', '.jpg': 'jpg', '.jpeg': 'jpg', '.gif': 'gif', '.webp': 'webp', '.svg': 'svg',
   };
   return map[ext] ?? null;
 }
@@ -82,6 +84,13 @@ function ensureDocWriteAccess(agentId?: string): { success: true } | { success: 
     return { success: true };
   }
   return { success: false, error: '需要指定 agent' };
+}
+
+/** Resolve the human-readable agent name for filesystem directory naming. */
+export function getAgentFsName(agentId: string): string {
+  const db = getDb();
+  const row = db.prepare('SELECT name FROM agents WHERE id = ?').get(agentId) as { name: string } | undefined;
+  return row?.name || agentId;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +131,7 @@ function readFrontmatterTags(parsedMdPath: string): string[] {
 
 /**
  * Collect tag candidates for LLM tag generation, three sources merged:
- *   1. frontmatter `tags` of every parsed.md under data/documents/<agentId>/
+ *   1. frontmatter `tags` of every parsed.md under data/documents/<agentName>/
  *   2. manual FAQ tags (knowledge.tags WHERE document_id IS NULL) for this agent
  *   3. loadKnowledgeTagsFromConfig(agentId)
  *
@@ -133,7 +142,7 @@ function collectTagCandidatesFromFs(agentId: string): string[] {
   const tagSet = new Set<string>();
 
   // 1. Frontmatter tags from existing documents
-  const agentDocDir = path.resolve(__dirname, '../../data/documents', agentId);
+  const agentDocDir = path.resolve(__dirname, '../../data/documents', getAgentFsName(agentId));
   if (fs.existsSync(agentDocDir)) {
     for (const docDir of fs.readdirSync(agentDocDir)) {
       const parsedMd = path.join(agentDocDir, docDir, 'parsed.md');
@@ -173,12 +182,12 @@ const DOCUMENTS_ROOT_ABS = path.resolve(__dirname, '../../data/documents');
 
 /** Relative path (stored in DB) — stable across deployments / cwd changes. */
 function getDocStorageRelPath(docId: string, agentId: string): string {
-  return path.posix.join('data/documents', agentId, docId.slice(0, 8));
+  return path.posix.join('data/documents', getAgentFsName(agentId), docId.slice(0, 8));
 }
 
 /** Absolute path (used for all FS operations). */
 function getDocStorageDir(docId: string, agentId: string): string {
-  return path.join(DOCUMENTS_ROOT_ABS, agentId, docId.slice(0, 8));
+  return path.join(DOCUMENTS_ROOT_ABS, getAgentFsName(agentId), docId.slice(0, 8));
 }
 
 /**
@@ -680,6 +689,32 @@ async function loadAndChunk(
       }
 
       markdown = content;
+      break;
+    }
+
+    case 'png':
+    case 'jpg':
+    case 'gif':
+    case 'webp':
+    case 'svg': {
+      const buffer = fs.readFileSync(filePath);
+      const ext = fileType;
+      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+      const mime = mimeMap[ext] || 'image/png';
+      const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+
+      const provider = getProvider();
+      const imagePrompt = '请详细描述这张图片的内容。如果图中包含文字，请逐段转录原文，保留所有关键信息。如果包含表格数据，请用 markdown 表格格式输出。确保文字信息不丢失。';
+
+      let desc = '';
+      try {
+        const result = await describeImageWithFallback(provider, dataUrl, imagePrompt);
+        desc = result.desc;
+      } catch (e: any) {
+        log.warn(`图片描述失败 (${docTitle}): ${e.message}`);
+      }
+      const descBlock = desc ? `> **[图片内容]** ${desc}` : '> *（图片描述不可用）*';
+      markdown = `![${docTitle}](${path.basename(filePath)})\n\n${descBlock}`;
       break;
     }
 

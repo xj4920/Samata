@@ -1345,6 +1345,12 @@ export function initSchema(): void {
     ).run();
   });
 
+  runOnce('agents-deepseek-provider', () => {
+    db.prepare(
+      `UPDATE agents SET provider = 'deepseek', model = 'deepseek-v4-flash', updated_at = datetime('now') WHERE name NOT IN ('otcclaw', 'admin')`
+    ).run();
+  });
+
   // -----------------------------------------------------------------------
   // Migration: document knowledge from DB chunks → Markdown files + grep search
   // -----------------------------------------------------------------------
@@ -1519,6 +1525,63 @@ export function initSchema(): void {
     tx();
   });
 
+  // Migration v3: use agent.name (human-readable) instead of agent.id (UUID)
+  // for filesystem directories under data/documents/. Updates stored_path
+  // in the DB and moves directories on disk.
+  runOnce('migrate-documents-use-agent-name', () => {
+    const documentsRoot = resolve('data/documents');
+    const packageRoot = resolve('.');
+
+    const tx = db.transaction(() => {
+      const docs = db.prepare(
+        'SELECT d.id, d.agent_id, d.stored_path, a.name as agent_name FROM documents d LEFT JOIN agents a ON d.agent_id = a.id WHERE d.agent_id IS NOT NULL',
+      ).all() as { id: string; agent_id: string; stored_path: string | null; agent_name: string | null }[];
+
+      let moved = 0;
+      let updated = 0;
+
+      for (const doc of docs) {
+        const agentName = doc.agent_name || doc.agent_id;
+        if (agentName === doc.agent_id) continue; // already using id==name, nothing to migrate
+
+        const oldDocId8 = doc.id.slice(0, 8);
+
+        // Resolve old absolute dir
+        let oldAbsDir: string;
+        if (doc.stored_path) {
+          oldAbsDir = isAbsolute(doc.stored_path)
+            ? doc.stored_path
+            : resolve(packageRoot, doc.stored_path);
+        } else {
+          oldAbsDir = join(documentsRoot, doc.agent_id, oldDocId8);
+        }
+
+        // New absolute dir
+        const newAbsDir = join(documentsRoot, agentName, oldDocId8);
+
+        // Move directory on disk
+        if (fs.existsSync(oldAbsDir) && !fs.existsSync(newAbsDir)) {
+          fs.mkdirSync(join(documentsRoot, agentName), { recursive: true });
+          fs.renameSync(oldAbsDir, newAbsDir);
+          moved++;
+        }
+
+        // Update stored_path in DB
+        const relPath = relative(packageRoot, newAbsDir).split(sep).join('/');
+        if (relPath && !relPath.startsWith('..')) {
+          db.prepare('UPDATE documents SET stored_path = ? WHERE id = ?').run(relPath, doc.id);
+          updated++;
+        }
+      }
+
+      if (moved > 0 || updated > 0) {
+        console.log(`[migrate-documents-use-agent-name] moved ${moved} dirs, updated ${updated} stored_path rows`);
+      }
+    });
+
+    tx();
+  });
+
   runOnce('otcclaw-rename-display-name', () => {
     db.prepare("UPDATE agents SET display_name = '衍语', updated_at = datetime('now') WHERE name = 'otcclaw' AND display_name = '衍语助手'").run();
   });
@@ -1638,5 +1701,24 @@ export function initSchema(): void {
       CREATE INDEX IF NOT EXISTS idx_telemetry_turn_started ON telemetry_turn(started_at);
       CREATE INDEX IF NOT EXISTS idx_telemetry_turn_channel ON telemetry_turn(channel);
     `);
+  });
+
+  runOnce('otcclaw-add-sandbox-tools', () => {
+    const row = db.prepare(
+      "SELECT tools_list FROM agents WHERE name = 'otcclaw'"
+    ).get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    let changed = false;
+    for (const t of ['sandbox_write_file', 'sandbox_read_file', 'sandbox_list', 'sandbox_exec']) {
+      if (!list.includes(t)) { list.push(t); changed = true; }
+    }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
+      ).run(JSON.stringify(list));
+    }
   });
 }
