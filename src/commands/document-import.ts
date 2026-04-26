@@ -714,7 +714,14 @@ async function loadAndChunk(
         log.warn(`图片描述失败 (${docTitle}): ${e.message}`);
       }
       const descBlock = desc ? `> **[图片内容]** ${desc}` : '> *（图片描述不可用）*';
-      markdown = `![${docTitle}](${path.basename(filePath)})\n\n${descBlock}`;
+
+      if (options?.imageOutputDir) {
+        fs.mkdirSync(options.imageOutputDir, { recursive: true });
+        fs.copyFileSync(filePath, path.join(options.imageOutputDir, path.basename(filePath)));
+        images = [{ filename: path.basename(filePath), relativePath: `images/${path.basename(filePath)}` }];
+      }
+
+      markdown = `![${docTitle}](images/${path.basename(filePath)})\n\n${descBlock}`;
       break;
     }
 
