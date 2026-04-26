@@ -24,9 +24,6 @@ export function initSchema(): void {
     'add_health_record',
     'query_health_records',
     'health_summary',
-    'archive_health_file',
-    'list_health_files',
-    'view_health_file',
     'log_sleep',
     'log_meal',
     'log_symptom',
@@ -559,7 +556,7 @@ export function initSchema(): void {
     if (doctorRow) {
       const current: string[] = doctorRow.tools_list ? JSON.parse(doctorRow.tools_list) : [];
       const healthTools = ['add_health_record', 'query_health_records', 'health_summary',
-        'archive_health_file', 'list_health_files', 'view_health_file', 'set_medication_reminder'];
+        'set_medication_reminder'];
       let changed = false;
       for (const tool of healthTools) {
         if (!current.includes(tool)) { current.push(tool); changed = true; }
@@ -567,6 +564,19 @@ export function initSchema(): void {
       if (changed) {
         db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'doctor'")
           .run(JSON.stringify(current));
+      }
+    }
+  });
+
+  runOnce('doctor-remove-archive-health-file', () => {
+    const doctorRow = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
+    if (doctorRow?.tools_list) {
+      const current: string[] = JSON.parse(doctorRow.tools_list);
+      const removed = ['archive_health_file', 'list_health_files', 'view_health_file'];
+      const next = current.filter(t => !removed.includes(t));
+      if (next.length !== current.length) {
+        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'doctor'")
+          .run(next.length > 0 ? JSON.stringify(next) : null);
       }
     }
   });
@@ -821,7 +831,6 @@ export function initSchema(): void {
         // doctor: standard mode, allow = Health + update_memory
         allowTools = [
           'add_health_record', 'query_health_records', 'health_summary',
-          'archive_health_file', 'list_health_files', 'view_health_file',
           'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
           'update_memory',
         ];

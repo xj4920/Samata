@@ -6,9 +6,6 @@ import {
   addHealthRecord,
   queryHealthRecords,
   getHealthSummary,
-  archiveHealthFile,
-  listHealthFiles,
-  getHealthFile,
 } from '../commands/health.js';
 import { createReminder } from '../commands/reminder.js';
 
@@ -55,49 +52,6 @@ export const toolDefinitions: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {},
       required: [],
-    },
-  },
-  {
-    name: 'archive_health_file',
-    description: '将健康相关图片（检查报告、化验单、处方等）存档到健康档案目录，并记录元数据',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        file_path: {
-          type: 'string',
-          description: '图片或文件的本地路径（支持 ~ 前缀）',
-        },
-        doc_type: {
-          type: 'string',
-          description: '文档类型：blood_test（血检）、imaging（影像）、prescription（处方）、report（报告）、other',
-        },
-        measured_at: { type: 'string', description: '检查日期，ISO8601 格式（可选，默认当前时间）' },
-        notes: { type: 'string', description: '备注（可选）' },
-      },
-      required: ['file_path', 'doc_type'],
-    },
-  },
-  {
-    name: 'list_health_files',
-    description: '列出已存档的健康文件记录，支持按文档类型筛选',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        doc_type: { type: 'string', description: '文档类型筛选（可选）' },
-        limit: { type: 'number', description: '返回条数，默认 20' },
-      },
-      required: [],
-    },
-  },
-  {
-    name: 'view_health_file',
-    description: '根据 ID 获取存档健康文件的路径，可用于重新加载图片进行对比分析',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id: { type: 'string', description: '文件记录 ID 或 ID 前缀（通过 list_health_files 获取）' },
-      },
-      required: ['id'],
     },
   },
   {
@@ -199,43 +153,6 @@ function handleHealthSummary(): string {
   const summary = getHealthSummary(userId, agentId);
   if (Object.keys(summary).length === 0) return JSON.stringify({ message: '暂无健康数据' });
   return JSON.stringify(summary);
-}
-
-function handleArchiveHealthFile(input: {
-  file_path: string;
-  doc_type: string;
-  measured_at?: string;
-  notes?: string;
-}): string {
-  const { userId, agentId } = getUserAndAgent();
-  const result = archiveHealthFile(userId, agentId, input.file_path, input.doc_type, input.measured_at, input.notes);
-  return JSON.stringify(result);
-}
-
-function handleListHealthFiles(input: { doc_type?: string; limit?: number }): string {
-  const { userId, agentId } = getUserAndAgent();
-  const files = listHealthFiles(userId, agentId, input.doc_type, input.limit);
-  if (files.length === 0) return JSON.stringify({ message: '暂无存档文件' });
-  return JSON.stringify(files.map(f => ({
-    id: f.id.slice(0, 8),
-    doc_type: f.doc_type,
-    measured_at: f.measured_at,
-    notes: f.notes,
-    file_path: f.file_path,
-  })));
-}
-
-function handleViewHealthFile(input: { id: string }): string {
-  const { userId } = getUserAndAgent();
-  const file = getHealthFile(input.id, userId);
-  if (!file) return JSON.stringify({ error: `未找到文件记录: ${input.id}` });
-  return JSON.stringify({
-    id: file.id.slice(0, 8),
-    doc_type: file.doc_type,
-    measured_at: file.measured_at,
-    notes: file.notes,
-    file_path: file.file_path,
-  });
 }
 
 function handleLogSleep(input: {
@@ -351,9 +268,6 @@ export async function handleTool(name: string, input: any, ctx?: ToolContext): P
     case 'add_health_record': return handleAddHealthRecord(input);
     case 'query_health_records': return handleQueryHealthRecords(input);
     case 'health_summary': return handleHealthSummary();
-    case 'archive_health_file': return handleArchiveHealthFile(input);
-    case 'list_health_files': return handleListHealthFiles(input);
-    case 'view_health_file': return handleViewHealthFile(input);
     case 'log_sleep': return handleLogSleep(input);
     case 'log_meal': return handleLogMeal(input);
     case 'log_symptom': return handleLogSymptom(input);
