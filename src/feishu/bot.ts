@@ -1037,6 +1037,10 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
         try {
           const buf = await instance.api.downloadMessageResource(messageId, fileKey, 'file');
           const savedPath = saveUploadedFile(buf, fileName);
+          if (isImageFile(fileName)) {
+            const mtype = detectImageMediaType(buf);
+            images = [{ data: buf.toString('base64'), mediaType: mtype }];
+          }
           text = buildFileHint(fileName, savedPath, buf.length);
           log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {

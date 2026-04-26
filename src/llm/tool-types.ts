@@ -161,7 +161,7 @@ export type QueryPricingQuoteInput = { quote_type?: string; date?: string; curre
 export type ListPricingQuoteDatesInput = { quote_type?: string };
 
 // --- Document ---
-export type ImportDocumentInput = { file_path: string; title?: string };
+export type ImportDocumentInput = { file_path: string; title?: string; doc_date?: string };
 export type DeleteDocumentInput = { id_prefix: string };
 
 // --- Date ---

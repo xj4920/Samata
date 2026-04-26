@@ -5,6 +5,10 @@
 export function buildFileHint(filename: string, savedPath: string, bytes: number): string {
   const base = `用户发送了文件 "${filename}" (${bytes} bytes)，已保存到本地路径: ${savedPath}`;
 
+  if (/\.(png|jpe?g|gif|webp|svg|bmp|pdf)$/i.test(filename)) {
+    return `${base}\n这是图片或 PDF，**请直接调用 import_document**（参数 file_path 传上面的本地路径）。import_document 会保存原图、调用 vision 模型转录文字，并写入知识库可被 search_knowledge 检索。不要用 parse_excel / parse_word / read_file，它们读不出图片。`;
+  }
+
   if (/pricing[\s_+-]*schedule|claw|客户报价/i.test(filename)) {
     return `${base}\n这是**客户报价条款表**（按管理人聚合 commission / financing / 点差 等），请直接调用 import_pricing_schedule（默认 dry_run=true 预览；用户确认后 dry_run=false 写入）。**不要**用 parse_excel 展示 + 手动 query_clients 逐条匹配——Counterparty 是产品名（如 WIZARD01、MINGSHIOPTIMA），query_clients 按管理人名匹配，一定查不到；import_pricing_schedule 内部会通过 config/customers.json 自动聚合到管理人。`;
   }

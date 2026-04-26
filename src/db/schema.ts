@@ -1,5 +1,6 @@
 import fs from 'fs';
-import { resolve, join, isAbsolute, relative, sep } from 'path';
+import { createHash } from 'node:crypto';
+import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
@@ -1728,6 +1729,65 @@ export function initSchema(): void {
       db.prepare(
         "UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
       ).run(JSON.stringify(list));
+    }
+  });
+
+  runOnce('add-documents-content-hash', () => {
+    try { db.exec("ALTER TABLE documents ADD COLUMN content_hash TEXT"); } catch (e) {}
+  });
+
+  runOnce('add-documents-doc-date', () => {
+    try { db.exec("ALTER TABLE documents ADD COLUMN doc_date TEXT"); } catch (e) {}
+  });
+
+  /**
+   * Backfill content_hash for existing documents by hashing the stored original file.
+   * Falls back to the source_path if original copy is unavailable on disk.
+   */
+  runOnce('backfill-documents-content-hash', () => {
+    const docs = db.prepare(
+      "SELECT id, source_path, stored_path, file_type FROM documents WHERE content_hash IS NULL"
+    ).all() as { id: string; source_path: string; stored_path: string | null; file_type: string }[];
+
+    const updateStmt = db.prepare("UPDATE documents SET content_hash = ? WHERE id = ?");
+    let ok = 0;
+    let skipped = 0;
+
+    for (const doc of docs) {
+      let filePath: string | null = null;
+
+      // Try stored original copy first
+      if (doc.stored_path) {
+        const ext = extname(doc.source_path) || '.bin';
+        const absDir = isAbsolute(doc.stored_path)
+          ? doc.stored_path
+          : resolve('.', doc.stored_path);
+        const originalPath = join(absDir, `original${ext}`);
+        if (fs.existsSync(originalPath)) {
+          filePath = originalPath;
+        }
+      }
+
+      // Fallback: try source_path itself
+      if (!filePath && doc.source_path && fs.existsSync(doc.source_path)) {
+        filePath = doc.source_path;
+      }
+
+      if (filePath) {
+        try {
+          const hash = createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+          updateStmt.run(hash, doc.id);
+          ok++;
+        } catch {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+
+    if (ok > 0 || skipped > 0) {
+      console.log(`[backfill-documents-content-hash] ok=${ok} skipped=${skipped}`);
     }
   });
 }

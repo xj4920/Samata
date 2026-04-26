@@ -32,7 +32,7 @@ export interface LLMProvider {
   describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }
 
-export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'gf';
+export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'gf' | 'deepseek';
 
 const providers = new Map<ProviderName, LLMProvider>();
 let currentName: ProviderName = 'anthropic';
@@ -151,7 +151,7 @@ export async function initProviders(): Promise<boolean> {
   const { createGeminiProvider } = await import('./gemini.js');
   const { createOpenRouterProvider } = await import('./openrouter.js');
   const { createGfProvider } = await import('./gf.js');
-
+  const { createDeepseekProvider } = await import('./deepseek.js');
   // 尝试初始化 Anthropic
   const anthropic = createAnthropicProvider();
   if (anthropic) {
@@ -185,6 +185,13 @@ export async function initProviders(): Promise<boolean> {
   if (gf) {
     registerProvider('gf', gf);
     log.dim('  GF provider 已注册');
+  }
+
+  // 尝试初始化 DeepSeek
+  const deepseek = createDeepseekProvider();
+  if (deepseek) {
+    registerProvider('deepseek', deepseek);
+    log.dim('  DeepSeek provider 已注册');
   }
 
   if (providers.size === 0) return false;

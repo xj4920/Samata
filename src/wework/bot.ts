@@ -301,7 +301,10 @@ function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFram
       log.dim(`${logTag} 下载文件成功: ${filename} (${buffer.length} bytes) -> ${savedPath}`);
 
       const text = buildFileHint(filename, savedPath, buffer.length);
-      await handleAIChat(instance, frame, text, mapKey, userId, username);
+      const images = /\.(png|jpe?g|gif|webp|bmp|ico|tiff)$/i.test(filename)
+        ? [{ data: buffer.toString('base64'), mediaType: detectImageMediaType(buffer) }]
+        : undefined;
+      await handleAIChat(instance, frame, text, mapKey, userId, username, images);
     } catch (err: any) {
       log.error(`${logTag} 处理文件消息出错: ${err.message}`);
       const streamId = generateReqId('stream');

@@ -4,6 +4,7 @@ import { getCurrentAgent } from '../llm/agent.js';
 import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
 import { v4 as uuid } from 'uuid';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import XLSX from 'xlsx';
@@ -39,6 +40,9 @@ export interface DocumentInfo {
   /** Size of parsed.md in bytes (post-migration). Null for legacy rows not yet backfilled. */
   size_bytes?: number | null;
   agent_id: string | null;
+  content_hash?: string | null;
+  /** Material date (e.g. checkup report date), distinct from created_at (import time). */
+  doc_date?: string | null;
   created_by: string;
   created_at: string;
 }
@@ -215,6 +219,19 @@ interface PersistOutcome {
   sizeBytes: number;
 }
 
+// 同卷 hardlink，跨卷或不允许时退回 copyFileSync。dst 已存在则先 unlink 再尝试一次。
+function linkOrCopy(src: string, dst: string): void {
+  try {
+    fs.linkSync(src, dst);
+    return;
+  } catch (e: any) {
+    if (e?.code === 'EEXIST') {
+      try { fs.unlinkSync(dst); fs.linkSync(src, dst); return; } catch {}
+    }
+    fs.copyFileSync(src, dst);
+  }
+}
+
 function persistDocumentFiles(
   docId: string,
   agentId: string,
@@ -224,14 +241,15 @@ function persistDocumentFiles(
   tags: string,
   title: string,
   createdBy: string,
+  docDate?: string,
 ): PersistOutcome {
   const dir = getDocStorageDir(docId, agentId);
   fs.mkdirSync(dir, { recursive: true });
 
   const ext = path.extname(sourceFilePath);
-  fs.copyFileSync(sourceFilePath, path.join(dir, `original${ext}`));
+  linkOrCopy(sourceFilePath, path.join(dir, `original${ext}`));
 
-  const frontmatter = [
+  const frontmatterLines = [
     '---',
     `document_id: ${docId}`,
     `agent_id: ${agentId}`,
@@ -240,9 +258,12 @@ function persistDocumentFiles(
     `file_type: ${fileType}`,
     `created_by: ${createdBy}`,
     `created_at: ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
-    '---',
-    '',
-  ].join('\n');
+  ];
+  if (docDate) {
+    frontmatterLines.push(`doc_date: ${docDate}`);
+  }
+  frontmatterLines.push('---', '');
+  const frontmatter = frontmatterLines.join('\n');
 
   const fullContent = frontmatter + markdown;
   const parsedMdAbs = path.join(dir, 'parsed.md');
@@ -704,7 +725,15 @@ async function loadAndChunk(
       const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
 
       const provider = getProvider();
-      const imagePrompt = '请详细描述这张图片的内容。如果图中包含文字，请逐段转录原文，保留所有关键信息。如果包含表格数据，请用 markdown 表格格式输出。确保文字信息不丢失。';
+      const imagePrompt = [
+        '你是 OCR + 版面还原助手，请把图片中**所有**可见文字逐字转录为 markdown，严格遵守：',
+        '1. 不省略任何字段、代码、数字、日期、金额、印章文字、表头、空白栏目名；空白单元格写 "(空)"，不要写"该栏空白"。',
+        '2. 用 markdown 表格还原原图所有表格，**必须输出完整的列头行和所有数据行（含空行）**，列数与原图一致。',
+        '3. 难辨认或被裁切的字符用 [?] 标记，**不要**跳过整段或用一句话概括。',
+        '4. 印章/手写签名/手写备注单独成段列出原文。',
+        '5. **不做总结、不做解读、不补充背景知识**，只做版面+文字还原。',
+        '6. 顶部可输出一行 "图片类型：..." 用于分类（如：门诊处方笺/检查报告/...），其余内容必须是逐字转录。',
+      ].join('\n');
 
       let desc = '';
       try {
@@ -717,7 +746,7 @@ async function loadAndChunk(
 
       if (options?.imageOutputDir) {
         fs.mkdirSync(options.imageOutputDir, { recursive: true });
-        fs.copyFileSync(filePath, path.join(options.imageOutputDir, path.basename(filePath)));
+        linkOrCopy(filePath, path.join(options.imageOutputDir, path.basename(filePath)));
         images = [{ filename: path.basename(filePath), relativePath: `images/${path.basename(filePath)}` }];
       }
 
@@ -741,7 +770,7 @@ async function loadAndChunk(
 export async function importDocument(
   filePath: string,
   agentId: string,
-  options?: { title?: string; actorUserId?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
+  options?: { title?: string; docDate?: string; actorUserId?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<ImportResult> {
   const perm = ensureDocWriteAccess(agentId);
   if (!perm.success) return { success: false, error: perm.error };
@@ -759,13 +788,34 @@ export async function importDocument(
 
   const docTitle = options?.title || extractTitleFromFilename(resolved);
 
-  // Check for duplicate import (same source_path + agent_id)
+  // Validate doc_date if provided
+  const docDate = options?.docDate?.trim();
+  if (docDate && isNaN(new Date(docDate).getTime())) {
+    return { success: false, error: `无效的日期格式: ${docDate}，请使用 YYYY-MM-DD 格式` };
+  }
+
+  // Compute content hash for dedup
+  let contentHash = '';
+  try {
+    contentHash = crypto.createHash('sha256').update(fs.readFileSync(resolved)).digest('hex');
+  } catch (e: any) {
+    return { success: false, error: `文件读取失败: ${e.message}` };
+  }
+
+  // Check for duplicate import (same source_path + agent_id, or same content hash + agent_id)
   const db = getDb();
   const existing = db.prepare(
     'SELECT id, title FROM documents WHERE source_path = ? AND agent_id = ?',
   ).get(resolved, agentId) as { id: string; title: string } | undefined;
   if (existing) {
     return { success: false, error: `文档已导入过 (${existing.id.slice(0, 8)}: ${existing.title})，如需更新请先删除或使用 reimport` };
+  }
+
+  const hashExisting = db.prepare(
+    'SELECT id, title FROM documents WHERE content_hash = ? AND agent_id = ?',
+  ).get(contentHash, agentId) as { id: string; title: string } | undefined;
+  if (hashExisting) {
+    return { success: false, error: `文档内容与已导入的文档相同 (${hashExisting.id.slice(0, 8)}: ${hashExisting.title})，请勿重复导入` };
   }
 
   // Generate doc ID early so we can set up the image output directory before parsing
@@ -786,15 +836,15 @@ export async function importDocument(
     return { success: false, error: '文档内容为空，无法导入' };
   }
 
-  const { relPath, sizeBytes } = persistDocumentFiles(docId, agentId, resolved, fileType, markdown, tags, docTitle, actorUserId);
+  const { relPath, sizeBytes } = persistDocumentFiles(docId, agentId, resolved, fileType, markdown, tags, docTitle, actorUserId, docDate);
 
   if (images && images.length > 0) {
     log.info(`  提取了 ${images.length} 张图片 → ${imageOutputDir}`);
   }
 
   db.prepare(
-    'INSERT INTO documents (id, title, source_path, file_type, agent_id, created_by, stored_path, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, relPath, sizeBytes);
+    'INSERT INTO documents (id, title, source_path, file_type, agent_id, created_by, stored_path, size_bytes, content_hash, doc_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, relPath, sizeBytes, contentHash, docDate || null);
 
   recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType });
 

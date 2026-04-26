@@ -7,12 +7,13 @@ import { importDocument, deleteDocument, listDocuments, formatFileSize } from '.
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'import_document',
-    description: '将文件导入为知识库文档。支持 .md、.docx、.xlsx、.csv 格式。文档以完整 Markdown 存储，可通过 search_knowledge 搜索到相关内容。',
+    description: '将文件导入为知识库文档。支持 .md、.docx、.xlsx、.csv、.pdf 以及图片（.png/.jpg/.jpeg/.gif/.webp/.svg）。图片与 PDF 内的图会通过 vision 模型自动转录文字。文档以完整 Markdown 存储，可通过 search_knowledge 检索。',
     input_schema: {
       type: 'object' as const,
       properties: {
         file_path: { type: 'string', description: '文件路径（支持 ~/ 相对路径）' },
         title: { type: 'string', description: '文档标题（可选，默认从文件名提取）' },
+        doc_date: { type: 'string', description: '材料日期，格式 YYYY-MM-DD（可选，如检查报告的检查日期）' },
       },
       required: ['file_path'],
     },
@@ -44,6 +45,7 @@ async function handleImportDocument(input: ImportDocumentInput, ctx?: ToolContex
   if (!agentId) return JSON.stringify({ error: '未关联 Agent，无法导入' });
   const result = await importDocument(input.file_path, agentId, {
     title: input.title,
+    docDate: input.doc_date,
     actorUserId: getCurrentUser().id,
     onProgress: ctx?.onProgress,
   });
@@ -59,6 +61,7 @@ function handleListDocuments(): string {
     title: d.title,
     file_type: d.file_type,
     file_size: typeof d.size_bytes === 'number' && d.size_bytes > 0 ? formatFileSize(d.size_bytes) : null,
+    doc_date: d.doc_date || null,
     created_at: d.created_at,
   })));
 }
