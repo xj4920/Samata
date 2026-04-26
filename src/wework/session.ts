@@ -12,6 +12,7 @@ import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
+import { cleanupSandbox } from '../commands/sandbox.js';
 
 export interface WeworkSession {
   weworkUserId: string;
@@ -61,6 +62,7 @@ export function resetSession(botId: string, sessions: Map<string, WeworkSession>
   const session = sessions.get(mapKey);
   if (session) {
     summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+    cleanupSandbox(session.agentName, session.user.id);
     session.history = [];
     const agent = resolveAgent('wework', botId);
     if (agent) session.agentName = agent.name;
@@ -75,6 +77,7 @@ export function cleanupSessions(sessions: Map<string, WeworkSession>, maxAgeMs =
   for (const [id, session] of sessions) {
     if (now - session.lastActive > maxAgeMs) {
       summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+      cleanupSandbox(session.agentName, session.user.id);
       sessions.delete(id);
       cleaned++;
     }

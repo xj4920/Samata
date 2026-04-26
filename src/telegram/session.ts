@@ -7,6 +7,7 @@ import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
+import { cleanupSandbox } from '../commands/sandbox.js';
 
 export interface TelegramSession {
   telegramUserId: number;
@@ -46,6 +47,7 @@ export function resetSession(telegramUserId: number): boolean {
   const session = sessions.get(telegramUserId);
   if (session) {
     summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+    cleanupSandbox(session.agentName, session.user.id);
     session.history = [];
     const agent = resolveAgent('telegram', undefined, String(telegramUserId));
     if (agent) session.agentName = agent.name;
@@ -67,6 +69,7 @@ export function cleanupSessions(maxAgeMs = 2 * 60 * 60 * 1000): number {
   for (const [id, session] of sessions) {
     if (now - session.lastActive > maxAgeMs) {
       summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+      cleanupSandbox(session.agentName, session.user.id);
       sessions.delete(id);
       cleaned++;
     }

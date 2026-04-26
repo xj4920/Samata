@@ -7,6 +7,7 @@ import { getOrCreateUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
+import { cleanupSandbox } from '../commands/sandbox.js';
 
 export interface FeishuSession {
   feishuUserId: string;
@@ -47,6 +48,7 @@ export function resetSession(feishuUserId: string): boolean {
   const session = sessions.get(feishuUserId);
   if (session) {
     summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+    cleanupSandbox(session.agentName, session.user.id);
     session.history = [];
     const agent = resolveAgent('feishu', feishuUserId);
     if (agent) session.agentName = agent.name;
@@ -68,6 +70,7 @@ export function cleanupSessions(maxAgeMs = 2 * 60 * 60 * 1000): number {
   for (const [id, session] of sessions) {
     if (now - session.lastActive > maxAgeMs) {
       summarizeAndUpdateWorkspace(session.agentName, session.user.id, session.history).catch(() => {});
+      cleanupSandbox(session.agentName, session.user.id);
       sessions.delete(id);
       cleaned++;
     }
