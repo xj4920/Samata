@@ -124,7 +124,11 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
         content: textParts.join('\n') || null,
       };
       if (toolCalls.length > 0) am.tool_calls = toolCalls;
-      am.reasoning_content = reasoning;
+      if (reasoning) am.reasoning_content = reasoning;
+      // 部分 provider（如 DeepSeek）要求 assistant 消息必须有 content 或 tool_calls
+      if (!am.content && !(am.tool_calls && am.tool_calls.length > 0)) {
+        am.content = '';
+      }
       result.push(am);
     }
   }

@@ -5,7 +5,7 @@
 export function friendlyAIError(err: unknown): string {
   const msg = (err as any)?.message ?? String(err);
 
-  if (/MiniMax API \d{3}|server_error|upstream|Bad Gateway|520|502|503|504/i.test(msg)) {
+  if (/(?:MiniMax|GF|DeepSeek|Gemini|OpenRouter) API \d{3}|server_error|upstream|Bad Gateway|520|502|503|504/i.test(msg)) {
     return 'AI 暂时无法访问（上游服务抖动），请稍后重试。';
   }
   if (/context.window|token.*limit|maximum.*context/i.test(msg)) {
