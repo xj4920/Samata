@@ -133,9 +133,17 @@ function trimHistory(history: Anthropic.MessageParam[], maxLen: number = MAX_HIS
  * Remove orphan tool_use / tool_result messages so the API never sees
  * a tool_call_id without its matching assistant tool_use (or vice-versa).
  * Mutates history in-place.
+ *
+ * Two-pass detection:
+ *   1. Global ID match — tool_use without tool_result (or vice-versa).
+ *   2. Structural ordering — tool_results must immediately follow the
+ *      assistant message that issued the corresponding tool_use.
+ *      If a non-tool user message appears before results, the open
+ *      tool_use IDs become orphan (breaks OpenAI-compat APIs like DeepSeek
+ *      that require tool messages to directly follow tool_calls).
  */
 function sanitizeToolPairs(history: Anthropic.MessageParam[]): void {
-  // Collect all tool_use ids from assistant messages
+  // Pass 1: global ID matching
   const toolUseIds = new Set<string>();
   for (const msg of history) {
     if (msg.role === 'assistant' && Array.isArray(msg.content)) {
@@ -145,7 +153,6 @@ function sanitizeToolPairs(history: Anthropic.MessageParam[]): void {
     }
   }
 
-  // Collect all tool_result ids from user messages
   const toolResultIds = new Set<string>();
   for (const msg of history) {
     if (msg.role === 'user' && Array.isArray(msg.content)) {
@@ -155,14 +162,59 @@ function sanitizeToolPairs(history: Anthropic.MessageParam[]): void {
     }
   }
 
-  // If every tool_use has a matching tool_result and vice-versa, nothing to do
-  const orphanUseIds = [...toolUseIds].filter(id => !toolResultIds.has(id));
-  const orphanResultIds = [...toolResultIds].filter(id => !toolUseIds.has(id));
-  if (orphanUseIds.length === 0 && orphanResultIds.length === 0) return;
+  const orphanUseIds = new Set([...toolUseIds].filter(id => !toolResultIds.has(id)));
+  const orphanResultIds = new Set([...toolResultIds].filter(id => !toolUseIds.has(id)));
+
+  // Pass 2: structural ordering validation.
+  // Tool_results must appear in user messages that directly follow the
+  // assistant message with the corresponding tool_use — without any
+  // non-tool user message in between.
+  let openUseIds = new Set<string>();
+  for (const msg of history) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      // New assistant turn: any unfulfilled IDs from previous turn are orphan
+      for (const id of openUseIds) orphanUseIds.add(id);
+      openUseIds = new Set<string>();
+      for (const block of msg.content as any[]) {
+        if (block.type === 'tool_use' && block.id) {
+          if (orphanUseIds.has(block.id)) continue; // already known orphan
+          openUseIds.add(block.id);
+        }
+      }
+    } else if (msg.role === 'user') {
+      if (Array.isArray(msg.content)) {
+        const hasToolResult = (msg.content as any[]).some((b: any) => b.type === 'tool_result');
+        if (hasToolResult) {
+          for (const block of msg.content as any[]) {
+            if (block.type === 'tool_result' && block.tool_use_id) {
+              if (openUseIds.has(block.tool_use_id)) {
+                openUseIds.delete(block.tool_use_id);
+              } else {
+                // tool_result references an ID not currently open → orphan
+                orphanResultIds.add(block.tool_use_id);
+              }
+            }
+          }
+        } else {
+          // Non-tool user message closes open IDs → mark as orphan
+          for (const id of openUseIds) orphanUseIds.add(id);
+          openUseIds = new Set<string>();
+        }
+      } else {
+        // Plain string user message → close open IDs
+        for (const id of openUseIds) orphanUseIds.add(id);
+        openUseIds = new Set<string>();
+      }
+    }
+  }
+  // Any IDs still open at the end of history
+  for (const id of openUseIds) orphanUseIds.add(id);
+
+  if (orphanUseIds.size === 0 && orphanResultIds.size === 0) return;
 
   const badIds = new Set([...orphanUseIds, ...orphanResultIds]);
 
-  // Remove messages that only contain orphan blocks; strip orphan blocks from mixed messages
+  // Strip orphan blocks; remove emptied messages
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
     if (!Array.isArray(msg.content)) continue;
@@ -172,6 +224,26 @@ function sanitizeToolPairs(history: Anthropic.MessageParam[]): void {
       if (b.type === 'tool_result' && badIds.has(b.tool_use_id)) return false;
       return true;
     });
+    if (cleaned.length === 0) {
+      history.splice(i, 1);
+    } else if (cleaned.length !== blocks.length) {
+      msg.content = cleaned;
+    }
+  }
+}
+
+/**
+ * Deep cleanup: strip ALL tool_use and tool_result blocks from history,
+ * keeping only text/thinking content. Used as a last resort when
+ * sanitizeToolPairs is insufficient (e.g. structural corruption that
+ * ID-based matching can't fix).
+ */
+function stripAllToolBlocks(history: Anthropic.MessageParam[]): void {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!Array.isArray(msg.content)) continue;
+    const blocks = msg.content as any[];
+    const cleaned = blocks.filter(b => b.type !== 'tool_use' && b.type !== 'tool_result');
     if (cleaned.length === 0) {
       history.splice(i, 1);
     } else if (cleaned.length !== blocks.length) {
@@ -438,9 +510,21 @@ export async function runAgenticChat(
       try {
         ({ result: response, streamed } = await trackedCallLLM(1, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
       } catch (retryErr: any) {
-        log.error(`${logPrefix}AI 请求失败: ${retryErr?.message ?? String(retryErr)}`);
-        history.length = historyLenBefore;
-        throw retryErr;
+        if (isOrphanToolError(retryErr)) {
+          log.warn(`${logPrefix}标准清理不足，执行深度清理后重试...`);
+          history.length = historyLenBefore;
+          stripAllToolBlocks(history);
+          history.push({ role: 'user', content: processedInput });
+          try {
+            ({ result: response, streamed } = await trackedCallLLM(1, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+          } catch (deepRetryErr: any) {
+            log.error(`${logPrefix}深度清理后仍失败: ${deepRetryErr?.message ?? String(deepRetryErr)}`);
+            throw deepRetryErr;
+          }
+        } else {
+          log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
+          throw retryErr;
+        }
       }
     } else {
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
@@ -555,10 +639,23 @@ export async function runAgenticChat(
           round += 1;
           continue;
         } catch (retryErr: any) {
-          log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
-          history.length = historyLenBefore;
-          endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
-          throw retryErr;
+          if (isOrphanToolError(retryErr)) {
+            log.warn(`${logPrefix}标准清理不足，执行深度清理后重试...`);
+            stripAllToolBlocks(history);
+            try {
+              ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
+              round += 1;
+              continue;
+            } catch (deepRetryErr: any) {
+              log.error(`${logPrefix}深度清理后仍失败: ${deepRetryErr?.message ?? String(deepRetryErr)}`);
+              endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
+              throw deepRetryErr;
+            }
+          } else {
+            log.error(`${logPrefix}重试仍失败: ${retryErr?.message ?? String(retryErr)}`);
+            endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
+            throw retryErr;
+          }
         }
       }
       log.error(`${logPrefix}AI 请求失败: ${err?.message ?? String(err)}`);
