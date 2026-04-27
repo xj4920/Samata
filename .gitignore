@@ -36,3 +36,4 @@ data*
 .playwright-mcp/*
 
 config/agents/*
+!config/agents/*.files.json

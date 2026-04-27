@@ -1884,4 +1884,37 @@ export function initSchema(): void {
         .run(JSON.stringify(list));
     }
   });
+
+  /**
+   * Grant otcclaw read_file with agent-level allowlist gate.
+   * Allowlist lives in config/agents/otcclaw.files.json (committed alongside this migration).
+   * Also removes read_file from user_tools_list (member blocklist) — historically blocked
+   * because read_file had no auth check; the new allowlist now bounds what non-admins can read.
+   */
+  runOnce('otcclaw-add-read-file', () => {
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'"
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+
+    let changed = false;
+    if (!list.includes('read_file')) {
+      list.push('read_file');
+      changed = true;
+    }
+    const ufIdx = userList.indexOf('read_file');
+    if (ufIdx !== -1) {
+      userList.splice(ufIdx, 1);
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
+      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
+    }
+  });
 }

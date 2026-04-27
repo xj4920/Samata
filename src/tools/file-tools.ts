@@ -10,6 +10,77 @@ import { execSync } from 'child_process';
 const PROJECT_ROOT = process.cwd() + '/';
 const FORBIDDEN_PATTERNS = ['.env', 'node_modules/', 'data/*.db', '.git/'];
 
+const ALLOWLIST_DIR = path.join(process.cwd(), 'config', 'agents');
+const allowlistCache = new Map<string, { mtimeMs: number; list: string[] | null }>();
+
+/**
+ * Load read_file allowlist for an agent from `config/agents/<name>.files.json`.
+ * Returns `null` when the file does not exist (no agent-level restriction → fall back to system-admin gate).
+ * Cached per file with mtime invalidation so edits take effect without restart.
+ */
+function loadAgentFileAllowlist(agentName: string): string[] | null {
+  const file = path.join(ALLOWLIST_DIR, `${agentName}.files.json`);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    allowlistCache.set(agentName, { mtimeMs: 0, list: null });
+    return null;
+  }
+  const cached = allowlistCache.get(agentName);
+  if (cached && cached.mtimeMs === stat.mtimeMs) return cached.list;
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every(x => typeof x === 'string')) {
+      throw new Error(`expected JSON array of strings`);
+    }
+    const list = parsed.map(p => p.replace(/^\/+/, ''));
+    allowlistCache.set(agentName, { mtimeMs: stat.mtimeMs, list });
+    return list;
+  } catch (err: any) {
+    console.warn(`[file-tools] invalid allowlist ${file}: ${err.message}`);
+    allowlistCache.set(agentName, { mtimeMs: stat.mtimeMs, list: [] });
+    return [];
+  }
+}
+
+/**
+ * Decide whether the current agent may read `inputPath` via `read_file`.
+ * Returns the absolute path on success, or `{error}` describing why it was rejected.
+ */
+function authorizeRead(inputPath: string): { filePath: string; relative: string } | { error: string } {
+  let filePath = inputPath.startsWith('~')
+    ? inputPath.replace('~', process.env.HOME || '')
+    : inputPath;
+  if (!path.isAbsolute(filePath)) filePath = path.resolve(PROJECT_ROOT, filePath);
+  filePath = path.normalize(filePath);
+
+  if (!filePath.startsWith(PROJECT_ROOT)) {
+    return { error: `read_file 拒绝：路径不在项目目录内 (${inputPath})` };
+  }
+  const relative = filePath.slice(PROJECT_ROOT.length);
+
+  const agent = getCurrentAgent();
+  const agentName = agent?.name;
+  const allowlist = agentName ? loadAgentFileAllowlist(agentName) : null;
+
+  if (allowlist !== null) {
+    if (!allowlist.includes(relative)) {
+      return {
+        error: `read_file 拒绝：${relative} 不在 ${agentName} 的可读白名单内。可读列表：${JSON.stringify(allowlist)}（如需新增，请管理员编辑 config/agents/${agentName}.files.json）`,
+      };
+    }
+    return { filePath, relative };
+  }
+
+  if (isSystemAdmin()) return { filePath, relative };
+
+  return {
+    error: `read_file 拒绝：${agentName ?? '当前 agent'} 没有配置可读白名单 (config/agents/${agentName ?? '<name>'}.files.json)，且当前用户不是系统管理员`,
+  };
+}
+
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'list_directory',
@@ -24,11 +95,11 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'read_file',
-    description: '读取指定文件的内容',
+    description: '读取项目内文件内容。受 agent 白名单约束：只能读取 config/agents/<agent>.files.json 中列出的文件路径（相对项目根，精确匹配）；白名单未配置时仅系统管理员可调。被拒时错误信息会附完整可读列表。',
     input_schema: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: '文件路径（绝对路径或相对路径）' },
+        path: { type: 'string', description: '文件路径（相对项目根或绝对路径），必须命中当前 agent 的白名单' },
         max_lines: { type: 'number', description: '最多读取行数，默认500' },
       },
       required: ['path'],
@@ -134,10 +205,12 @@ function handleListDirectory(input: { path: string }): string {
 }
 
 function handleReadFile(input: { path: string; max_lines?: number }): string {
-  const filePath = resolvePath(input.path);
+  const auth = authorizeRead(input.path);
+  if ('error' in auth) return JSON.stringify({ error: auth.error });
+
   const maxLines = input.max_lines ?? 500;
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(auth.filePath, 'utf-8');
     const lines = content.split('\n');
     if (lines.length > maxLines) {
       return lines.slice(0, maxLines).join('\n') + `\n...(共 ${lines.length} 行，已截断前 ${maxLines} 行)`;
