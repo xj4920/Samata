@@ -89,8 +89,11 @@ export interface ManagerTradeSummary {
   pos_num: number;
   trade_num: number;
   notional_t: number;
+  notional_short_t: number;
   trade_amt_ft: number;
+  trade_amt_ft_short: number;
   ft_net: number;
+  ft_net_short: number;
 }
 
 /**
@@ -100,7 +103,9 @@ export async function fetchTradeSummary(date?: string): Promise<{
   date: string;
   summaries: ManagerTradeSummary[];
   totalNotional: number;
+  totalNotionalShort: number;
   totalTradeAmt: number;
+  totalTradeAmtShort: number;
 }> {
   if (!isInfluxConfigured()) throw new Error('InfluxDB 未配置');
 
@@ -114,7 +119,14 @@ export async function fetchTradeSummary(date?: string): Promise<{
 
   const records = await queryTrades({ date, limit: 1000 });
   if (records.length === 0) {
-    return { date: date || '-', summaries: [], totalNotional: 0, totalTradeAmt: 0 };
+    return {
+      date: date || '-',
+      summaries: [],
+      totalNotional: 0,
+      totalNotionalShort: 0,
+      totalTradeAmt: 0,
+      totalTradeAmtShort: 0,
+    };
   }
 
   const actualDate = records[0].trade_dt || date || '-';
@@ -133,15 +145,21 @@ export async function fetchTradeSummary(date?: string): Promise<{
       pos_num: 0,
       trade_num: 0,
       notional_t: 0,
+      notional_short_t: 0,
       trade_amt_ft: 0,
+      trade_amt_ft_short: 0,
       ft_net: 0,
+      ft_net_short: 0,
     };
 
     summary.pos_num += r.pos_num || 0;
     summary.trade_num += r.trade_num || 0;
     summary.notional_t += (r.notional_ft_t_1 || 0) + (r.ft_net || 0);
+    summary.notional_short_t += r.notional_ft_short_t || 0;
     summary.trade_amt_ft += r.trade_amt_ft || 0;
+    summary.trade_amt_ft_short += r.trade_amt_ft_short || 0;
     summary.ft_net += r.ft_net || 0;
+    summary.ft_net_short += r.ft_net_short || 0;
 
     managerMap.set(manager, summary);
   }
@@ -150,13 +168,17 @@ export async function fetchTradeSummary(date?: string): Promise<{
     .sort((a, b) => Math.abs(b.notional_t) - Math.abs(a.notional_t));
 
   const totalNotional = summaries.reduce((sum, s) => sum + s.notional_t, 0);
+  const totalNotionalShort = summaries.reduce((sum, s) => sum + s.notional_short_t, 0);
   const totalTradeAmt = summaries.reduce((sum, s) => sum + s.trade_amt_ft, 0);
+  const totalTradeAmtShort = summaries.reduce((sum, s) => sum + s.trade_amt_ft_short, 0);
 
   return {
     date: actualDate,
     summaries,
     totalNotional,
+    totalNotionalShort,
     totalTradeAmt,
+    totalTradeAmtShort,
   };
 }
 
@@ -179,33 +201,50 @@ function formatNet(val: number): string {
   return prefix + formatAmount(val);
 }
 
+// summary 专用：统一用「亿」+ 3 位小数，避免按阈值切单位导致 LLM 渲染时单位混乱
+function formatBillion(val: number): string {
+  return `${(val / 1e8).toFixed(3)}亿`;
+}
+
+function formatBillionNet(val: number): string {
+  const prefix = val > 0 ? '+' : '';
+  return prefix + formatBillion(val);
+}
+
 export async function trade(args: string): Promise<void> {
   const params = parseArgs(args);
   
   // 新增 summary 子命令支持
   if (args.includes('summary')) {
     try {
-      const { date, summaries, totalNotional, totalTradeAmt } = await fetchTradeSummary(params.date);
+      const {
+        date,
+        summaries,
+        totalNotional,
+        totalNotionalShort,
+        totalTradeAmt,
+        totalTradeAmtShort,
+      } = await fetchTradeSummary(params.date);
       if (summaries.length === 0) {
         log.print('未查询到交易数据');
         return;
       }
 
       log.print(`📊 ${date} 交易日报 (按管理人汇总)`);
-      const head = ['管理人', 'POS#', 'TRADE#', '名义金额', '成交金额', 'T日净买入'];
+      const head = ['管理人', 'POS#', 'TRADE#', '名义金额(多/空)', '成交金额(多/空)', '净买入(多/空)'];
       const tableRows = summaries.map(s => [
         s.manager,
         formatNum(s.pos_num),
         formatNum(s.trade_num),
-        formatAmount(s.notional_t, true),
-        formatAmount(s.trade_amt_ft, true),
-        formatNet(s.ft_net),
+        `${formatBillion(s.notional_t)} / ${formatBillion(s.notional_short_t)}`,
+        `${formatBillion(s.trade_amt_ft)} / ${formatBillion(s.trade_amt_ft_short)}`,
+        `${formatBillionNet(s.ft_net)} / ${formatBillionNet(s.ft_net_short)}`,
       ]);
       renderTable(head, tableRows);
 
       log.print('\n📌 当日交易汇总');
-      log.print(`- 存续名义本金：${formatAmount(totalNotional, true)}`);
-      log.print(`- 成交金额：${formatAmount(totalTradeAmt, true)}`);
+      log.print(`- 存续名义本金（多/空）：${formatBillion(totalNotional)} / ${formatBillion(totalNotionalShort)}`);
+      log.print(`- 成交金额（多/空）：${formatBillion(totalTradeAmt)} / ${formatBillion(totalTradeAmtShort)}`);
       return;
     } catch (err: any) {
       log.print(err.message);
@@ -246,6 +285,83 @@ export async function trade(args: string): Promise<void> {
   } catch (err: any) {
     log.print(err.message);
   }
+}
+
+export interface NorthInfoRow {
+  trade_dt: string;
+  counter_party_short_name: string;
+  notional_ft_t: number;
+  notional_ft_short_t: number;
+  trade_amt_ft: number;
+  trade_amt_ft_short: number;
+  ft_net: number;
+  ft_net_short: number;
+  is_ft: 'Y' | 'N' | '';
+  update_time: string;
+}
+
+function normalizeIsFt(raw: string | null | undefined): 'Y' | 'N' | '' {
+  if (raw == null) return '';
+  const s = String(raw).trim().toLowerCase();
+  if (s === '') return '';
+  if (s === '1' || s === 'y' || s === 'true' || s === 't') return 'Y';
+  return 'N';
+}
+
+export async function fetchNorthInfo(params: {
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+}): Promise<{ rows: NorthInfoRow[]; tradeDate: string }> {
+  if (!isInfluxConfigured()) throw new Error('InfluxDB 未配置');
+
+  const hasRange = !!(params.date_from || params.date_to);
+  const records = await queryTrades({
+    date_from: params.date_from,
+    date_to: params.date_to,
+    limit: params.limit ?? (hasRange ? 5000 : 1000),
+  });
+
+  if (records.length === 0) return { rows: [], tradeDate: '-' };
+
+  // 默认（无范围）：按 counter_party 去重保留首条（已按 time DESC，故首条即最新）
+  const picked = hasRange
+    ? records
+    : (() => {
+        const seen = new Set<string>();
+        const out: typeof records = [];
+        for (const r of records) {
+          const party = (r.counter_party ?? '').toUpperCase();
+          if (!party || seen.has(party)) continue;
+          seen.add(party);
+          out.push(r);
+        }
+        return out;
+      })();
+
+  const rows: NorthInfoRow[] = picked.map(r => ({
+    trade_dt: r.trade_dt ?? '-',
+    counter_party_short_name: r.counter_party ?? '-',
+    notional_ft_t: (r.notional_ft_t_1 ?? 0) + (r.ft_net ?? 0),
+    notional_ft_short_t: r.notional_ft_short_t ?? 0,
+    trade_amt_ft: r.trade_amt_ft ?? 0,
+    trade_amt_ft_short: r.trade_amt_ft_short ?? 0,
+    ft_net: r.ft_net ?? 0,
+    ft_net_short: -(r.ft_net_short ?? 0),
+    is_ft: normalizeIsFt(r.is_ft),
+    update_time: r.update_time ?? '',
+  }));
+
+  rows.sort((a, b) =>
+    a.trade_dt.localeCompare(b.trade_dt) ||
+    a.counter_party_short_name.localeCompare(b.counter_party_short_name)
+  );
+
+  const tradeDate = hasRange
+    ? `${rows[0].trade_dt}~${rows[rows.length - 1].trade_dt}`
+    : rows[0].trade_dt;
+
+  return { rows, tradeDate };
 }
 
 export interface ClientTradeData {

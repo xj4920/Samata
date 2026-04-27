@@ -23,8 +23,11 @@ export interface OAIMessage {
   tool_call_id?: string;
   /**
    * Reasoning-model output (GLM/DeepSeek thinking mode etc.).
-   * When echoed back on the assistant turn, the GF gateway requires this field
-   * to be present, otherwise it returns 400 "reasoning_content must be passed back".
+   * The GF gateway in thinking mode validates every historical assistant
+   * message and returns 400 ("reasoning_content must be passed back") when
+   * this field is missing — even if the previous turn produced no thoughts.
+   * Therefore convertMessages always sets this field on assistant turns
+   * (empty string is acceptable).
    */
   reasoning_content?: string;
 }
@@ -124,7 +127,9 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
         content: textParts.join('\n') || null,
       };
       if (toolCalls.length > 0) am.tool_calls = toolCalls;
-      if (reasoning) am.reasoning_content = reasoning;
+      // GF thinking-mode 网关校验历史 assistant 消息必须带 reasoning_content
+      // 字段（空串可接受）；其他 provider 对该字段宽容，多带也无副作用
+      am.reasoning_content = reasoning;
       // 部分 provider（如 DeepSeek）要求 assistant 消息必须有 content 或 tool_calls
       if (!am.content && !(am.tool_calls && am.tool_calls.length > 0)) {
         am.content = '';
@@ -192,10 +197,12 @@ export function convertResponse(data: any, providerLabel: string): {
 
   const content: Anthropic.ContentBlock[] = [];
 
-  if (choice.message?.reasoning_content) {
+  // 区分"字段缺失"与"字段为空串"：只要响应里出现过该字段，就生成
+  // thinking block 让内部表示一致，下一轮请求才能稳定回写 reasoning_content
+  if (choice.message && 'reasoning_content' in choice.message) {
     content.push({
       type: 'thinking',
-      thinking: choice.message.reasoning_content,
+      thinking: choice.message.reasoning_content ?? '',
       signature: '',
     } as unknown as Anthropic.ContentBlock);
   }
@@ -242,6 +249,9 @@ export async function* parseSSEStream(
   const content: Anthropic.ContentBlock[] = [];
   let fullText = '';
   let fullReasoning = '';
+  // 记录流里是否出现过 reasoning_content（即使空串），用于决定是否生成
+  // thinking block —— 与 convertResponse 的判定保持一致
+  let sawReasoning = false;
   const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
 
   const decoder = new TextDecoder();
@@ -264,8 +274,9 @@ export async function* parseSSEStream(
       const delta = data.choices?.[0]?.delta;
       if (!delta) continue;
 
-      if (delta.reasoning_content) {
-        fullReasoning += delta.reasoning_content;
+      if ('reasoning_content' in delta) {
+        sawReasoning = true;
+        if (delta.reasoning_content) fullReasoning += delta.reasoning_content;
       }
 
       if (delta.content) {
@@ -288,7 +299,7 @@ export async function* parseSSEStream(
 
       const finish = data.choices?.[0]?.finish_reason;
       if (finish) {
-        if (fullReasoning) {
+        if (sawReasoning) {
           content.push({
             type: 'thinking',
             thinking: fullReasoning,
@@ -319,7 +330,7 @@ export async function* parseSSEStream(
   }
 
   // 流结束但没收到 finish_reason（兜底）
-  if (fullReasoning) {
+  if (sawReasoning) {
     content.push({
       type: 'thinking',
       thinking: fullReasoning,

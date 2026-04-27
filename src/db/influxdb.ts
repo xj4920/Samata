@@ -18,9 +18,12 @@ export interface TradeRecord {
   trade_num: number | null;
   notional_t_1: number | null;
   notional_ft_t_1: number | null;
+  notional_ft_short_t: number | null;
   trade_amt: number | null;
   trade_amt_ft: number | null;
+  trade_amt_ft_short: number | null;
   ft_net: number | null;
+  ft_net_short: number | null;
   update_time: string | null;
 }
 

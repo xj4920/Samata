@@ -13,7 +13,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
       properties: {
         file_path: { type: 'string', description: '文件路径（支持 ~/ 相对路径）' },
         title: { type: 'string', description: '文档标题（可选，默认从文件名提取）' },
-        doc_date: { type: 'string', description: '材料日期，格式 YYYY-MM-DD（可选，如检查报告的检查日期）' },
+        doc_date: { type: 'string', description: '材料日期，格式 YYYY-MM-DD（如检查报告的检查日期）。应先尝试从文件内容中提取；若无法确定，应询问用户确认，不得未经确认直接使用当日' },
       },
       required: ['file_path'],
     },

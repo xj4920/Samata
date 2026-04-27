@@ -5,6 +5,18 @@ import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
+/** System tools beyond COMMON_SET granted to TIClaw agent */
+const TICLAW_EXTRA_TOOLS = [
+  'read_file', 'write_file', 'edit_file', 'list_directory',
+  'exec_cmd', 'reload_app',
+  'sandbox_exec', 'sandbox_list', 'sandbox_read_file', 'sandbox_write_file',
+  'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
+  'assign_agent', 'unassign_agent', 'list_agent_assignments',
+  'list_agent_members', 'manage_agent_member',
+  'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+  'update_memory', 'markdown_to_image', 'http_request', 'list_tool_presets',
+];
+
 export function initSchema(): void {
   const db = getDb();
 
@@ -1788,6 +1800,88 @@ export function initSchema(): void {
 
     if (ok > 0 || skipped > 0) {
       console.log(`[backfill-documents-content-hash] ok=${ok} skipped=${skipped}`);
+    }
+  });
+
+  runOnce('seed-ticlaw-agent', () => {
+    const botId = 'aibVpgqdRX0aRtfu0351LN-Ehtu9BVzSmMo';
+
+    // Agent — use name-based lookup so we don't depend on a hardcoded id
+    let agentId: string;
+    const agentRow = db.prepare("SELECT id FROM agents WHERE name = 'ticlaw'").get() as { id: string } | undefined;
+    if (agentRow) {
+      agentId = agentRow.id;
+    } else {
+      agentId = 'agent-ticlaw';
+      db.prepare(
+        'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(agentId, 'ticlaw', 'TIClaw', 'Titans系统全能助理，知晓一切业务需求细节，了解系统架构，能清晰将代码与需求关联起来，并能敏锐觉察可能存在的系统缺陷', 'standard', JSON.stringify(TICLAW_EXTRA_TOOLS), 'admin-001');
+      console.log('[seed-ticlaw-agent] Agent created');
+    }
+
+    // Bot app
+    const botExists = db.prepare("SELECT 1 FROM bot_apps WHERE id = ?").get(botId);
+    if (!botExists) {
+      db.prepare(
+        'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(botId, 'wework', 'ticlaw-bot', 'YsXcl1XvqQ2NlV3YXRAsArKOYgctrUXkEKF86G0YiG2', '{}', 1, 1);
+      console.log('[seed-ticlaw-agent] Bot app created');
+    }
+
+    // Agent membership for admin
+    const memberExists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id = ? AND user_id = 'admin-001'").get(agentId);
+    if (!memberExists) {
+      db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
+        .run(uuid(), agentId, 'admin-001', 'admin');
+    }
+
+    // Agent assignment: bind agent to bot
+    const assignExists = db.prepare("SELECT 1 FROM agent_assignments WHERE agent_id = ? AND channel = 'wework'").get(agentId);
+    if (!assignExists) {
+      db.prepare("INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)")
+        .run(uuid(), agentId, 'wework', botId);
+      console.log('[seed-ticlaw-agent] Agent bound to WeWork bot');
+    }
+
+    console.log('[seed-ticlaw-agent] Done');
+  });
+
+  runOnce('fix-ticlaw-agent-id', () => {
+    // Fix any pre-existing ticlaw agent that may have a UUID id (from a partial earlier run)
+    // Normalise to 'agent-ticlaw' so future migrations can reference it predictably.
+    const row = db.prepare("SELECT id FROM agents WHERE name = 'ticlaw'").get() as { id: string } | undefined;
+    if (!row) return;
+    if (row.id === 'agent-ticlaw') return;
+
+    const standardId = 'agent-ticlaw';
+    // Update FK references
+    db.prepare("UPDATE agent_members SET agent_id = ? WHERE agent_id = ?").run(standardId, row.id);
+    db.prepare("UPDATE agent_assignments SET agent_id = ? WHERE agent_id = ?").run(standardId, row.id);
+    // Update the agent itself (disable FK pragma required for self-referencing PK update)
+    db.pragma('foreign_keys = OFF');
+    db.prepare("UPDATE agents SET id = ? WHERE id = ?").run(standardId, row.id);
+    db.pragma('foreign_keys = ON');
+    console.log(`[fix-ticlaw-agent-id] Normalised agent id ${row.id} → ${standardId}`);
+  });
+
+  runOnce('ticlaw-standard-tools', () => {
+    // Switch ticlaw from 'all' to 'standard' mode with system tools only (no client/trade/health/pricing/hedge/wework)
+    const row = db.prepare("SELECT id, tools_mode, tools_list FROM agents WHERE name = 'ticlaw'").get() as { id: string; tools_mode: string; tools_list: string | null } | undefined;
+    if (!row) return;
+    if (row.tools_mode === 'standard' && row.tools_list) return; // already migrated
+    db.prepare("UPDATE agents SET tools_mode = 'standard', tools_list = ?, block_tools = NULL, updated_at = datetime('now') WHERE name = 'ticlaw'")
+      .run(JSON.stringify(TICLAW_EXTRA_TOOLS));
+    console.log('[ticlaw-standard-tools] Switched to standard mode');
+  });
+
+  runOnce('otcclaw-add-export-north-info-csv', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    if (!list.includes('export_north_info_csv')) {
+      list.push('export_north_info_csv');
+      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+        .run(JSON.stringify(list));
     }
   });
 }
