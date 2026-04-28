@@ -95,9 +95,43 @@ conn = oracledb.connect(
 | WIND.SHSCCHANNELHOLDINGS | TRADE_DT | 陆股通持股明细（约 700 万行） |
 | WIND.SHSCTOP10ACTIVESTOCKS | TRADE_DT | 陆股通十大活跃股 |
 
+## 完整列定义（写 SELECT 之前必读）
+
+**全部 24 张表的字段定义（列名 / 类型 / 长度 / 可空）已落到 [`docs/wind-schema.json`](wind-schema.json)。**
+
+写任何 Wind 查询前的硬性流程：
+
+1. `read_file docs/wind-schema.json` 拿到该表的 `columns` 列表。
+2. 按列表里的真实列名拼 SELECT，不要凭印象猜测。
+3. 如果该表不在 JSON 里（罕见，dataSync 未跟踪），再 fallback 到 `all_tab_columns` 在线查。
+
+> **反例（2026-04-28 故障）**：当时 OTCClaw 不知道 `WIND.ASHARECONSENSUSDATA` 的列名，依次试了 `NET_PROFIT/EPS/BPS/ROE` → 不存在 → 删一个列再试 → 删到只剩 `EST_DT` → 30 轮 tool 预算耗尽，群里没回复。
+> 实际 `ASHARECONSENSUSDATA` 用的是 `EPS_AVG / NET_PROFIT_AVG / EBITDA_AVG` 等命名（共 96 列），完整定义都在 `wind-schema.json`。
+
+JSON 结构：
+
+```json
+{
+  "generated_at": "...",
+  "source": "10.2.89.132:1521/winddb (windquery)",
+  "tables": {
+    "ASHARECONSENSUSDATA": {
+      "owner": "WIND",
+      "date_col": "EST_DT",
+      "columns": [
+        {"name": "EST_DT", "type": "VARCHAR2", "length": 8, "nullable": "Y"},
+        {"name": "EPS_AVG", "type": "NUMBER", "length": 22, "nullable": "Y"}
+      ]
+    }
+  }
+}
+```
+
+更新 schema：跑 `python scripts/dump-wind-schema.py`（需要能连到 10.2.89.132，凭证读自 dataSync 的 config）。
+
 ## 常用查询模式
 
-### 查表结构
+### 查表结构（兜底，仅在 wind-schema.json 没有时使用）
 
 ```sql
 SELECT column_name, data_type, data_length

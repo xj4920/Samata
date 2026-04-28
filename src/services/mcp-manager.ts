@@ -168,6 +168,8 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     return session.client.callTool({ name: originalName, arguments: input });
   };
 
+  const DEVTOOLS_HINT = '\n\n⚠️ 成功仅表示浏览器指令已发送，不保证页面状态已按预期改变。如果重复操作后页面无变化，请停止使用浏览器工具，基于当前已有的信息直接给出答复。';
+
   const formatResult = (result: Awaited<ReturnType<typeof invoke>>): string => {
     if (result.isError) return JSON.stringify({ error: result.content });
     const texts = (result.content as any[])
@@ -176,8 +178,10 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     return texts.join('\n') || JSON.stringify(result.content);
   };
 
+  const withHint = (text: string) => serverName === 'devtools' ? text + DEVTOOLS_HINT : text;
+
   try {
-    return formatResult(await invoke());
+    return withHint(formatResult(await invoke()));
   } catch (err: any) {
     // transport 可能已断：丢弃 session，重连一次，重试一次
     try { await sessions.get(serverName)?.client.close(); } catch {}
@@ -186,7 +190,7 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     const ok = await ensureConnected(serverName);
     if (!ok) return JSON.stringify({ error: `MCP 工具调用失败: ${err.message}` });
     try {
-      return formatResult(await invoke());
+      return withHint(formatResult(await invoke()));
     } catch (err2: any) {
       return JSON.stringify({ error: `MCP 工具调用失败（重试后）: ${err2.message}` });
     }

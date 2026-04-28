@@ -1,0 +1,5881 @@
+{
+  "generated_at": "2026-04-28T06:12:58Z",
+  "source": "10.2.89.132:1521/winddb (windquery)",
+  "note": "Column metadata dumped from Oracle ALL_TAB_COLUMNS for tables tracked by ~/work/source/dataSync/config/config.json. Regenerate via scripts/dump-wind-schema.py.",
+  "tables": {
+    "AINDEXEODPRICES": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREEODPRICES": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJPRECLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJOPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJHIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJLOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJCLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJFACTOR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AVGPRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TRADESTATUS",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TRADESTATUSCODE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LIMIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_STOPPING",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJCLOSE_BACKWARD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREEODDERIVATIVEINDICATOR": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_MV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_MV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_PQ_HIGH_52W_",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_PQ_LOW_52W_",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PB_NEW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PE_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PCF_OCF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PCF_OCFTTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PCF_NCF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PCF_NCFTTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_VAL_PS_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TURN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_FREETURNOVER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_SHR_TODAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FLOAT_A_SHR_TODAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE_TODAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_PRICE_DIV_DPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_PQ_ADJHIGH_52W",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_PQ_ADJLOW_52W",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FREE_SHARES_TODAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_PARENT_COMP_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_PARENT_COMP_LYR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_ASSETS_TODAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_FLOWS_OPER_ACT_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_FLOWS_OPER_ACT_LYR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPER_REV_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPER_REV_LYR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_CASH_CASH_EQU_TTM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_CASH_CASH_EQU_LYR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UP_DOWN_LIMIT_STATUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOWEST_HIGHEST_STATUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE2",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_ASHARECODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "ABPRICERATIO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SWING",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AVGVOLUME_3M",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREBALANCESHEET": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "REPORT_PERIOD",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "STATEMENT_TYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "MONETARY_CAP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADABLE_FIN_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NOTES_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACCT_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PREPAY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INT_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INVENTORIES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONSUMPTIVE_BIO_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEFERRED_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NON_CUR_ASSETS_DUE_WITHIN_1Y",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SETTLE_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOANS_TO_OTH_BANKS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PREM_RCV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_FROM_REINSURER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_FROM_CEDED_INSUR_CONT_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RED_MONETARY_CAP_FOR_SALE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_CUR_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CUR_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIN_ASSETS_AVAIL_FOR_SALE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HELD_TO_MTY_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LONG_TERM_EQY_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INVEST_REAL_ESTATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TIME_DEPOSITS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LONG_TERM_REC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIX_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONST_IN_PROG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PROJ_MATL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIX_ASSETS_DISP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PRODUCTIVE_BIO_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OIL_AND_NATURAL_GAS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INTANG_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "R_AND_D_COSTS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "GOODWILL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LONG_TERM_DEFERRED_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEFERRED_TAX_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOANS_AND_ADV_GRANTED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_NON_CUR_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_NON_CUR_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_DEPOSITS_CENTRAL_BANK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ASSET_DEP_OTH_BANKS_FIN_INST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PRECIOUS_METALS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DERIVATIVE_FIN_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AGENCY_BUS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SUBR_REC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_CEDED_UNEARNED_PREM_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_CEDED_CLAIM_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_CEDED_LIFE_INSUR_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_CEDED_LT_HEALTH_INSUR_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MRGN_PAID",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INSURED_PLEDGE_LOAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CAP_MRGN_PAID",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INDEPENDENT_ACCT_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLIENTS_CAP_DEPOSIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLIENTS_RSRV_SETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_SEAT_FEES_EXCHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RCV_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ST_BORROW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "BORROW_CENTRAL_BANK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEPOSIT_RECEIVED_IB_DEPOSITS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOANS_OTH_BANKS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADABLE_FIN_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NOTES_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACCT_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ADV_FROM_CUST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FUND_SALES_FIN_ASSETS_RP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HANDLING_CHARGES_COMM_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EMPL_BEN_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TAXES_SURCHARGES_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INT_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACC_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEFERRED_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ST_BONDS_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PAYABLE_TO_REINSURER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RSRV_INSUR_CONT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACTING_TRADING_SEC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACTING_UW_SEC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NON_CUR_LIAB_DUE_WITHIN_1Y",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_CUR_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CUR_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LT_BORROW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "BONDS_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LT_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPECIFIC_ITEM_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PROVISIONS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEFERRED_TAX_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEFERRED_INC_NON_CUR_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_NON_CUR_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_NON_CUR_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LIAB_DEP_OTH_BANKS_FIN_INST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DERIVATIVE_FIN_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CUST_BANK_DEP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AGENCY_BUS_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PREM_RECEIVED_ADV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEPOSIT_RECEIVED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INSURED_DEPOSIT_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNEARNED_PREM_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OUT_LOSS_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LIFE_INSUR_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LT_HEALTH_INSUR_V",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INDEPENDENT_ACCT_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_PLEDGE_LOAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLAIMS_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_PAYABLE_INSURED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CAP_STK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CAP_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPECIAL_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SURPLUS_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNDISTRIBUTED_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_TSY_STK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PROV_NOM_RISKS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CNVD_DIFF_FOREIGN_CURR_STAT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNCONFIRMED_INVEST_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MINORITY_INT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_SHRHLDR_EQY_EXCL_MIN_INT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_SHRHLDR_EQY_INCL_MIN_INT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_LIAB_SHRHLDR_EQY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_TYPE_CODE",
+          "type": "VARCHAR2",
+          "length": 2,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACTUAL_ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_CUR_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CUR_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_NON_CUR_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_NON_CUR_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_ASSETS_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_CUR_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CUR_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_NON_CUR_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_NON_CUR_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_LIAB_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_SHRHLDR_EQY_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_SHRHLDR_EQY_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_LIAB_EQY_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_LIAB_EQY_DIFF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LT_PAYROLL_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_COMP_INCOME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_EQUITY_TOOLS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_EQUITY_TOOLS_P_SHR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LENDING_FUNDS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACCOUNTS_RECEIVABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ST_FINANCING_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PAYABLES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COMPCODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_SHR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HFS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HFS_SALES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIN_ASSETS_COST_SHARING",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIN_ASSETS_FAIR_VALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONTRACTUAL_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONTRACT_LIABILITIES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACCOUNTS_RECEIVABLE_BILL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACCOUNTS_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_RCV_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STM_BS_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONST_IN_PROG_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTH_PAYABLE_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LT_PAYABLE_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEBT_INVESTMENT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_DEBT_INVESTMENT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_EQUITY_INVESTMENT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_ILLIQUIDFINANCIAL_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_SUSTAINABLE_BOND",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RECEIVABLES_FINANCING",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RIGHT_USE_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LEASE_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_CUR_ASSETS_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_NON_CUR_ASSETS_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_ASSETS_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_CUR_LIAB_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_NON_CUR_LIAB_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_LIAB_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_SHRHLDR_EQY_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACC_STA_CODE",
+          "type": "VARCHAR2",
+          "length": 2,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_LIAB_EQY_DIFF_MEMO",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "IFLISTED_DATA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHARECASHFLOW": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "REPORT_PERIOD",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "STATEMENT_TYPE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_SG_AND_RS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RECP_TAX_RENDS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_DEP_COB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_LOANS_CENTRAL_BANK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_FUND_BORR_OFI",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_PREM_ORIG_INCO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_INSURED_DEP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_RECEIVED_REINSU_BUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_DISP_TFA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_INT_HANDLING_CHRG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_DISP_FAAS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_LOANS_OTHER_BANK",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_REPURCH_BUS_FUND",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_RECP_RAL_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_INFLOWS_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAY_GOODS_PURCH_SERV_REC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAY_BEH_EMPL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PAY_ALL_TYP_TAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_CLIENTS_LOAN_ADV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_DEP_CBOB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAY_CLAIMS_ORIG_INCO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HANDLING_CHRG_PAID",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMM_INSUR_PLCY_PAID",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_PAY_RAL_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_OUTFLOWS_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_FLOWS_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_DISP_WITHDRWL_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_RETURN_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_RECP_DISP_FIOLTA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_RECP_DISP_SOBU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_RECP_RAL_INV_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_INFLOWS_INV_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAY_ACQ_CONST_FIOLTA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAID_INVEST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_PAY_AQUIS_SOBU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_PAY_RAL_INV_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_PLEDGE_LOAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_OUTFLOWS_INV_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_FLOWS_INV_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_CAP_CONTRIB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_CASH_REC_SAIMS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_RECP_BORROW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PROC_ISSUE_BONDS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_RECP_RAL_FNC_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_INFLOWS_FNC_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PREPAY_AMT_BORR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_PAY_DIST_DPCP_INT_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_DVD_PROFIT_PAID_SC_MS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_CASH_PAY_RAL_FNC_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOT_CASH_OUTFLOWS_FNC_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_CASH_FLOWS_FNC_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EFF_FX_FLU_CASH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INCR_CASH_CASH_EQU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_CASH_EQU_BEG_PERIOD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_CASH_EQU_END_PERIOD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNCONFIRMED_INVEST_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_PROV_DEPR_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DEPR_FA_COGA_DPBA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AMORT_INTANG_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AMORT_LT_DEFERRED_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DECR_DEFERRED_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCR_ACC_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOSS_DISP_FIOLTA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOSS_SCR_FA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LOSS_FV_CHG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIN_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INVEST_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DECR_DEFERRED_INC_TAX_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCR_DEFERRED_INC_TAX_LIAB",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DECR_INVENTORIES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DECR_OPER_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCR_OPER_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IM_NET_CASH_FLOWS_OPER_ACT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONV_DEBT_INTO_CAP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONV_CORP_BONDS_DUE_WITHIN_1Y",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FA_FNC_LEASES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "END_BAL_CASH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_BEG_BAL_CASH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_END_BAL_CASH_EQU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_BEG_BAL_CASH_EQU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IM_NET_INCR_CASH_CASH_EQU",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FREE_CASH_FLOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_TYPE_CODE",
+          "type": "VARCHAR2",
+          "length": 2,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACTUAL_ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_INFLOWS_OPER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_INFLOWS_OPER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_OUTFLOWS_OPER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_OUTFLOWS_OPER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_OUTFLOWS_OPER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_INFLOWS_INV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_INFLOWS_INV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_OUTFLOWS_INV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_OUTFLOWS_INV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_OUTFLOWS_INV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_INFLOWS_FNC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_INFLOWS_FNC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_CASH_OUTFLOWS_FNC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_CASH_OUTFLOWS_FNC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_OUTFLOWS_FNC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_NETCASH_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_NETCASH_EQU_UNDIR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_EQU_UNDIR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_NETCASH_INC_UNDIR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NETCASH_INC_UNDIR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COMPCODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DISMANTLE_CAPITAL_ADD_NET",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_CALCULATION",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SECURITIE_NETCASH_RECEIVED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_IMPAIR_LOSS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CREDIT_IMPAIRMENT_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RIGHT_USE_ASSETS_DEP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_ACCOUNTS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_FA_NET_FINA_INSTRUMENTS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHERS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MELT_MONEY_NET_INCREASE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREINCOME": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "REPORT_PERIOD",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "STATEMENT_TYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPER_REV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPER_REV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INSUR_PREM_UNEARNED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "HANDLING_CHRG_COMM_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_HANDLING_CHRG_COMM_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INC_OTHER_OPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_NET_INC_OTHER_BUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PREM_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_CEDED_OUT_PREM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CHG_UNEARNED_PREM_RES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_REINSURANCE_PREM_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INC_SEC_TRADING_BROK_BUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INC_SEC_UW_BUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_INC_EC_ASSET_MGMT_BUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_BUS_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_NET_GAIN_CHG_FV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_NET_INVEST_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INCL_INC_INVEST_ASSOC_JV_ENTP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_NET_GAIN_FX_TRANS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPER_COST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_OPER_COST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_INT_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_HANDLING_CHRG_COMM_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_TAXES_SURCHARGES_OPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_SELLING_DIST_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_GERL_ADMIN_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_FIN_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_IMPAIR_LOSS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PREPAY_SURR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CLAIM_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CHG_INSUR_CONT_RSRV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_EXP_INSURED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "REINSURANCE_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPER_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_CLAIM_RECB_REINSURER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_INS_RSRV_RECB_REINSURER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_EXP_RECB_REINSURER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_BUS_COST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPER_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PLUS_NON_OPER_REV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "LESS_NON_OPER_EXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IL_NET_LOSS_DISP_NONCUR_ASSET",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INC_TAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNCONFIRMED_INVEST_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_INCL_MIN_INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_EXCL_MIN_INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MINORITY_INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_COMPREH_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_COMPREH_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_COMPREH_INC_PARENT_COMP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_COMPREH_INC_MIN_SHRHLDR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_AFTER_DED_NR_LP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_UNDER_INTL_ACC_STA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_TYPE_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_FA_EPS_BASIC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_FA_EPS_DILUTED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ACTUAL_ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "INSURANCE_EXPENSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_OPER_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_OPER_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_TOT_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_TOT_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPE_BAL_NET_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_BAL_NET_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "UNDISTRIBUTED_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ADJLOSSGAIN_PREVYEAR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRANSFER_FROM_SURPLUSRESERVE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRANSFER_FROM_HOUSINGIMPREST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRANSFER_FROM_OTHERS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISTRIBUTABLE_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WITHDR_LEGALSURPLUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WITHDR_LEGALPUBWELFUNDS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WORKERS_WELFARE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WITHDR_BUZEXPWELFARE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WITHDR_RESERVEFUND",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISTRIBUTABLE_PROFIT_SHRHDER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "PRFSHARE_DVD_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WITHDR_OTHERSURPRESERVE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMSHARE_DVD_PAYABLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CAPITALIZED_COMSTOCK_DIV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COMPCODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_AFTER_DED_NR_LP_CORRECT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_INCOME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MEMO",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "ASSET_DISPOSAL_INCOME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONTINUED_NET_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "END_NET_PROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CREDIT_IMPAIRMENT_LOSS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_EXPOSURE_HEDGING_BENEFITS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "RD_EXPENSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "STMNOTE_FINEXP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FIN_EXP_INT_INC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_CALCULATION",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_IMPAIR_LOSS_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPER_COST2",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AMODCOST_FIN_ASSETS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPT_INC_DIF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPT_INC_DIF_MEMO",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPT_COST_DIF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_OPT_COST_DIF_MEMO",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREDIVIDEND": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_PROGRESS",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "STK_DVD_PER_SH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_DVD_PER_SH_PRE_TAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_DVD_PER_SH_AFTER_TAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EQY_RECORD_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "EX_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_PAYOUT_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "LISTING_DT_OF_DVD_SHR",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_PRELANDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_SMTGDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "DVD_ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_BASEDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_BASESHARE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_CHANGED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "REPORT_PERIOD",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_CHANGE",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_BONUSRATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_CONVERSEDRATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MEMO",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_PREANNDT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DIV_OBJECT",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_TRANSFER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISTRI_PROFIT_CONSOLIDATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISTRI_PROFIT_PARENT_COMP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_CASH_DVD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_TOT_CASH_DVD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_ID",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DIV_BONUSRATE_DIF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DIV_CONVERSEDRATE_DIF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_DVD_PER_SH_PRE_TAX_DIF",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOT_SHR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DIVIDEND_BATCH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISTRIBUTION_MODEL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CASH_DVD_PER_SH_AFTER_TAX1",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_SPEC_DIVIDEND",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHARETRADINGSUSPENSION": {
+      "owner": "WIND",
+      "date_col": "S_DQ_SUSPENDDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_SUSPENDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_SUSPENDTYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_RESUMPDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGEREASON",
+          "type": "VARCHAR2",
+          "length": 400,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TIME",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGEREASONTYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREISACTIVITY": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "EVENT_ID",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_ACTIVITIESTYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_SURVEYDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_SURVEYTIME",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_SURVEYTYPECODE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_SURVEYINSTIS_TOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHARECALENDAR": {
+      "owner": "WIND",
+      "date_col": "TRADE_DAYS",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "TRADE_DAYS",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCHMARKET",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREINDUSTRIESCODE": {
+      "owner": "WIND",
+      "date_col": "OPDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "INDUSTRIESCODE",
+          "type": "VARCHAR2",
+          "length": 38,
+          "nullable": "Y"
+        },
+        {
+          "name": "INDUSTRIESNAME",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "LEVELNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "USED",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INDUSTRIESALIAS",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEQUENCE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MEMO",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "CHINESEDEFINITION",
+          "type": "VARCHAR2",
+          "length": 1100,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_NAME_ENG",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "REGION_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "INDUSTRIESCODE_OLD",
+          "type": "VARCHAR2",
+          "length": 38,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREINTRODUCTION": {
+      "owner": "WIND",
+      "date_col": "ANN_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_PROVINCE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CITY",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CHAIRMAN",
+          "type": "VARCHAR2",
+          "length": 38,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_PRESIDENT",
+          "type": "VARCHAR2",
+          "length": 38,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_BDSECRETARY",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_REGCAPITAL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_FOUNDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CHINESEINTRODUCTION",
+          "type": "VARCHAR2",
+          "length": 2000,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COMPTYPE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_WEBSITE",
+          "type": "VARCHAR2",
+          "length": 80,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EMAIL",
+          "type": "VARCHAR2",
+          "length": 80,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_OFFICE",
+          "type": "VARCHAR2",
+          "length": 300,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COUNTRY",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COMPANY_TYPE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_TOTALEMPLOYEES",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_PROFIT",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_VIE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_MAIN_BUSINESS",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_BUSINESSSCOPE",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_ID",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_NAME",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHARECONSENSUSDATA": {
+      "owner": "WIND",
+      "date_col": "EST_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "WIND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "EST_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "EST_REPORT_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "NUM_EST_INST",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EPS_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EPS_MEDIAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_MEDIAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_MEDIAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT_MEDIAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA_MEDIAN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONSEN_DATA_CYCLE_TYP",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "EPS_DEV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_DEV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_DEV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT_DEV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA_DEV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EPS_MAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EPS_MIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_MAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_MIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_UPGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_DOWNGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAIN_BUS_INC_MAINTAIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_MAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_MIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_UPGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_DOWNGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NET_PROFIT_MAINTAIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGCPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANCPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDCPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXCPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINCPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGDPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANDPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDDPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXDPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINDPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT_MAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBIT_MIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA_MAX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "EBITDA_MIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGBPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANBPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDBPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXBPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINBPS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGEBT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANEBT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDEBT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXEBT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINEBT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGROA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANROA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDROA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXROA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINROA",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGROE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANROE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDROE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXROE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINROE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGOPERATINGPROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIANOPERATINGPROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STDOPERATINGPROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXOPERATINGPROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINOPERATINGPROFIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_EPSINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAINBUSINCINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_NETPROFITINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_CPSINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_DPSINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_EBITINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_EBITDAINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_BPSINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_EBTINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_ROAINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_ROEINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_OPROFITINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_AVGOC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MEDIAOC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_STOC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MAXOC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_MINOC",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_OCINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_BASESHARE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_YEARTYPE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "COMP_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHARESTOCKRATINGCONSUS": {
+      "owner": "WIND",
+      "date_col": "RATING_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "RATING_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_AVG",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_INSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_UPGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_DOWNGRADE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_MAINTAIN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_NUMOFBUY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_NUMOFOUTPERFORM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_NUMOFHOLD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_NUMOFUNDERPERFORM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_NUMOFSELL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_WRATING_CYCLE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_PRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_EST_PRICEINSTNUM",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CFUTURESCONTRACTMAPPING": {
+      "owner": "WIND",
+      "date_col": "STARTDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_MAPPING_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "STARTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "ENDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CONTRACT_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CINDEXFUTURESEODPRICES": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRESETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_SETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OI",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_TYPE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CFUTURESDESCRIPTION": {
+      "owner": "WIND",
+      "date_col": "S_INFO_LISTDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_NAME",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_ENAME",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_SCCODE",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_TYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_CCTYPE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCHMARKET",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_LISTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_DELISTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_DLMONTH",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_LPRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_LTDLDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_FULLNAME",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_VOUCHERDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_PAYMENTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAMUTUALFUNDSTOCKPORTFOLIO": {
+      "owner": "WIND",
+      "date_col": "ANN_DATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_ENDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_STOCKWINDCODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_STKVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_STKQUANTITY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_STKVALUETONAV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_POSSTKVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_POSSTKQUANTITY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_POSSTKTONAV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_PASSTKEVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_PASSTKQUANTITY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_PASSTKTONAV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "STOCK_PER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FLOAT_SHR_PER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PRT_STKVALUETONAV_CV",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "NUMB_NP_OS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "AVRG_CLSPRICE_NPOS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_INNERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_OUTERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "REPORT_TYPE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAMUTUALFUNDDESCRIPTION": {
+      "owner": "WIND",
+      "date_col": "F_INFO_ANNDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "F_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FRONT_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_BACKEND_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FULLNAME",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_NAME",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_CORP_FUNDMANAGEMENTCOMP",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_CUSTODIANBANK",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FIRSTINVESTTYPE",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_SETUPDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MATURITYDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_ISSUE_TOTALUNIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGEMENTFEERATIO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_CUSTODIANFEERATIO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_PTMYEAR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_ISSUE_OEF_STARTDATEINST",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_ISSUE_OEF_DNDDATEINST",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_PARVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_TRUSTTYPE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_TRUSTEE",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PCHREDM_PCHSTARTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_REDMSTARTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MINBUYAMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_EXPECTEDRATEOFRETURN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ISSUINGPLACE",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_BENCHMARK",
+          "type": "VARCHAR2",
+          "length": 500,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_STATUS",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_RESTRICTEDORNOT",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_STRUCTUREDORNOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_EXCHMARKET",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FIRSTINVESTSTYLE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ISSUEDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_TYPE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ISINITIAL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_PINYIN",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_INVESTSCOPE",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_INVESTOBJECT",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_INVESTCONCEPTION",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_DECISION_BASIS",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "IS_INDEXFUND",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_DELISTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_CORP_FUNDMANAGEMENTID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_CUSTODIANBANKID",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAX_NUM_HOLDER",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "MAX_NUM_COLTARGET",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "INVESTSTRATEGY",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "RISK_RETURN",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PCHREDM_PCHMINAMT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PCHREDM_PCHMINAMT_EX",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_LISTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ANNDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_CLOSED_OPERATION_PERIOD",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_CLOSED_OPERATION_INTERVAL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_REGISTRANT",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PERSONAL_STARTDATEIND",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PERSONAL_ENDDATEIND",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FUND_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_SALES_SERVICE_RATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INVESTMENT_AREA",
+          "type": "VARCHAR2",
+          "length": 30,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLOSE_INSTITU_OEF_DOWN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLOSE_INSTITU_OEF_UP",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_FELLOW_DISTOR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_PERSONAL_SUBTYPE",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "CLOSE_INSTITU_SUBTYPE",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INVESTMENT_AREA_DESC",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "FORINS_CUSTODIAN",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "CUSTODY_ENDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "LISTEDFUNDORNOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "MARKET_RISK",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "MANAGEMENT_RISK",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "TECHNICAL_RISK",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "REDEMPTION_RISK",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "OTHER_RISKS",
+          "type": "VARCHAR2",
+          "length": 1000,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_INNERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_OUTERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPONSOR_ID",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "SPONSOR_HOLDUNIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FLOATINGMGNTFEEONOT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FLOATINGMGNTFEEDESCRIP",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAMUTUALFUNDMANAGER": {
+      "owner": "WIND",
+      "date_col": "ANN_DATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "F_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FUNDMANAGER",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_GENDER",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_BIRTHYEAR",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_EDUCATION",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_NATIONALITY",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_STARTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_LEAVEDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_MANAGER_RESUME",
+          "type": "CLOB",
+          "length": 4000,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_FUNDMANAGER_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_MANAGER_POST",
+          "type": "VARCHAR2",
+          "length": 200,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ESCROW_FUNDMANAGER",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ESCROW_STARTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "F_INFO_ESCROW_LEAVEDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAMUTUALFUNDSECTOR": {
+      "owner": "WIND",
+      "date_col": "OPDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "F_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_SECTOR",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_SECTORENTRYDT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_SECTOREXITDT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CUR_SIGN",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_OUTERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_SECTOR_NEW",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_INNERCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "SHSCCHANNELHOLDINGS": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 38,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCHMARKETNAME",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_QUANTITY",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_RATIO",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "SHSCTOP10ACTIVESTOCKS": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "MARKET",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "BUYTRADEVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SELLTRADEVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TOTALTRADEVALUE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCHMARKETNAME",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "ASHAREST": {
+      "owner": "WIND",
+      "date_col": "ENTRY_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_TYPE_ST",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "ENTRY_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "REMOVE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "ANN_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "REASON",
+          "type": "VARCHAR2",
+          "length": 400,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "EST_ENTRY_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        }
+      ]
+    }
+  }
+}

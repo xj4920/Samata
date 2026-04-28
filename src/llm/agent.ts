@@ -93,12 +93,104 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
 // --- History management ---
 
 const MAX_HISTORY_MESSAGES = 80;
-const MAX_TOOL_ROUNDS = 30;
+const MAX_TOOL_ROUNDS = (() => {
+  const v = Number(process.env.MAX_TOOL_ROUNDS);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 30;
+})();
 const MAX_TOOL_RESULT_LENGTH = 4000;
 
 function isToolResultMessage(msg: Anthropic.MessageParam): boolean {
   if (!Array.isArray(msg.content)) return false;
   return (msg.content as any[]).some(b => b.type === 'tool_result');
+}
+
+function collectUsedToolNames(
+  history: Anthropic.MessageParam[],
+  startIdx: number,
+): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (let i = startIdx; i < history.length; i++) {
+    const msg = history[i];
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content as any[]) {
+      if (block.type === 'tool_use' && !seen.has(block.name)) {
+        seen.add(block.name);
+        order.push(block.name);
+      }
+    }
+  }
+  return order;
+}
+
+function buildMaxRoundsFallback(limit: number, usedTools: string[]): string {
+  const toolLine = usedTools.length
+    ? `本轮已调用过的工具：${usedTools.join('、')}`
+    : '本轮没有成功调用任何工具';
+  return [
+    `我连续调用了 ${limit} 次工具仍未整理出最终答复，先在这里收尾，避免无限循环。`,
+    toolLine + '。',
+    '可能的原因：任务较复杂，或部分外部依赖反复失败（例如外网受限、文件无法解析等）。',
+    '建议把任务拆成更小的子问题再问我，或直接把已经拿到的关键信息贴过来，跳过解析步骤。',
+  ].join('\n\n');
+}
+
+// --- Loop detection ---
+
+const LOOP_WINDOW = 6;         // 滑窗：最近 N 轮
+const LOOP_MIN_REPEATS = 4;    // 滑窗内同一（工具+参数）至少出现 M 次
+const MAX_CONSECUTIVE_ERRORS = 3;
+
+interface LoopTracker {
+  calls: { name: string; fingerprint: string; round: number }[];
+  lastErrorName: string;
+  lastErrorCount: number;
+  softWarned: boolean;
+}
+
+function initLoopTracker(): LoopTracker {
+  return { calls: [], lastErrorName: '', lastErrorCount: 0, softWarned: false };
+}
+
+function fingerprint(input: unknown): string {
+  if (typeof input !== 'object' || input === null) return JSON.stringify(input);
+  return JSON.stringify(input, Object.keys(input as Record<string, unknown>).sort());
+}
+
+type LoopResult = { action: 'none' } | { action: 'soft_warn'; name: string; fingerprint: string } | { action: 'hard_stop'; name: string; fingerprint: string; isError: boolean };
+
+function detectLoop(tracker: LoopTracker): LoopResult {
+  // 1. 滑窗检测
+  const recent = tracker.calls.slice(-LOOP_WINDOW);
+  const freq = new Map<string, number>();
+  for (const c of recent) {
+    const k = `${c.name}::${c.fingerprint}`;
+    freq.set(k, (freq.get(k) || 0) + 1);
+  }
+  let detectedName = '';
+  let detectedFp = '';
+  freq.forEach((cnt, k) => {
+    if (cnt >= LOOP_MIN_REPEATS && !detectedName) {
+      const [n, fp] = k.split('::', 2);
+      detectedName = n; detectedFp = fp;
+    }
+  });
+  if (detectedName) {
+    if (tracker.softWarned) {
+      return { action: 'hard_stop', name: detectedName, fingerprint: detectedFp, isError: false };
+    }
+    return { action: 'soft_warn', name: detectedName, fingerprint: detectedFp };
+  }
+
+  // 2. 连续失败检测
+  if (tracker.lastErrorCount >= MAX_CONSECUTIVE_ERRORS) {
+    if (tracker.softWarned) {
+      return { action: 'hard_stop', name: tracker.lastErrorName, fingerprint: '', isError: true };
+    }
+    return { action: 'soft_warn', name: tracker.lastErrorName, fingerprint: '' };
+  }
+
+  return { action: 'none' };
 }
 
 function isContextOverflowError(err: any): boolean {
@@ -535,16 +627,21 @@ export async function runAgenticChat(
 
   // Agentic loop: keep processing until no more tool calls
   let round = 1;
+  const loopTracker = initLoopTracker();
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
-      // Strip unanswered tool_use blocks so session.history does not carry
-      // orphan tool_calls into the next turn (breaks OpenAI-compat gateways).
+      const usedTools = collectUsedToolNames(history, historyLenBefore);
+      const fallbackText = buildMaxRoundsFallback(MAX_TOOL_ROUNDS, usedTools);
+      // Replace tool_use blocks with a meaningful fallback text so the
+      // user (CLI/feishu/telegram/wework) sees an actionable message instead
+      // of "（无回复内容）". Also avoids carrying orphan tool_calls into the
+      // next turn (which breaks OpenAI-compat gateways).
       response = {
         ...response,
-        content: response.content.filter(b => b.type !== 'tool_use'),
+        content: [{ type: 'text', text: fallbackText, citations: null } as any],
         stop_reason: 'end_turn',
       };
       break;
@@ -605,8 +702,47 @@ export async function runAgenticChat(
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
         }
+        // Track consecutive errors for loop detection
+        if (toolError) {
+          if (loopTracker.lastErrorName === block.name) {
+            loopTracker.lastErrorCount++;
+          } else {
+            loopTracker.lastErrorName = block.name;
+            loopTracker.lastErrorCount = 1;
+          }
+        } else {
+          loopTracker.lastErrorName = '';
+          loopTracker.lastErrorCount = 0;
+        }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
       }
+    }
+
+    // Record fingerprints for this round and check for loops
+    for (const block of assistantContent) {
+      if (block.type === 'tool_use') {
+        loopTracker.calls.push({ name: block.name, fingerprint: fingerprint(block.input), round });
+      }
+    }
+    const loop = detectLoop(loopTracker);
+    if (loop.action === 'soft_warn') {
+      log.warn(`${logPrefix}检测到循环: ${loop.name} 重复调用，注入自我反思提示`);
+      const warnMsg = `⚠️ 系统检测到你最近 ${LOOP_MIN_REPEATS} 次调用了同一工具 "${loop.name}" 且参数几乎相同，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
+      history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
+      loopTracker.softWarned = true;
+    } else if (loop.action === 'hard_stop') {
+      log.warn(`${logPrefix}循环未终止，强制停止`);
+      const usedTools = collectUsedToolNames(history, historyLenBefore);
+      const reason = loop.isError
+        ? `工具 "${loop.name}" 连续 ${MAX_CONSECUTIVE_ERRORS} 次执行失败`
+        : `工具 "${loop.name}" 在最近 ${LOOP_WINDOW} 轮中被调用了 ${LOOP_MIN_REPEATS} 次，参数相同`;
+      const fallbackText = `我陷入了重复调用 "${loop.name}" 的死循环（${reason}），先在这里收尾，避免浪费资源。请尝试换个方法或拆分任务。\n\n本轮已调用过的工具：${usedTools.join('、')}。`;
+      response = {
+        ...response,
+        content: [{ type: 'text', text: fallbackText, citations: null } as any],
+        stop_reason: 'end_turn',
+      };
+      break;
     }
 
     history.push({ role: 'user', content: toolResults });

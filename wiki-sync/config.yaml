@@ -1,0 +1,35 @@
+# Wiki Sync 配置文件
+
+# Confluence 连接信息
+confluence:
+  url: ""                    # Confluence base URL, e.g. https://confluence.internal.example.com
+  username: ""               # Confluence 用户名
+  api_token: ""              # Confluence API Token / PAT
+
+# Samata 连接信息
+samata:
+  base_url: "http://127.0.0.1:3457"  # Samata CLI API 地址
+  username: "admin-001"              # Samata 用户（需对 ticlaw agent 有 admin 权限）
+  agent_name: "ticlaw"               # 导入目标 agent
+
+# 同步配置
+sync:
+  output_path: "./data/archive"      # cf-export 输出目录
+
+  # 方式一：按 Space 同步（与 pages 二选一）
+  spaces: []                 # Confluence Space Key 列表，如 ["OPS", "BIZ"]
+
+  # 方式二：按页面 ID 同步（与 spaces 二选一）
+  # page_mode: 'page'        # 'page' = 仅该页, 'descendants' = 该页及全部子页
+  # pages:                    # Confluence 页面 ID 列表
+  #   - "12345678"
+  #   - "87654321"
+
+# 定时任务配置
+cron:
+  schedule: "0 2 * * *"      # 每日凌晨 2:00 执行（cron 表达式）
+
+# cf-export 额外参数
+cf_export:
+  workers: 5                 # 并发下载线程数
+  cleanup_stale: true        # 清理 Confluence 中已删除的本地页面
