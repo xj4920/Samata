@@ -226,7 +226,7 @@ function buildInterruptedSummary(input: InterruptedSummaryInput): string {
     ...(errorLines.length > 0
       ? errorLines
       : [failed.length > 0 ? `- 有 ${failed.length} 次工具调用失败，说明外部依赖、权限、文件解析或参数可能存在阻塞。` : '']),
-    input.kind === 'max_rounds' ? '- 工具预算已耗尽，继续自动尝试容易重复消耗轮次。' : '- 系统已阻止继续重复调用同一类工具。',
+    input.kind === 'max_rounds' ? '- 工具预算已耗尽，继续自动尝试容易重复消耗轮次。' : '- 系统已阻止继续重复调用相同工具或模式。',
   ].filter(Boolean);
 
   return [
@@ -257,9 +257,11 @@ function buildInterruptedSummary(input: InterruptedSummaryInput): string {
 
 // --- Loop detection ---
 
-const LOOP_WINDOW = 12;        // 滑窗：最近 N 个工具调用（每轮可能有多工具，窗口需 > LOOP_MIN_REPEATS * 每轮平均工具数）
-const LOOP_MIN_REPEATS = 4;    // 滑窗内同一（工具+参数）至少出现 M 次
+const LOOP_WINDOW = 12;        // 滑窗：最近 N 个工具调用
+const MAX_CONSECUTIVE_SAME = 3; // 同一工具+参数连续出现 N 次 → 循环
 const MAX_CONSECUTIVE_ERRORS = 3;
+const MAX_PATTERN_LEN = 4;     // 多工具模式最大长度
+const MIN_PATTERN_REPEATS = 2; // 模式至少重复 N 次 → 循环
 
 interface LoopTracker {
   calls: { name: string; fingerprint: string; round: number }[];
@@ -280,29 +282,53 @@ function fingerprint(input: unknown): string {
 type LoopResult = { action: 'none' } | { action: 'soft_warn'; name: string; fingerprint: string } | { action: 'hard_stop'; name: string; fingerprint: string; isError: boolean };
 
 function detectLoop(tracker: LoopTracker): LoopResult {
-  // 1. 滑窗检测
   const recent = tracker.calls.slice(-LOOP_WINDOW);
-  const freq = new Map<string, number>();
-  for (const c of recent) {
-    const k = `${c.name}::${c.fingerprint}`;
-    freq.set(k, (freq.get(k) || 0) + 1);
-  }
-  let detectedName = '';
-  let detectedFp = '';
-  freq.forEach((cnt, k) => {
-    if (cnt >= LOOP_MIN_REPEATS && !detectedName) {
-      const [n, fp] = k.split('::', 2);
-      detectedName = n; detectedFp = fp;
+
+  // 1. 连续相同工具检测：同一个工具+相同参数连续出现 N 次
+  if (recent.length >= MAX_CONSECUTIVE_SAME) {
+    const last = recent[recent.length - 1];
+    let consecutive = 1;
+    for (let i = recent.length - 2; i >= 0; i--) {
+      if (recent[i].name === last.name && recent[i].fingerprint === last.fingerprint) {
+        consecutive++;
+      } else {
+        break;
+      }
     }
-  });
-  if (detectedName) {
-    if (tracker.softWarned) {
-      return { action: 'hard_stop', name: detectedName, fingerprint: detectedFp, isError: false };
+    if (consecutive >= MAX_CONSECUTIVE_SAME) {
+      if (tracker.softWarned) {
+        return { action: 'hard_stop', name: last.name, fingerprint: last.fingerprint, isError: false };
+      }
+      return { action: 'soft_warn', name: last.name, fingerprint: last.fingerprint };
     }
-    return { action: 'soft_warn', name: detectedName, fingerprint: detectedFp };
   }
 
-  // 2. 连续失败检测
+  // 2. 多工具模式重复检测：工具序列 [A, B] 或 [A, B, C] 重复出现
+  for (let patternLen = Math.min(MAX_PATTERN_LEN, Math.floor(recent.length / 2)); patternLen >= 2; patternLen--) {
+    const pattern = recent.slice(-patternLen);
+    const patternKey = pattern.map(c => `${c.name}::${c.fingerprint}`).join(' | ');
+
+    let repeats = 1;
+    for (let i = recent.length - patternLen - patternLen; i >= 0; i -= patternLen) {
+      const segment = recent.slice(i, i + patternLen);
+      const segmentKey = segment.map(c => `${c.name}::${c.fingerprint}`).join(' | ');
+      if (segmentKey === patternKey) {
+        repeats++;
+      } else {
+        break;
+      }
+    }
+
+    if (repeats >= MIN_PATTERN_REPEATS) {
+      const names = [...new Set(pattern.map(c => c.name))].join('+');
+      if (tracker.softWarned) {
+        return { action: 'hard_stop', name: names, fingerprint: patternKey, isError: false };
+      }
+      return { action: 'soft_warn', name: names, fingerprint: patternKey };
+    }
+  }
+
+  // 3. 连续失败检测
   if (tracker.lastErrorCount >= MAX_CONSECUTIVE_ERRORS) {
     if (tracker.softWarned) {
       return { action: 'hard_stop', name: tracker.lastErrorName, fingerprint: '', isError: true };
@@ -874,14 +900,18 @@ export async function runAgenticChat(
     const loop = detectLoop(loopTracker);
     if (loop.action === 'soft_warn') {
       log.warn(`${logPrefix}检测到循环: ${loop.name} 重复调用，注入自我反思提示`);
-      const warnMsg = `⚠️ 系统检测到你最近 ${LOOP_MIN_REPEATS} 次调用了同一工具 "${loop.name}" 且参数几乎相同，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
+      const warnMsg = loop.name.includes('+')
+        ? `⚠️ 系统检测到你最近重复执行相同的工具序列 "${loop.name}" 且参数相同，但结果无明显进展。请停止这个模式，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`
+        : `⚠️ 系统检测到你连续调用了 "${loop.name}" 且参数相同，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
       history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
       loopTracker.softWarned = true;
     } else if (loop.action === 'hard_stop') {
       log.warn(`${logPrefix}循环未终止，强制停止`);
       const reason = loop.isError
         ? `工具 "${loop.name}" 连续 ${MAX_CONSECUTIVE_ERRORS} 次执行失败`
-        : `工具 "${loop.name}" 在最近 ${LOOP_WINDOW} 轮中被调用了 ${LOOP_MIN_REPEATS} 次，参数相同`;
+        : loop.name.includes('+')
+          ? `工具序列 "${loop.name}" 重复执行，参数相同`
+          : `工具 "${loop.name}" 连续调用，参数相同`;
       const fallbackText = buildInterruptedSummary({
         kind: 'loop',
         limit: MAX_TOOL_ROUNDS,

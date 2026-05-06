@@ -23,6 +23,7 @@ import * as pricingQuoteTools from './pricing-quote-tools.js';
 import * as dateTools from './date-tools.js';
 import * as wrongQuestionTools from './wrong-question-tools.js';
 import * as sandboxTools from './sandbox-tools.js';
+import * as webTools from './web-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -52,6 +53,7 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: dateTools,         category: '日期' },
   { module: wrongQuestionTools, category: '错题' },
   { module: sandboxTools,       category: '沙箱' },
+  { module: webTools,           category: '网页' },
 ];
 
 const modules: ToolModule[] = moduleEntries.map(e => e.module);

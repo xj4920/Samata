@@ -32,6 +32,8 @@ export const COMMON_SET = new Set([
   'import_document', 'list_documents', 'delete_document',
   // Date
   'calculate_date',
+  // Web
+  'web_fetch',
 ]);
 
 /** Native tools that must only be visible to a single agent instance. */

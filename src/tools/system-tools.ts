@@ -20,7 +20,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'http_request',
-    description: '发起 HTTP 请求，支持 GET/POST/PUT/DELETE 等方法。适合调用外部 API、获取网页文本或 JSON。不要用它下载 PDF、Excel、Word、图片等二进制文件；这类 URL 请使用 download_file。',
+    description: '发起 HTTP 请求，适合调用 REST API、获取 JSON 数据、检查服务状态。注意：返回的响应体会被截断（最多 8000 字节），不适合抓取网页正文。如需提取网页内容（新闻、研报、公告等），请使用 web_fetch。不要用它下载 PDF、Excel、Word、图片等二进制文件；这类 URL 请使用 download_file。',
     input_schema: {
       type: 'object' as const,
       properties: {
