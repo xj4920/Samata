@@ -59,6 +59,7 @@ export async function describeImageWithFallback(
     }
   };
   add(primary);
+  add(getProviderByName('gf'));
   add(getProviderByName('minimax'));
   add(getProviderByName('anthropic'));
 
@@ -104,40 +105,159 @@ function isToolResultMessage(msg: Anthropic.MessageParam): boolean {
   return (msg.content as any[]).some(b => b.type === 'tool_result');
 }
 
-function collectUsedToolNames(
-  history: Anthropic.MessageParam[],
-  startIdx: number,
-): string[] {
-  const seen = new Set<string>();
-  const order: string[] = [];
-  for (let i = startIdx; i < history.length; i++) {
-    const msg = history[i];
-    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
-    for (const block of msg.content as any[]) {
-      if (block.type === 'tool_use' && !seen.has(block.name)) {
-        seen.add(block.name);
-        order.push(block.name);
-      }
-    }
-  }
-  return order;
+interface ToolTrace {
+  round: number;
+  name: string;
+  success: boolean;
+  durationMs: number;
+  preview: string;
+  error?: string;
 }
 
-function buildMaxRoundsFallback(limit: number, usedTools: string[]): string {
-  const toolLine = usedTools.length
-    ? `本轮已调用过的工具：${usedTools.join('、')}`
-    : '本轮没有成功调用任何工具';
+type InterruptedSummaryInput = {
+  kind: 'max_rounds' | 'loop';
+  limit: number;
+  trace: ToolTrace[];
+  reason?: string;
+};
+
+function truncateText(text: string, maxLen: number): string {
+  const clean = text
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length > maxLen ? clean.slice(0, maxLen) + '...' : clean;
+}
+
+function compactToolResult(result: string, error?: string): string {
+  if (error) return truncateText(error, 240);
+
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const parts: string[] = [];
+      for (const key of ['summary', 'message', 'title', 'path', 'file_path', 'count', 'total']) {
+        const value = obj[key];
+        if (value === undefined || value === null) continue;
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          parts.push(`${key}: ${value}`);
+        }
+      }
+      for (const key of ['results', 'items', 'documents', 'files', 'rows']) {
+        const value = obj[key];
+        if (Array.isArray(value)) parts.push(`${key}: ${value.length} 条`);
+      }
+      if (parts.length > 0) return truncateText(parts.join('；'), 360);
+    }
+  } catch {
+    // Non-JSON tool results are still useful as plain text previews.
+  }
+
+  return truncateText(result, 360);
+}
+
+function countToolCalls(trace: ToolTrace[]): string {
+  if (trace.length === 0) return '本轮尚未记录到工具结果。';
+
+  const counts = new Map<string, number>();
+  for (const entry of trace) {
+    counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([name, count]) => count > 1 ? `${name} x${count}` : name);
+  return `本轮已调用过的工具：${parts.join('、')}。`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function summarizeErrors(trace: ToolTrace[]): string[] {
+  const errors = trace.filter(entry => !entry.success);
+  if (errors.length === 0) return [];
+
+  const byTool = new Map<string, { count: number; latest: string }>();
+  for (const entry of errors) {
+    const current = byTool.get(entry.name);
+    byTool.set(entry.name, {
+      count: (current?.count ?? 0) + 1,
+      latest: entry.error || entry.preview || '未知错误',
+    });
+  }
+
+  return [...byTool.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 3)
+    .map(([name, info]) => `- ${name} 失败 ${info.count} 次，最近原因：${truncateText(info.latest, 160)}`);
+}
+
+function summarizeSuccessfulSignals(trace: ToolTrace[]): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  for (const entry of trace.filter(t => t.success && t.preview).slice(-8).reverse()) {
+    const key = `${entry.name}:${entry.preview}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(`- ${entry.name}: ${truncateText(entry.preview, 180)}`);
+    if (lines.length >= 5) break;
+  }
+
+  return lines.reverse();
+}
+
+function buildInterruptedSummary(input: InterruptedSummaryInput): string {
+  const header = input.kind === 'max_rounds'
+    ? `我连续调用了 ${input.limit} 轮工具仍未整理出最终答复，先给阶段性总结，避免没有结论地结束。`
+    : `我检测到工具调用陷入循环，先给阶段性总结，避免继续空转。`;
+  const successful = input.trace.filter(entry => entry.success);
+  const failed = input.trace.filter(entry => !entry.success);
+  const totalDurationMs = input.trace.reduce((sum, entry) => sum + entry.durationMs, 0);
+  const completedLines = [
+    `- 已执行 ${input.trace.length} 次工具调用，其中 ${successful.length} 次成功、${failed.length} 次失败。`,
+    `- ${countToolCalls(input.trace)}`,
+    totalDurationMs > 0 ? `- 工具执行累计耗时约 ${formatDuration(totalDurationMs)}。` : '',
+  ].filter(Boolean);
+  const signalLines = summarizeSuccessfulSignals(input.trace);
+  const errorLines = summarizeErrors(input.trace);
+  const stuckLines = [
+    input.reason ? `- ${input.reason}。` : '',
+    ...(errorLines.length > 0
+      ? errorLines
+      : [failed.length > 0 ? `- 有 ${failed.length} 次工具调用失败，说明外部依赖、权限、文件解析或参数可能存在阻塞。` : '']),
+    input.kind === 'max_rounds' ? '- 工具预算已耗尽，继续自动尝试容易重复消耗轮次。' : '- 系统已阻止继续重复调用同一类工具。',
+  ].filter(Boolean);
+
   return [
-    `我连续调用了 ${limit} 次工具仍未整理出最终答复，先在这里收尾，避免无限循环。`,
-    toolLine + '。',
-    '可能的原因：任务较复杂，或部分外部依赖反复失败（例如外网受限、文件无法解析等）。',
-    '建议把任务拆成更小的子问题再问我，或直接把已经拿到的关键信息贴过来，跳过解析步骤。',
+    header,
+    ['已完成：', ...completedLines].join('\n'),
+    [
+      '阶段性结论：',
+      ...(signalLines.length > 0
+        ? signalLines
+        : ['- 暂未从工具结果中提取到足够明确的可复用线索。']),
+    ].join('\n'),
+    [
+      '卡住原因：',
+      ...stuckLines,
+    ].join('\n'),
+    [
+      '未完成：',
+      '- 尚未形成完整最终答复。',
+      '- 尚未确认当前任务的所有关键信息都已覆盖。',
+    ].join('\n'),
+    [
+      '下一步建议：',
+      '- 可以基于上面的阶段性线索继续追问一个更小的问题。',
+      '- 也可以直接提供关键上下文，让我跳过重复解析步骤继续整理。',
+    ].join('\n'),
   ].join('\n\n');
 }
 
 // --- Loop detection ---
 
-const LOOP_WINDOW = 6;         // 滑窗：最近 N 轮
+const LOOP_WINDOW = 12;        // 滑窗：最近 N 个工具调用（每轮可能有多工具，窗口需 > LOOP_MIN_REPEATS * 每轮平均工具数）
 const LOOP_MIN_REPEATS = 4;    // 滑窗内同一（工具+参数）至少出现 M 次
 const MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -201,6 +321,18 @@ function isContextOverflowError(err: any): boolean {
 function isOrphanToolError(err: any): boolean {
   const msg = err?.message ?? '';
   return /tool.result.*tool.id.*not found|tool_call_id.*not found|tool call result does not follow tool call|insufficient.*tool.*messages.*following.*tool_calls/i.test(msg);
+}
+
+function extractToolError(result: string): string | undefined {
+  try {
+    const parsed = JSON.parse(result);
+    if (!parsed || typeof parsed !== 'object' || !('error' in parsed)) return undefined;
+    const error = (parsed as { error?: unknown }).error;
+    if (typeof error === 'string') return error;
+    return JSON.stringify(error);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -628,13 +760,17 @@ export async function runAgenticChat(
   // Agentic loop: keep processing until no more tool calls
   let round = 1;
   const loopTracker = initLoopTracker();
+  const toolTrace: ToolTrace[] = [];
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
-      const usedTools = collectUsedToolNames(history, historyLenBefore);
-      const fallbackText = buildMaxRoundsFallback(MAX_TOOL_ROUNDS, usedTools);
+      const fallbackText = buildInterruptedSummary({
+        kind: 'max_rounds',
+        limit: MAX_TOOL_ROUNDS,
+        trace: toolTrace,
+      });
       // Replace tool_use blocks with a meaningful fallback text so the
       // user (CLI/feishu/telegram/wework) sees an actionable message instead
       // of "（无回复内容）". Also avoids carrying orphan tool_calls into the
@@ -685,6 +821,9 @@ export async function runAgenticChat(
             toolError = errMsg;
           }
         }
+        const resultError = extractToolError(result);
+        if (resultError) toolError = resultError;
+        const tracePreview = compactToolResult(result, toolError);
         if (result.length > MAX_TOOL_RESULT_LENGTH) {
           result = result.slice(0, MAX_TOOL_RESULT_LENGTH) + `\n...(truncated, ${result.length} chars total)`;
         }
@@ -698,6 +837,14 @@ export async function runAgenticChat(
           error: toolError,
         });
         onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: toolDuration });
+        toolTrace.push({
+          round,
+          name: block.name,
+          success: !toolError,
+          durationMs: toolDuration,
+          preview: tracePreview,
+          error: toolError ? truncateText(toolError, 240) : undefined,
+        });
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -732,11 +879,15 @@ export async function runAgenticChat(
       loopTracker.softWarned = true;
     } else if (loop.action === 'hard_stop') {
       log.warn(`${logPrefix}循环未终止，强制停止`);
-      const usedTools = collectUsedToolNames(history, historyLenBefore);
       const reason = loop.isError
         ? `工具 "${loop.name}" 连续 ${MAX_CONSECUTIVE_ERRORS} 次执行失败`
         : `工具 "${loop.name}" 在最近 ${LOOP_WINDOW} 轮中被调用了 ${LOOP_MIN_REPEATS} 次，参数相同`;
-      const fallbackText = `我陷入了重复调用 "${loop.name}" 的死循环（${reason}），先在这里收尾，避免浪费资源。请尝试换个方法或拆分任务。\n\n本轮已调用过的工具：${usedTools.join('、')}。`;
+      const fallbackText = buildInterruptedSummary({
+        kind: 'loop',
+        limit: MAX_TOOL_ROUNDS,
+        trace: toolTrace,
+        reason,
+      });
       response = {
         ...response,
         content: [{ type: 'text', text: fallbackText, citations: null } as any],

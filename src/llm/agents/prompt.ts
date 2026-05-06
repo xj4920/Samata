@@ -12,6 +12,7 @@ import { loadWorkspace } from '../../session/workspace.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
+- 当用户提供 PDF、Excel、Word、图片等文件 URL 时，先用 download_file 保存为本地文件，再调用对应解析或发送工具；不要用 http_request 读取二进制文件，也不要用 write_artifact 伪造文件
 - 需要发送图片时，可先用 markdown_to_image 生成 PNG，再调用 send_image
 - markdown_to_image 只负责生成图片，不等于已经发送成功
 - 不要只说“文件已保存”或“图片已生成”，如果用户要求发送附件，必须继续调用 send_file 或 send_image`;

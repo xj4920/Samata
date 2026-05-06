@@ -40,7 +40,13 @@ const inflightConnects = new Map<string, Promise<void>>();
 const lastFailedAt = new Map<string, number>();
 const RECONNECT_COOLDOWN_MS = 10_000;
 const BACKGROUND_RETRY_INTERVAL_MS = 30_000;
+const DEVTOOLS_HINT = '\n\n⚠️ 成功仅表示浏览器指令已发送，不保证页面状态已按预期改变。如果重复操作后页面无变化，请停止使用浏览器工具，基于当前已有的信息直接给出答复。';
+const DEVTOOLS_STOP_HINT = '不要继续猜测或重复打开 URL；请基于当前已有信息直接回答，必要时说明外部页面不可用。';
+const MAX_REPEATED_DEVTOOLS_NAVIGATIONS = 3;
+const REPEATED_DEVTOOLS_NAVIGATION_WINDOW_MS = 5 * 60_000;
 let retryTimer: NodeJS.Timeout | null = null;
+
+let lastDevtoolsNavigation: { url: string; count: number; at: number } | null = null;
 
 async function ensureConnected(name: string): Promise<boolean> {
   if (sessions.has(name)) return true;
@@ -117,7 +123,7 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
   const filtered = allowSet ? tools.filter(t => allowSet.has(t.name)) : tools;
   const anthropicTools: Anthropic.Tool[] = filtered.map(t => ({
     name: `mcp_${name}_${t.name}`,
-    description: t.description ?? '',
+    description: buildMcpToolDescription(name, t.name, t.description ?? ''),
     input_schema: (t.inputSchema as Anthropic.Tool['input_schema']) ?? { type: 'object', properties: {}, required: [] },
   }));
 
@@ -151,6 +157,123 @@ export function getMcpTools(): Anthropic.Tool[] {
   return [...sessions.values()].flatMap(s => s.tools);
 }
 
+function buildMcpToolDescription(serverName: string, toolName: string, description: string): string {
+  if (serverName !== 'devtools') return description;
+  if (toolName !== 'navigate_page' && toolName !== 'new_page') return description;
+  return [
+    description,
+    '约束：只能打开用户明确给出的 URL、搜索结果/页面快照/HTTP 响应中真实出现的 URL，禁止按网站格式猜测新闻、研报、公告详情页 URL。若没有可信 URL，请先搜索或基于已有信息回答。',
+  ].filter(Boolean).join('\n\n');
+}
+
+function getInputUrl(input: Record<string, unknown>): string | undefined {
+  return typeof input.url === 'string' ? input.url.trim() : undefined;
+}
+
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return url.trim();
+  }
+}
+
+function mcpError(error: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ error, ...extra });
+}
+
+function isJsonErrorPayload(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text);
+    return !!parsed && typeof parsed === 'object' && 'error' in parsed;
+  } catch {
+    return false;
+  }
+}
+
+function isSuspiciousGeneratedUrl(url: string): boolean {
+  return [
+    /\b1234567\d*\b/,
+    /\/doc-[a-z0-9_-]*1234567\d*\.s?html(?:[?#].*)?$/i,
+    /\/t\d{8}_1234567\d*\.html(?:[?#].*)?$/i,
+    /\b(?:example|placeholder|dummy)\b/i,
+  ].some(pattern => pattern.test(url));
+}
+
+function guardDevtoolsNavigation(originalName: string, input: Record<string, unknown>): string | null {
+  if (originalName !== 'navigate_page' && originalName !== 'new_page') return null;
+  const rawUrl = getInputUrl(input);
+  if (!rawUrl) return null;
+
+  const url = normalizeUrl(rawUrl);
+  if (isSuspiciousGeneratedUrl(url)) {
+    return mcpError('疑似模型编造的占位 URL，已拒绝打开', {
+      url,
+      hint: DEVTOOLS_STOP_HINT,
+    });
+  }
+
+  const now = Date.now();
+  const isSameRecentUrl = lastDevtoolsNavigation?.url === url
+    && now - lastDevtoolsNavigation.at <= REPEATED_DEVTOOLS_NAVIGATION_WINDOW_MS;
+
+  let navigationState: { url: string; count: number; at: number };
+  if (isSameRecentUrl) {
+    navigationState = {
+      url,
+      count: (lastDevtoolsNavigation?.count ?? 0) + 1,
+      at: lastDevtoolsNavigation?.at ?? now,
+    };
+  } else {
+    navigationState = { url, count: 1, at: now };
+  }
+  lastDevtoolsNavigation = navigationState;
+
+  if (navigationState.count >= MAX_REPEATED_DEVTOOLS_NAVIGATIONS) {
+    return mcpError('同一 URL 已被重复打开多次，疑似浏览器检索无进展，已停止继续导航', {
+      url,
+      count: navigationState.count,
+      hint: DEVTOOLS_STOP_HINT,
+    });
+  }
+
+  return null;
+}
+
+function classifyInvalidDevtoolsResult(originalName: string, input: Record<string, unknown>, text: string): string | null {
+  const url = getInputUrl(input);
+  const checks: Array<[RegExp, string]> = [
+    [/Unable to navigate[\s\S]*Navigation timeout/i, '页面导航超时'],
+    [/chrome-error:\/\/chromewebdata/i, 'Chrome 返回错误页'],
+    [/RootWebArea\s+"(?:页面没有找到|404[^"]*|[^"]*404 Not Found[^"]*)"/i, '目标页面不存在'],
+    [/StaticText\s+"页面没有找到/i, '目标页面不存在'],
+    [/\b(?:404 Not Found|This site can.?t be reached|ERR_[A-Z_]+)\b/i, '目标页面加载失败'],
+  ];
+
+  for (const [pattern, reason] of checks) {
+    if (pattern.test(text)) {
+      const target = url ? `: ${url}` : '';
+      return `${originalName} 返回无效页面（${reason}${target}）`;
+    }
+  }
+
+  return null;
+}
+
+function formatMcpResult(serverName: string, originalName: string, input: Record<string, unknown>, text: string): string {
+  if (serverName !== 'devtools') return text;
+  if (isJsonErrorPayload(text)) return text;
+
+  const invalidReason = classifyInvalidDevtoolsResult(originalName, input, text);
+  if (invalidReason) {
+    return mcpError(invalidReason, { hint: DEVTOOLS_STOP_HINT });
+  }
+
+  return text + DEVTOOLS_HINT;
+}
+
 export async function callMcpTool(toolName: string, input: Record<string, unknown>): Promise<string> {
   // toolName format: mcp_<server>_<originalName>
   const match = toolName.match(/^mcp_([^_]+)_(.+)$/);
@@ -163,12 +286,15 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     if (!ok) return JSON.stringify({ error: `MCP 服务器未连接: ${serverName}` });
   }
 
+  if (serverName === 'devtools') {
+    const guarded = guardDevtoolsNavigation(originalName, input);
+    if (guarded) return guarded;
+  }
+
   const invoke = async () => {
     const session = sessions.get(serverName)!;
     return session.client.callTool({ name: originalName, arguments: input });
   };
-
-  const DEVTOOLS_HINT = '\n\n⚠️ 成功仅表示浏览器指令已发送，不保证页面状态已按预期改变。如果重复操作后页面无变化，请停止使用浏览器工具，基于当前已有的信息直接给出答复。';
 
   const formatResult = (result: Awaited<ReturnType<typeof invoke>>): string => {
     if (result.isError) return JSON.stringify({ error: result.content });
@@ -178,10 +304,8 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     return texts.join('\n') || JSON.stringify(result.content);
   };
 
-  const withHint = (text: string) => serverName === 'devtools' ? text + DEVTOOLS_HINT : text;
-
   try {
-    return withHint(formatResult(await invoke()));
+    return formatMcpResult(serverName, originalName, input, formatResult(await invoke()));
   } catch (err: any) {
     // transport 可能已断：丢弃 session，重连一次，重试一次
     try { await sessions.get(serverName)?.client.close(); } catch {}
@@ -190,7 +314,7 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     const ok = await ensureConnected(serverName);
     if (!ok) return JSON.stringify({ error: `MCP 工具调用失败: ${err.message}` });
     try {
-      return withHint(formatResult(await invoke()));
+      return formatMcpResult(serverName, originalName, input, formatResult(await invoke()));
     } catch (err2: any) {
       return JSON.stringify({ error: `MCP 工具调用失败（重试后）: ${err2.message}` });
     }

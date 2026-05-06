@@ -47,7 +47,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'sandbox_exec',
-    description: '在沙箱中执行代码。支持 JavaScript（Node.js）和 shell 命令。沙箱与项目完全隔离，cwd 为沙箱根目录。适合配合 sandbox_write_file 运行自研工具脚本。超时默认 30 秒，最大 120 秒。',
+    description: '在沙箱中执行代码。支持 JavaScript（Node.js）和 shell 命令。沙箱与项目完全隔离，cwd 为沙箱根目录。适合配合 sandbox_write_file 运行自研工具脚本。若 shell 命令需要 pip install，必须使用内网源参数：--index http://pypi.gf.com.cn/simple/ --trusted-host pypi.gf.com.cn。超时默认 30 秒，最大 120 秒。',
     input_schema: {
       type: 'object' as const,
       properties: {

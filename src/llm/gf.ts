@@ -11,7 +11,6 @@ import { convertTools, convertMessages, convertResponse, parseSSEStream } from '
  *   - external-deepseek-v4-pro
  *   - external-deepseek-v4-flash
  *   - external-kimi-k2.6
- * 注意: GF 视觉模型已禁用，图片描述自动 fallback 到 mininax / anthropic
  * ---------------------------------------------------------------- */
 
 export const GF_AVAILABLE_MODELS = [
@@ -28,11 +27,42 @@ export function createGfProvider(): LLMProvider | null {
 
   const baseUrl = (process.env.GF_BASE_URL || 'http://llm.smart-zone-dev.gf.com.cn/api/oai/v1').replace(/\/+$/, '');
   const defaultModel = process.env.GF_MODEL || 'external-glm-5-turbo';
+  const visionModel = process.env.GF_VISION_MODEL || 'external-kimi-k2.6';
 
   return {
     name: 'gf',
     defaultModel,
     availableModels: GF_AVAILABLE_MODELS,
+
+    async describeImage(imageDataUrl: string, prompt: string): Promise<string> {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: visionModel,
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: imageDataUrl } },
+              { type: 'text', text: prompt || '请详细描述这张图片的内容' },
+            ],
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`GF Vision ${res.status}: ${text.slice(0, 500)}`);
+      }
+
+      const data = await res.json();
+      if (data.error) throw new Error(`GF Vision error: ${JSON.stringify(data.error)}`);
+      return data.choices?.[0]?.message?.content ?? '';
+    },
 
     async createMessage(params) {
       const body: Record<string, unknown> = {

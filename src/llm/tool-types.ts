@@ -43,6 +43,7 @@ export type WriteFileInput     = { path: string; content: string };
 export type EditFileInput      = { path: string; old_text: string; new_text: string };
 export type ExecCmdInput       = { cmd: string; timeout_ms?: number };
 export type WriteArtifactInput = { filename: string; content: string };
+export type DownloadFileInput  = { url: string; filename?: string; headers?: Record<string, string>; timeout?: number };
 export type SendFileInput      = { path: string };
 export type SendImageInput     = { path: string };
 

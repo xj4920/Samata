@@ -18,6 +18,20 @@ const SANDBOX_BASE = path.join(os.tmpdir(), 'samata', 'sandboxes');
 const MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const GF_PIP_INDEX_URL = 'http://pypi.gf.com.cn/simple/';
+const GF_PIP_TRUSTED_HOST = 'pypi.gf.com.cn';
+
+function debugSandboxLog(input: {
+  runId: string;
+  hypothesisId: string;
+  location: string;
+  message: string;
+  data: Record<string, unknown>;
+}): void {
+  const debugFetch = (globalThis as any).fetch;
+  if (typeof debugFetch !== 'function') return;
+  debugFetch('http://localhost:7251/ingest/b69fbe4a-9d71-44d1-b487-f32b66832e46', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '5ba2d0' }, body: JSON.stringify({ sessionId: '5ba2d0', ...input, timestamp: Date.now() }) }).catch(() => {});
+}
 
 export function getSandboxRoot(agentName: string, userId: string): string {
   return path.join(SANDBOX_BASE, agentName, userId);
@@ -34,7 +48,22 @@ function checkPath(root: string, inputPath: string): string | { error: string } 
     return { error: '路径不可为空且不得包含 ".."' };
   }
   const resolved = path.resolve(root, inputPath);
-  if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+  const allowed = resolved.startsWith(root + path.sep) || resolved === root;
+  // #region agent log
+  debugSandboxLog({
+    runId: 'pre-fix',
+    hypothesisId: 'A,C',
+    location: 'src/commands/sandbox.ts:checkPath',
+    message: 'sandbox path resolution',
+    data: {
+      inputPath,
+      isAbsolute: path.isAbsolute(inputPath),
+      allowed,
+      resolvedInsideRoot: allowed,
+    },
+  });
+  // #endregion
+  if (!allowed) {
     return { error: `路径不允许穿越沙箱根目录: ${inputPath}` };
   }
   return resolved;
@@ -68,6 +97,21 @@ export function sandboxReadFile(
   maxLines = 500,
 ): { content: string; totalLines?: number; truncated?: boolean } | { error: string } {
   const root = getSandboxRoot(agentName, userId);
+  // #region agent log
+  debugSandboxLog({
+    runId: 'pre-fix',
+    hypothesisId: 'A,C,D',
+    location: 'src/commands/sandbox.ts:sandboxReadFile',
+    message: 'sandbox read request',
+    data: {
+      agentName,
+      filePath,
+      isAbsolute: path.isAbsolute(filePath),
+      rootExists: fs.existsSync(root),
+      maxLines,
+    },
+  });
+  // #endregion
   if (!fs.existsSync(root)) return { error: '沙箱目录不存在，请先写入文件' };
   const checked = checkPath(root, filePath);
   if (typeof checked === 'object' && 'error' in checked) return checked;
@@ -100,6 +144,22 @@ export function sandboxList(
   try {
     if (!fs.existsSync(target)) return { files: [] };
     const entries = fs.readdirSync(target, { withFileTypes: true });
+    // #region agent log
+    debugSandboxLog({
+      runId: 'pre-fix',
+      hypothesisId: 'D',
+      location: 'src/commands/sandbox.ts:sandboxList',
+      message: 'sandbox list result',
+      data: {
+        subPath: subPath ?? '',
+        entryCount: entries.length,
+        relevantEntries: entries
+          .map(e => e.name)
+          .filter(name => /guangfa|report|报告/i.test(name))
+          .slice(0, 20),
+      },
+    });
+    // #endregion
     return {
       files: entries.map(e => ({
         name: e.name,
@@ -127,6 +187,23 @@ function isBwrapAvailable(): boolean {
     _bwrapAvailable = false;
   }
   return _bwrapAvailable;
+}
+
+function validatePipInstallCommand(code: string): string | null {
+  const usesPipInstall = /\b(?:pip3?|python(?:3(?:\.\d+)?)?\s+-m\s+pip)\s+install\b/.test(code);
+  if (!usesPipInstall) return null;
+
+  const hasIndex =
+    code.includes(`--index ${GF_PIP_INDEX_URL}`) ||
+    code.includes(`--index-url ${GF_PIP_INDEX_URL}`) ||
+    code.includes(`-i ${GF_PIP_INDEX_URL}`);
+  const hasTrustedHost = code.includes(`--trusted-host ${GF_PIP_TRUSTED_HOST}`);
+  if (hasIndex && hasTrustedHost) return null;
+
+  return [
+    'sandbox_exec 拒绝执行：pip install 必须使用公司内网 PyPI 源。',
+    `请改用：python3 -m pip install <package> --index ${GF_PIP_INDEX_URL} --trusted-host ${GF_PIP_TRUSTED_HOST}`,
+  ].join('\n');
 }
 
 /**
@@ -221,11 +298,32 @@ export function sandboxExec(
     cmd = process.execPath; // node
     args = [jsFile];
   } else {
+    const pipError = validatePipInstallCommand(options.code);
+    if (pipError) {
+      return { stdout: '', stderr: pipError, exit_code: 2, truncated: false };
+    }
     cmd = '/bin/sh';
     args = ['-c', options.code];
   }
 
   const useBwrap = isBwrapAvailable();
+  // #region agent log
+  debugSandboxLog({
+    runId: 'pre-fix',
+    hypothesisId: 'A,B',
+    location: 'src/commands/sandbox.ts:sandboxExec:beforeSpawn',
+    message: 'sandbox exec request',
+    data: {
+      agentName,
+      language: options.language,
+      useBwrap,
+      timeout,
+      codeMentionsAbsoluteTmp: /\/tmp\//.test(options.code),
+      codeMentionsGuangfaReport: /guangfa_report/i.test(options.code),
+      codeMentionsReportFile: /report/i.test(options.code),
+    },
+  });
+  // #endregion
 
   try {
     const spawnArgs: [string, string[]] = useBwrap
@@ -252,6 +350,28 @@ export function sandboxExec(
     const stdout = String(result.stdout ?? '').slice(0, MAX_OUTPUT_BYTES);
     const stderr = String(result.stderr ?? '').slice(0, MAX_OUTPUT_BYTES);
     const totalLen = (result.stdout?.length ?? 0) + (result.stderr?.length ?? 0);
+    const rootEntries = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : [];
+    // #region agent log
+    debugSandboxLog({
+      runId: 'pre-fix',
+      hypothesisId: 'B,D',
+      location: 'src/commands/sandbox.ts:sandboxExec:afterSpawn',
+      message: 'sandbox exec result',
+      data: {
+        exitCode: result.status ?? (result.signal ? -1 : 0),
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
+        stdoutMentionsGuangfaReport: /guangfa_report/i.test(stdout),
+        stderrMentionsGuangfaReport: /guangfa_report/i.test(stderr),
+        stdoutMentionsAbsoluteTmp: /\/tmp\//.test(stdout),
+        stderrMentionsAbsoluteTmp: /\/tmp\//.test(stderr),
+        relevantRootEntries: rootEntries
+          .map(e => e.name)
+          .filter(name => /guangfa|report|报告/i.test(name))
+          .slice(0, 20),
+      },
+    });
+    // #endregion
 
     return {
       stdout,

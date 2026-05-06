@@ -145,6 +145,33 @@ async function parseWithPdfParse(filePath: string): Promise<{ content: string; p
   return { content: data.text, pages: data.numpages };
 }
 
+function validatePdfStructure(filePath: string): string | null {
+  const stat = fs.statSync(filePath);
+  if (stat.size === 0) {
+    return '文件为空，不是有效 PDF';
+  }
+
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const head = Buffer.alloc(Math.min(1024, stat.size));
+    fs.readSync(fd, head, 0, head.length, 0);
+    if (!head.toString('latin1').includes('%PDF-')) {
+      return '文件头不是 %PDF-，不是有效 PDF。请确认传入的是原始 PDF 文件路径';
+    }
+
+    const tailLength = Math.min(4096, stat.size);
+    const tail = Buffer.alloc(tailLength);
+    fs.readSync(fd, tail, 0, tailLength, stat.size - tailLength);
+    if (!tail.toString('latin1').includes('%%EOF')) {
+      return `文件不是完整 PDF（大小 ${stat.size} bytes，缺少 %%EOF）。请先用 download_file 下载原始 PDF URL，不要用 write_artifact 写入 PDF 文本片段`;
+    }
+
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -162,6 +189,11 @@ async function handleParsePdf(input: {
   const ext = path.extname(resolved).toLowerCase();
   if (ext !== '.pdf') {
     return JSON.stringify({ error: `不支持的格式 "${ext}"，仅支持 .pdf` });
+  }
+
+  const structureError = validatePdfStructure(resolved);
+  if (structureError) {
+    return JSON.stringify({ error: `PDF 解析失败: ${structureError}` });
   }
 
   const maxChars = input.max_chars ?? 100000;

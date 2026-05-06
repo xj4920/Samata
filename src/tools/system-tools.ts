@@ -20,7 +20,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'http_request',
-    description: '发起 HTTP 请求，支持 GET/POST/PUT/DELETE 等方法。可用于调用外部 API、获取网页内容等。',
+    description: '发起 HTTP 请求，支持 GET/POST/PUT/DELETE 等方法。适合调用外部 API、获取网页文本或 JSON。不要用它下载 PDF、Excel、Word、图片等二进制文件；这类 URL 请使用 download_file。',
     input_schema: {
       type: 'object' as const,
       properties: {

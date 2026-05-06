@@ -15,6 +15,10 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { basename, join, resolve } from 'path';
+import { createRequire } from 'module';
+import Database from 'better-sqlite3';
+
+const nodeRequire = createRequire(import.meta.url);
 
 type Channel = 'wework' | 'feishu' | 'telegram' | 'cli';
 type DataSource = 'auto' | 'telemetry' | 'app';
@@ -608,7 +612,7 @@ const CHANNEL_LABEL: Record<Channel, string> = {
   cli: 'CLI',
 };
 
-function buildToolStats(turns: TurnRecord[]): {
+function buildToolStats(turns: TurnRecord[], agentNameMap: Map<string, string>): {
   totalCalls: number;
   toolSessions: number;
   toolMap: Map<string, ToolAggregate>;
@@ -624,7 +628,8 @@ function buildToolStats(turns: TurnRecord[]): {
     toolSessions++;
     totalCalls += turn.toolCount;
 
-    const groupLabel = `${CHANNEL_LABEL[turn.channel]} / ${turn.agent || '—'}`;
+    const agentLabel = resolveAgentName(turn.agent, agentNameMap);
+    const groupLabel = `${CHANNEL_LABEL[turn.channel]} / ${agentLabel}`;
     const group = groupMap.get(groupLabel) ?? { sessions: 0, calls: 0 };
     group.sessions += 1;
     group.calls += turn.toolCount;
@@ -830,20 +835,24 @@ function buildTelemetrySections(turns: TurnRecord[]): string[] {
   return lines;
 }
 
-function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
+function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map<string, string>): string {
   const lines: string[] = [];
+  const isTelemetry = reportSource === 'telemetry';
 
   lines.push(`# Samata 使用报告 — ${dateLabel}`);
   lines.push('');
   lines.push(`## 用户提问记录 (共 ${turns.length} 条)`);
   lines.push('');
-  lines.push('| # | 时间 | 用户 | 渠道 | Agent | 聊天 | 问题 | 工具调用 | 耗时 |');
+
+  // Use different column headers based on data source
+  const contentColHeader = isTelemetry ? '回复摘要' : '问题';
+  lines.push(`| # | 时间 | 用户 | 渠道 | Agent | 聊天 | ${contentColHeader} | 工具调用 | 耗时 |`);
   lines.push('|---|------|------|------|-------|------|------|----------|------|');
 
   turns.forEach((turn, i) => {
     const content = sanitizeTableCell(truncate(turn.content.replace(/\n/g, ' '), 80));
     const ch = CHANNEL_LABEL[turn.channel];
-    const agent = sanitizeTableCell(turn.agent || '—');
+    const agent = sanitizeTableCell(resolveAgentName(turn.agent, agentNameMap));
     const toolSummary = formatTurnToolSummary(turn);
     const latency = sanitizeTableCell(formatTurnLatency(turn));
     lines.push(`| ${i + 1} | ${turn.time} | ${turn.userid} | ${ch} | ${agent} | ${turn.chattype} | ${content} | ${toolSummary} | ${latency} |`);
@@ -859,7 +868,8 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
     typeCount.set(turn.msgtype, (typeCount.get(turn.msgtype) ?? 0) + 1);
     const ch = CHANNEL_LABEL[turn.channel];
     channelCount.set(ch, (channelCount.get(ch) ?? 0) + 1);
-    if (turn.agent) agentCount.set(turn.agent, (agentCount.get(turn.agent) ?? 0) + 1);
+    const agentLabel = resolveAgentName(turn.agent, agentNameMap);
+    if (agentLabel) agentCount.set(agentLabel, (agentCount.get(agentLabel) ?? 0) + 1);
   }
 
   lines.push('');
@@ -908,7 +918,7 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
     }
   }
 
-  const toolStats = buildToolStats(turns);
+  const toolStats = buildToolStats(turns, agentNameMap);
   lines.push('');
   lines.push('### Agent 工具调用情况');
   lines.push('');
@@ -968,6 +978,9 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
     }
   }
 
+  // Anomaly monitoring (errors, no-reply, tool exhaustion, dead loops)
+  lines.push(...buildAnomalyReport(turns, agentNameMap));
+
   // Telemetry-only sections
   if (reportSource === 'telemetry') {
     lines.push(...buildTelemetrySections(turns));
@@ -985,13 +998,14 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string): string {
     lines.push('- **数据来源**: telemetry JSONL，延时为 ctx + llm + tool + render 四段精确合计。');
     lines.push('- token 用量来自各 provider SDK 原始返回，不同模型的 tokenizer 口径不完全可比。');
     lines.push('- 知识库命中统计：仅计入 search_knowledge 工具调用，不包含文档 grep 搜索。');
+    lines.push('- **注意**: telemetry 数据不含用户原始提问内容，表中"回复摘要"列为 AI 回答的前 500 字符摘要。');
   }
 
   lines.push('');
   return lines.join('\n');
 }
 
-function buildCSV(turns: TurnRecord[]): string {
+function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>): string {
   const isTelemetry = reportSource === 'telemetry';
   const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '工具数', '耗时ms'];
   const telemetryHeaders = ['输入token', '输出token', 'ctx_ms', 'llm_ms', 'tool_ms', 'render_ms', 'loop轮次', 'stop_reason', 'knowledge命中', '工具成功', '工具失败'];
@@ -1001,7 +1015,7 @@ function buildCSV(turns: TurnRecord[]): string {
   turns.forEach((turn, i) => {
     const content = turn.content.replace(/"/g, '""').replace(/\n/g, ' ');
     const ch = CHANNEL_LABEL[turn.channel];
-    const agent = turn.agent || '';
+    const agent = resolveAgentName(turn.agent, agentNameMap);
     const baseFields = [
       i + 1, `"${turn.time}"`, `"${turn.userid}"`, `"${ch}"`, `"${agent}"`,
       `"${turn.chattype}"`, `"${turn.msgtype}"`, `"${content}"`,
@@ -1021,9 +1035,259 @@ function buildCSV(turns: TurnRecord[]): string {
   return lines.join('\n') + '\n';
 }
 
+async function writeToPostgres(
+  turns: TurnRecord[],
+  dates: string[],
+  source: DataSource,
+  agentNameMap: Map<string, string>,
+): Promise<void> {
+  const configPath = join(process.cwd(), '..', 'dataSync', 'config', 'config.json');
+  if (!existsSync(configPath)) {
+    console.warn('[pg] DataSync config.json 不存在，跳过 PostgreSQL 写入');
+    return;
+  }
+
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  const pgHost = config.PG_HOST || '10.8.0.1';
+  const pgPort = config.PG_PORT || 5432;
+  const pgUser = config.PG_USER || 'wind_sync';
+  const pgPass = config.PG_PASS || 'wind_sync';
+  const pgDb = config.PG_DATABASE || 'wind_sync';
+
+  // Dynamic require via createRequire for ESM compat
+  const { Client } = nodeRequire('pg');
+  const client = new Client({
+    host: pgHost,
+    port: pgPort,
+    user: pgUser,
+    password: pgPass,
+    database: pgDb,
+    connectionTimeoutMillis: 5000,
+  });
+
+  try {
+    await client.connect();
+
+    // Create table if not exists
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS samata_user_questions (
+        id SERIAL PRIMARY KEY,
+        time TIMESTAMPTZ NOT NULL,
+        user_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        agent_name TEXT,
+        chat_type TEXT,
+        user_question TEXT,
+        answer_preview TEXT,
+        tool_calls TEXT,
+        tool_count INTEGER,
+        latency_ms INTEGER,
+        source TEXT,
+        report_date DATE NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Create unique index (ignore error if already exists)
+    try {
+      await client.query(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_question_unique ON samata_user_questions (report_date, time, user_id)',
+      );
+    } catch {
+      // index may already exist
+    }
+
+    // Prepare report_date from dates array
+    const reportDate = dates[0] || new Date().toISOString().slice(0, 10);
+    const isTelemetry = source === 'telemetry';
+
+    // Upsert each turn
+    let inserted = 0;
+    for (const turn of turns) {
+      const agentName = resolveAgentName(turn.agent, agentNameMap);
+      const userQuestion = isTelemetry ? null : turn.content;
+      const answerPreview = isTelemetry ? turn.content : null;
+      const toolCallsJson = turn.toolCalls.length > 0 ? JSON.stringify(turn.toolCalls) : null;
+
+      try {
+        await client.query(
+          `INSERT INTO samata_user_questions
+             (time, user_id, channel, agent_name, chat_type,
+              user_question, answer_preview, tool_calls, tool_count,
+              latency_ms, source, report_date)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (report_date, time, user_id)
+           DO UPDATE SET
+             agent_name = EXCLUDED.agent_name,
+             user_question = COALESCE(EXCLUDED.user_question, samata_user_questions.user_question),
+             answer_preview = COALESCE(EXCLUDED.answer_preview, samata_user_questions.answer_preview),
+             tool_calls = EXCLUDED.tool_calls,
+             tool_count = EXCLUDED.tool_count,
+             latency_ms = EXCLUDED.latency_ms,
+             source = EXCLUDED.source`,
+          [
+            turn.startIso,         // ISO 8601 timestamp
+            turn.userid,
+            turn.channel,
+            agentName,
+            turn.chattype,
+            userQuestion,
+            answerPreview,
+            toolCallsJson,
+            turn.toolCount,
+            turn.latencyMs ?? null,
+            source,
+            reportDate,
+          ],
+        );
+        inserted++;
+      } catch (rowErr: any) {
+        console.warn(`[pg] 写入失败: ${turn.time} ${turn.userid} — ${rowErr?.message ?? String(rowErr)}`);
+      }
+    }
+
+    console.warn(`[pg] 已写入 PostgreSQL: ${inserted}/${turns.length} 条 (${pgHost}:${pgPort}/${pgDb}, table=samata_user_questions)`);
+  } catch (err: any) {
+    console.warn(`[pg] PostgreSQL 连接失败: ${err?.message ?? String(err)}`);
+  } finally {
+    try { await client.end(); } catch { /* ignore */ }
+  }
+}
+
 function extractDateFromPath(logPath: string): string {
   const m = basename(logPath).match(/(?:app|telemetry)-(\d{4}-\d{2}-\d{2})\.(?:log|jsonl)/);
   return m ? m[1] : new Date().toISOString().slice(0, 10);
+}
+
+function loadAgentNameMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    const dbPath = join(process.cwd(), 'data', 'yanyu.db');
+    if (!existsSync(dbPath)) return map;
+    const db = new Database(dbPath, { readonly: true });
+    const rows = db.prepare('SELECT id, name, display_name FROM agents').all() as { id: string; name: string; display_name: string }[];
+    for (const row of rows) {
+      // Map by DB id (UUID)
+      map.set(row.id, row.display_name || row.name);
+      // Map by name (e.g., 'otcclaw' → '衍语')
+      map.set(row.name, row.display_name || row.name);
+      // Map by 'agent-<name>' format used in older telemetry records
+      map.set(`agent-${row.name}`, row.display_name || row.name);
+    }
+    db.close();
+  } catch {
+    // DB not accessible — agent names will display as-is
+  }
+  return map;
+}
+
+function resolveAgentName(agentId: string, nameMap: Map<string, string>): string {
+  if (!agentId) return '—';
+  return nameMap.get(agentId) || agentId;
+}
+
+function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, string>): string[] {
+  const lines: string[] = [];
+  const isTelemetry = reportSource === 'telemetry';
+
+  lines.push('### 异常监控');
+  lines.push('');
+
+  // 1. Error / failed turns
+  const failedTurns = turns.filter(t => t.failed || t.stopReason === 'error');
+  if (failedTurns.length > 0) {
+    lines.push(`- **报错会话**: ${failedTurns.length} 条`);
+    for (const t of failedTurns) {
+      const ch = CHANNEL_LABEL[t.channel];
+      const agent = resolveAgentName(t.agent, agentNameMap);
+      const reason = t.stopReason || (t.failed ? 'error' : '—');
+      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | reason=${reason} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+    }
+    lines.push('');
+  }
+
+  // 2. No reply (empty answer)
+  const noReplyTurns = turns.filter(t => {
+    if (isTelemetry) return !t.content || t.content === '(无文本回复)';
+    return t.failed && t.toolCount === 0;
+  });
+  if (noReplyTurns.length > 0) {
+    lines.push(`- **无回复会话**: ${noReplyTurns.length} 条`);
+    for (const t of noReplyTurns) {
+      const ch = CHANNEL_LABEL[t.channel];
+      const agent = resolveAgentName(t.agent, agentNameMap);
+      const rounds = t.loopRounds !== undefined ? ` rounds=${t.loopRounds}` : '';
+      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid}${rounds} | ${sanitizeTableCell(truncate(t.content !== '(无文本回复)' ? t.content.replace(/\n/g, ' ') : '(空)', 60))}`);
+    }
+    lines.push('');
+  }
+
+  // 3. Tool budget exhaustion (reached max rounds without completing)
+  if (isTelemetry) {
+    const MAX_ROUNDS = 12;
+    const exhaustedTurns = turns.filter(t => t.loopRounds !== undefined && t.loopRounds >= MAX_ROUNDS);
+    if (exhaustedTurns.length > 0) {
+      lines.push(`- **工具调用达上限** (>=${MAX_ROUNDS}轮): ${exhaustedTurns.length} 条`);
+      for (const t of exhaustedTurns) {
+        const ch = CHANNEL_LABEL[t.channel];
+        const agent = resolveAgentName(t.agent, agentNameMap);
+        const tools = t.toolCount;
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | rounds=${t.loopRounds} tools=${tools} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+      }
+      lines.push('');
+    }
+  } else {
+    // App log: treat high tool count as potential exhaustion
+    const HIGH_TOOL_THRESHOLD = 20;
+    const heavyTurns = turns.filter(t => t.toolCount >= HIGH_TOOL_THRESHOLD);
+    if (heavyTurns.length > 0) {
+      lines.push(`- **疑似工具调用过载** (>=${HIGH_TOOL_THRESHOLD}次): ${heavyTurns.length} 条`);
+      for (const t of heavyTurns) {
+        const ch = CHANNEL_LABEL[t.channel];
+        const agent = resolveAgentName(t.agent, agentNameMap);
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | tools=${t.toolCount} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+      }
+      lines.push('');
+    }
+  }
+
+  // 4. Dead loop detection (high rounds + no answer = likely stuck)
+  if (isTelemetry) {
+    const LOOP_THRESHOLD = 6;
+    const deadLoops = turns.filter(t => {
+      if (t.loopRounds === undefined) return false;
+      const noAnswer = !t.content || t.content === '(无文本回复)';
+      return t.loopRounds >= LOOP_THRESHOLD && noAnswer;
+    });
+    if (deadLoops.length > 0) {
+      lines.push(`- **疑似死循环** (>=${LOOP_THRESHOLD}轮 + 无回复): ${deadLoops.length} 条`);
+      for (const t of deadLoops) {
+        const ch = CHANNEL_LABEL[t.channel];
+        const agent = resolveAgentName(t.agent, agentNameMap);
+        const stopInfo = t.stopReason ? ` stop=${t.stopReason}` : '';
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | rounds=${t.loopRounds} tools=${t.toolCount}${stopInfo}`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Summary line when no anomalies found
+  if (failedTurns.length === 0 && noReplyTurns.length === 0) {
+    const exhaustedCount = isTelemetry
+      ? turns.filter(t => t.loopRounds !== undefined && t.loopRounds >= 12).length
+      : turns.filter(t => t.toolCount >= 20).length;
+    if (exhaustedCount === 0) {
+      const deadLoopCount = isTelemetry
+        ? turns.filter(t => t.loopRounds !== undefined && t.loopRounds >= 6 && (!t.content || t.content === '(无文本回复)')).length
+        : 0;
+      if (deadLoopCount === 0) {
+        lines.push('✅ 未检测到异常（报错、无回复、工具耗尽、死循环）。');
+        lines.push('');
+      }
+    }
+  }
+
+  return lines;
 }
 
 const VALID_CHANNELS: Channel[] = ['wework', 'feishu', 'telegram', 'cli'];
@@ -1032,6 +1296,7 @@ let reportSource: DataSource = 'app'; // set in main, used by buildMarkdown
 // --- main ---
 const args = process.argv.slice(2);
 const csvMode = args.includes('--csv');
+const pgMode = args.includes('--pg');
 const channelArg = parseArg(args, '--channel=') as Channel | undefined;
 const sourceArg = (parseArg(args, '--source=') as DataSource) ?? 'auto';
 
@@ -1072,11 +1337,16 @@ const dates = paths.map(extractDateFromPath);
 const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
 const fileTag = dates.length === 1 ? dates[0] : `${dates[0]}_${dates[dates.length - 1]}`;
 
+const agentNameMap = loadAgentNameMap();
+if (agentNameMap.size > 0) {
+  console.warn(`已加载 ${agentNameMap.size} 条 agent 名称映射`);
+}
+
 const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
 const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
 const output = csvMode
-  ? buildCSV(turns)
-  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix);
+  ? buildCSV(turns, agentNameMap)
+  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix, agentNameMap);
 console.log(output);
 
 const outDir = join(process.cwd(), 'logs', 'daily_usage');
@@ -1088,3 +1358,10 @@ const channelFileTag = channelArg ? `_${channelArg}` : '';
 const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}.${ext}`);
 writeFileSync(outFile, output, 'utf8');
 console.log(`\n=> 已写入 ${outFile}`);
+
+// PostgreSQL 写入（--pg 模式）
+if (pgMode) {
+  void writeToPostgres(turns, dates, source, agentNameMap).then(() => {
+    process.exit(0);
+  });
+}

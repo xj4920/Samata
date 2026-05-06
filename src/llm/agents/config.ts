@@ -21,7 +21,7 @@ export const COMMON_SET = new Set([
   // Memory
   'save_memory', 'search_memory', 'delete_memory',
   // Delivery
-  'write_artifact', 'send_file', 'send_image',
+  'write_artifact', 'download_file', 'send_file', 'send_image',
   // Reminder
   'set_reminder', 'list_reminders', 'cancel_reminder',
   // Todo
