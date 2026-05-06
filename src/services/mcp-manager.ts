@@ -247,6 +247,7 @@ function classifyInvalidDevtoolsResult(originalName: string, input: Record<strin
   const checks: Array<[RegExp, string]> = [
     [/Unable to navigate[\s\S]*Navigation timeout/i, '页面导航超时'],
     [/chrome-error:\/\/chromewebdata/i, 'Chrome 返回错误页'],
+    [/RootWebArea\s+busy\b/m, '页面仍在加载中（busy）'],
     [/RootWebArea\s+"(?:页面没有找到|404[^"]*|[^"]*404 Not Found[^"]*)"/i, '目标页面不存在'],
     [/StaticText\s+"页面没有找到/i, '目标页面不存在'],
     [/\b(?:404 Not Found|This site can.?t be reached|ERR_[A-Z_]+)\b/i, '目标页面加载失败'],

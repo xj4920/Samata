@@ -98,6 +98,8 @@ const MAX_TOOL_ROUNDS = (() => {
   const v = Number(process.env.MAX_TOOL_ROUNDS);
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : 30;
 })();
+
+const MAX_DEVTOOLS_ROUNDS = 12;
 const MAX_TOOL_RESULT_LENGTH = 4000;
 
 function isToolResultMessage(msg: Anthropic.MessageParam): boolean {
@@ -115,7 +117,7 @@ interface ToolTrace {
 }
 
 type InterruptedSummaryInput = {
-  kind: 'max_rounds' | 'loop';
+  kind: 'max_rounds' | 'loop' | 'devtools_budget';
   limit: number;
   trace: ToolTrace[];
   reason?: string;
@@ -210,6 +212,8 @@ function summarizeSuccessfulSignals(trace: ToolTrace[]): string[] {
 function buildInterruptedSummary(input: InterruptedSummaryInput): string {
   const header = input.kind === 'max_rounds'
     ? `我连续调用了 ${input.limit} 轮工具仍未整理出最终答复，先给阶段性总结，避免没有结论地结束。`
+    : input.kind === 'devtools_budget'
+    ? `浏览器工具调用次数已达上限（${input.limit} 次），先给阶段性总结。`
     : `我检测到工具调用陷入循环，先给阶段性总结，避免继续空转。`;
   const successful = input.trace.filter(entry => entry.success);
   const failed = input.trace.filter(entry => !entry.success);
@@ -255,6 +259,13 @@ function buildInterruptedSummary(input: InterruptedSummaryInput): string {
   ].join('\n\n');
 }
 
+function buildToolStatsFootnote(trace: ToolTrace[]): string {
+  const total = trace.length;
+  const success = trace.filter(t => t.success).length;
+  const failed = total - success;
+  return `\n\n────────────────────────────────────────\n\n> 本轮共调用 ${total} 次工具，${success} 次成功、${failed} 次失败。`;
+}
+
 // --- Loop detection ---
 
 const LOOP_WINDOW = 12;        // 滑窗：最近 N 个工具调用
@@ -262,6 +273,7 @@ const MAX_CONSECUTIVE_SAME = 3; // 同一工具+参数连续出现 N 次 → 循
 const MAX_CONSECUTIVE_ERRORS = 3;
 const MAX_PATTERN_LEN = 4;     // 多工具模式最大长度
 const MIN_PATTERN_REPEATS = 2; // 模式至少重复 N 次 → 循环
+const HIGH_FREQ_THRESHOLD = 0.75; // 滑窗内同一工具占比阈值（忽略参数差异）
 
 interface LoopTracker {
   calls: { name: string; fingerprint: string; round: number }[];
@@ -334,6 +346,22 @@ function detectLoop(tracker: LoopTracker): LoopResult {
       return { action: 'hard_stop', name: tracker.lastErrorName, fingerprint: '', isError: true };
     }
     return { action: 'soft_warn', name: tracker.lastErrorName, fingerprint: '' };
+  }
+
+  // 4. 同一工具高频调用检测（不论参数是否相同）
+  if (recent.length >= LOOP_WINDOW) {
+    const toolFreq = new Map<string, number>();
+    for (const c of recent) {
+      toolFreq.set(c.name, (toolFreq.get(c.name) ?? 0) + 1);
+    }
+    for (const [name, count] of toolFreq) {
+      if (count >= LOOP_WINDOW * HIGH_FREQ_THRESHOLD) {
+        if (tracker.softWarned) {
+          return { action: 'hard_stop', name, fingerprint: '', isError: false };
+        }
+        return { action: 'soft_warn', name, fingerprint: '' };
+      }
+    }
   }
 
   return { action: 'none' };
@@ -743,6 +771,80 @@ export async function runAgenticChat(
     messages: history,
   });
 
+  async function finalSynthesis(
+    currentResponse: CreateMessageResult,
+    interruptReason: string,
+    trace: ToolTrace[],
+    round: number,
+  ): Promise<CreateMessageResult> {
+    // 1. Push the current assistant response (which contains tool_use blocks)
+    history.push({ role: 'assistant', content: currentResponse.content });
+
+    // 2. Pair each tool_use with a dummy tool_result to keep message pairs valid
+    const dummyResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of currentResponse.content) {
+      if (block.type === 'tool_use') {
+        dummyResults.push({ type: 'tool_result', tool_use_id: block.id, content: '（已中断）' });
+      }
+    }
+    if (dummyResults.length > 0) {
+      history.push({ role: 'user', content: dummyResults });
+    }
+
+    // 3. Inject synthesis prompt
+    const synthPrompt = [
+      `你之前调用的工具已被系统中断（原因：${interruptReason}）。`,
+      '请不要再尝试调用任何工具。基于上面对话中已经获取到的所有工具结果，直接回答用户的问题。',
+      '如果信息不完整，在回答中说明哪些信息尚缺即可。',
+    ].join('\n');
+    history.push({ role: 'user', content: synthPrompt });
+
+    // 4. Call LLM without tools to force a text-only response
+    const synthParams: CreateMessageParams = {
+      model: agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName()),
+      max_tokens: 4096,
+      system: systemPrompt,
+      tools: [],
+      messages: history,
+    };
+
+    try {
+      const { result: synthResponse } = await callLLM(synthParams, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress);
+      recordLLM(telemetrySessionId, {
+        round: round + 1,
+        model: agentProviderOverride?.defaultModel ?? getModelName(),
+        input_tokens: synthResponse.usage?.input_tokens ?? 0,
+        output_tokens: synthResponse.usage?.output_tokens ?? 0,
+        stop_reason: synthResponse.stop_reason,
+        duration_ms: 0,
+      });
+
+      // 5. Append tool stats footnote to the text response
+      const footnote = buildToolStatsFootnote(trace);
+      const newContent = synthResponse.content.map(block => {
+        if (block.type === 'text') {
+          return { ...block, text: block.text + footnote };
+        }
+        return block;
+      });
+
+      return { ...synthResponse, content: newContent, stop_reason: 'end_turn' };
+    } catch (err: any) {
+      log.warn(`${logPrefix}最终总结 LLM 调用失败 (${err.message})，回退到静态摘要`);
+      const fallbackText = buildInterruptedSummary({
+        kind: 'max_rounds',
+        limit: MAX_TOOL_ROUNDS,
+        trace,
+        reason: interruptReason,
+      });
+      return {
+        ...currentResponse,
+        content: [{ type: 'text', text: fallbackText, citations: null } as any],
+        stop_reason: 'end_turn',
+      };
+    }
+  }
+
   // Record context prep time
   const ctx_ms = Date.now() - ctxStartTime;
 
@@ -787,25 +889,14 @@ export async function runAgenticChat(
   let round = 1;
   const loopTracker = initLoopTracker();
   const toolTrace: ToolTrace[] = [];
+  let devtoolsCallCount = 0;
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
-      const fallbackText = buildInterruptedSummary({
-        kind: 'max_rounds',
-        limit: MAX_TOOL_ROUNDS,
-        trace: toolTrace,
-      });
-      // Replace tool_use blocks with a meaningful fallback text so the
-      // user (CLI/feishu/telegram/wework) sees an actionable message instead
-      // of "（无回复内容）". Also avoids carrying orphan tool_calls into the
-      // next turn (which breaks OpenAI-compat gateways).
-      response = {
-        ...response,
-        content: [{ type: 'text', text: fallbackText, citations: null } as any],
-        stop_reason: 'end_turn',
-      };
+      const reason = `工具调用已达上限 ${MAX_TOOL_ROUNDS} 轮`;
+      response = await finalSynthesis(response, reason, toolTrace, round);
       break;
     }
 
@@ -888,6 +979,7 @@ export async function runAgenticChat(
           loopTracker.lastErrorCount = 0;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+        if (block.name.startsWith('mcp_devtools_')) devtoolsCallCount++;
       }
     }
 
@@ -900,29 +992,34 @@ export async function runAgenticChat(
     const loop = detectLoop(loopTracker);
     if (loop.action === 'soft_warn') {
       log.warn(`${logPrefix}检测到循环: ${loop.name} 重复调用，注入自我反思提示`);
+      const sameParams = loop.fingerprint !== '';
       const warnMsg = loop.name.includes('+')
-        ? `⚠️ 系统检测到你最近重复执行相同的工具序列 "${loop.name}" 且参数相同，但结果无明显进展。请停止这个模式，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`
-        : `⚠️ 系统检测到你连续调用了 "${loop.name}" 且参数相同，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
+        ? `⚠️ 系统检测到你最近重复执行相同的工具序列 "${loop.name}"${sameParams ? ' 且参数相同' : ''}，但结果无明显进展。请停止这个模式，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`
+        : `⚠️ 系统检测到你${sameParams ? '连续' : '高频'}调用了 "${loop.name}"${sameParams ? ' 且参数相同' : '（参数不同但方向重复）'}，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
       history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
       loopTracker.softWarned = true;
     } else if (loop.action === 'hard_stop') {
       log.warn(`${logPrefix}循环未终止，强制停止`);
       const reason = loop.isError
         ? `工具 "${loop.name}" 连续 ${MAX_CONSECUTIVE_ERRORS} 次执行失败`
-        : loop.name.includes('+')
-          ? `工具序列 "${loop.name}" 重复执行，参数相同`
-          : `工具 "${loop.name}" 连续调用，参数相同`;
-      const fallbackText = buildInterruptedSummary({
-        kind: 'loop',
-        limit: MAX_TOOL_ROUNDS,
-        trace: toolTrace,
-        reason,
-      });
-      response = {
-        ...response,
-        content: [{ type: 'text', text: fallbackText, citations: null } as any],
-        stop_reason: 'end_turn',
-      };
+        : loop.fingerprint
+          ? (loop.name.includes('+')
+            ? `工具序列 "${loop.name}" 重复执行，参数相同`
+            : `工具 "${loop.name}" 连续调用，参数相同`)
+          : `工具 "${loop.name}" 高频调用（参数不同但方向重复）`;
+      response = await finalSynthesis(response, reason, toolTrace, round);
+      break;
+    }
+
+    // DevTools budget: prevent browser tools from consuming the entire tool budget
+    if (devtoolsCallCount === MAX_DEVTOOLS_ROUNDS) {
+      log.warn(`${logPrefix}DevTools 工具调用达到上限 (${MAX_DEVTOOLS_ROUNDS})，注入停止提示`);
+      const warnMsg = `⚠️ 浏览器工具已累计调用 ${MAX_DEVTOOLS_ROUNDS} 次。请立即停止使用所有浏览器工具（mcp_devtools_*），基于当前已获取的信息直接给出答复。如果信息不足，请说明原因。`;
+      history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
+    } else if (devtoolsCallCount > MAX_DEVTOOLS_ROUNDS) {
+      log.warn(`${logPrefix}DevTools 预算已耗尽，强制停止`);
+      const reason = `浏览器工具累计调用 ${devtoolsCallCount} 次，超出上限 ${MAX_DEVTOOLS_ROUNDS}`;
+      response = await finalSynthesis(response, reason, toolTrace, round);
       break;
     }
 

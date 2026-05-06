@@ -20,6 +20,8 @@ const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const GF_PIP_INDEX_URL = 'http://pypi.gf.com.cn/simple/';
 const GF_PIP_TRUSTED_HOST = 'pypi.gf.com.cn';
+const SANDBOX_PATH = '/usr/local/python-3.10.4/bin:/usr/local/bin:/usr/bin:/bin';
+const SANDBOX_LD_LIBRARY_PATH = '/usr/local/python-3.10.4/lib:/usr/local/lib';
 
 function debugSandboxLog(input: {
   runId: string;
@@ -258,8 +260,8 @@ function buildBwrapArgs(sandboxRoot: string, cmd: string, args: string[]): strin
   bwrapArgs.push('--setenv', 'HOME', sandboxRoot);
   bwrapArgs.push('--setenv', 'TMPDIR', sandboxRoot);
   bwrapArgs.push('--setenv', 'PWD', sandboxRoot);
-  bwrapArgs.push('--setenv', 'PATH', '/usr/local/python-3.10.4/bin:/usr/local/bin:/usr/bin:/bin');
-      bwrapArgs.push('--setenv', 'LD_LIBRARY_PATH', '/usr/local/python-3.10.4/lib:/usr/local/lib');
+  bwrapArgs.push('--setenv', 'PATH', SANDBOX_PATH);
+  bwrapArgs.push('--setenv', 'LD_LIBRARY_PATH', SANDBOX_LD_LIBRARY_PATH);
   bwrapArgs.push('--unsetenv', 'NVM_DIR');
   bwrapArgs.push('--unsetenv', 'NVM_BIN');
   bwrapArgs.push('--unsetenv', 'NVM_INC');
@@ -340,7 +342,8 @@ export function sandboxExec(
           env: {
             HOME: root,
             PWD: root,
-            PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+            PATH: SANDBOX_PATH,
+            LD_LIBRARY_PATH: SANDBOX_LD_LIBRARY_PATH,
             TMPDIR: root,
           },
         };

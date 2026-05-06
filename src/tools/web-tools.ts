@@ -3,6 +3,20 @@ import type { ToolContext } from '../llm/agents/config.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
+    name: 'web_search',
+    description:
+      '通过搜索引擎搜索关键词，返回搜索结果列表（标题、摘要、链接）。' +
+      '适合查询公司信息、新闻、研报等公开信息。如需阅读某条结果的完整内容，再用 web_fetch 抓取对应 URL。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: '搜索关键词' },
+        count: { type: 'number', description: '返回结果数量，默认 8，最大 20' },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'web_fetch',
     description:
       '抓取网页 URL，返回提取后的可读文本（Markdown 格式）。适合获取新闻、研报、公告等网页正文内容。' +
@@ -18,6 +32,122 @@ export const toolDefinitions: Anthropic.Tool[] = [
     },
   },
 ];
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#0?183;/g, '·')
+    .replace(/&ensp;/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#\d+;/g, m => {
+      const code = parseInt(m.slice(2, -1));
+      return String.fromCharCode(code);
+    });
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, '').trim();
+}
+
+interface SearchResult { title: string; url: string; snippet: string }
+
+async function searchSogou(query: string, axios: any): Promise<SearchResult[]> {
+  const url = `https://www.sogou.com/web?query=${encodeURIComponent(query)}`;
+  const resp = await axios.request({
+    url,
+    method: 'GET',
+    timeout: 15000,
+    responseType: 'text',
+    transformResponse: [(data: string) => data],
+    validateStatus: () => true,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+    },
+  });
+
+  if (resp.status >= 400) return [];
+  const html: string = resp.data ?? '';
+  const blocks = html.match(/<div class="vrwrap"[\s\S]*?(?=<div class="vrwrap"|<div id="pagebar)/g);
+  if (!blocks) return [];
+
+  const results: SearchResult[] = [];
+  for (const block of blocks) {
+    const titleMatch = block.match(/<h3[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!titleMatch) continue;
+    const snippetMatch = block.match(/<[^>]+class="[^"]*space-txt[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/);
+    const rawUrl = decodeHtmlEntities(titleMatch[1]);
+    results.push({
+      title: decodeHtmlEntities(stripTags(titleMatch[2])),
+      url: rawUrl.startsWith('/link?') ? `https://www.sogou.com${rawUrl}` : rawUrl,
+      snippet: snippetMatch ? decodeHtmlEntities(stripTags(snippetMatch[1])) : '',
+    });
+  }
+  return results;
+}
+
+async function searchBing(query: string, axios: any): Promise<SearchResult[]> {
+  const url = `https://cn.bing.com/search?q=${encodeURIComponent(query)}&ensearch=0`;
+  const resp = await axios.request({
+    url,
+    method: 'GET',
+    timeout: 15000,
+    responseType: 'text',
+    transformResponse: [(data: string) => data],
+    validateStatus: () => true,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    },
+  });
+
+  if (resp.status >= 400) return [];
+  const html: string = resp.data ?? '';
+  const blocks = html.match(/<li class="b_algo"[^>]*>[\s\S]*?<\/li>/g);
+  if (!blocks) return [];
+
+  const results: SearchResult[] = [];
+  for (const block of blocks) {
+    const titleMatch = block.match(/<h2[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    const snippetMatch = block.match(/<p[^>]*class="[^"]*b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/)
+      || block.match(/<div class="b_caption"[^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/);
+    if (!titleMatch) continue;
+    results.push({
+      title: decodeHtmlEntities(stripTags(titleMatch[2])),
+      url: decodeHtmlEntities(titleMatch[1]),
+      snippet: snippetMatch ? decodeHtmlEntities(stripTags(snippetMatch[1])) : '',
+    });
+  }
+  return results;
+}
+
+async function handleWebSearch(input: {
+  query: string;
+  count?: number;
+}): Promise<string> {
+  const { default: axios } = await import('axios');
+  const count = Math.min(Math.max(input.count ?? 8, 1), 20);
+
+  try {
+    let results = await searchSogou(input.query, axios);
+    let engine = 'sogou';
+    if (results.length === 0) {
+      results = await searchBing(input.query, axios);
+      engine = 'bing';
+    }
+    if (results.length === 0) {
+      return JSON.stringify({ error: '搜索引擎未返回结果，可能触发了验证码或网络异常', query: input.query });
+    }
+    return JSON.stringify({ query: input.query, engine, results: results.slice(0, count) });
+  } catch (err: any) {
+    return JSON.stringify({ error: err.message || 'search failed', query: input.query });
+  }
+}
 
 async function handleWebFetch(input: {
   url: string;
@@ -42,9 +172,13 @@ async function handleWebFetch(input: {
     });
 
     if (resp.status >= 400) {
+      const hint = [403, 503, 521, 522, 523, 525].includes(resp.status)
+        ? '该站点有反爬/CDN 防护，不要通过浏览器工具重试同一站点；建议基于已有知识回答，或搜索相关信息。'
+        : undefined;
       return JSON.stringify({
         error: `HTTP ${resp.status}`,
         url: input.url,
+        ...(hint && { hint }),
       });
     }
 
@@ -108,6 +242,8 @@ export async function handleTool(
   _ctx?: ToolContext
 ): Promise<string | null> {
   switch (name) {
+    case 'web_search':
+      return handleWebSearch(input);
     case 'web_fetch':
       return handleWebFetch(input);
     default:

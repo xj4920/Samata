@@ -114,7 +114,9 @@ async function handleAIChat(
       : baseAgentConfig;
 
     const ws = instance.wsClient;
-    const streamId = generateReqId('stream');
+    const STREAM_MAX_AGE_MS = 9 * 60 * 1000;
+    let streamId = generateReqId('stream');
+    let streamCreatedAt = Date.now();
 
     // WeCom 长连接流式协议要求 content 是累积式（每次调用必须包含前面所有内容 + 新增）。
     // 用结构化状态替代纯追加日志，render() 每次从状态生成紧凑的聚合视图，
@@ -157,6 +159,19 @@ async function handleAIChat(
 
     const pushUpdate = () => {
       const now = Date.now();
+
+      if (now - streamCreatedAt > STREAM_MAX_AGE_MS) {
+        ws.replyStreamNonBlocking(frame, streamId, render('⏳ 仍在处理中...'), true).catch(() => {});
+        streamId = generateReqId('stream');
+        streamCreatedAt = now;
+        toolStatus.clear();
+        toolOrder.length = 0;
+        latestThinking = '';
+        ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
+        lastChunkTime = now;
+        return;
+      }
+
       if (now - lastChunkTime < THROTTLE_MS) return;
       lastChunkTime = now;
       ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
@@ -200,7 +215,12 @@ async function handleAIChat(
       });
 
       const finalText = textReply || '（无回复内容）';
-      await ws.replyStream(frame, streamId, render(finalText), true);
+      try {
+        await ws.replyStream(frame, streamId, render(finalText), true);
+      } catch {
+        const retryStreamId = generateReqId('stream');
+        await ws.replyStream(frame, retryStreamId, finalText, true);
+      }
       return finalText;
     } catch (err: any) {
       const errText = friendlyAIError(err);
