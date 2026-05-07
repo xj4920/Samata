@@ -6,7 +6,7 @@
 import fs from 'fs';
 import { resolve, dirname } from 'path';
 import { getDb } from '../db/connection.js';
-import { getProviderForTask, getModelForTask } from '../llm/provider.js';
+import { getProvider, getModelName } from '../llm/provider.js';
 import { getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import type { TelemetryToolCall } from '../telemetry/types.js';
@@ -172,8 +172,8 @@ export async function runDreamForAgent(agentId: string, agentName: string, dateS
   ].join('\n');
 
   try {
-    const provider = getProviderForTask('extraction');
-    const model = getModelForTask('extraction');
+    const provider = getProvider();
+    const model = getModelName();
 
     const result = await provider.createMessage({
       model,
