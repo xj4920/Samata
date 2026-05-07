@@ -50,6 +50,8 @@
 
 {{memory}}
 
+{{dream}}
+
 {{user_context}}
 
 {{datetime}}

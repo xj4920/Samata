@@ -12,7 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 const SANDBOX_BASE = path.join(os.tmpdir(), 'samata', 'sandboxes');
 const MAX_OUTPUT_BYTES = 32 * 1024;
@@ -251,7 +251,22 @@ function findNodeToolRoot(): string | null {
   return path.dirname(execPath);
 }
 
-function buildBwrapArgs(sandboxRoot: string, cmd: string, args: string[]): string[] {
+const ALLOWLIST_DIR = path.join(process.cwd(), 'config', 'agents');
+const PROJECT_ROOT = process.cwd();
+
+function loadSandboxAllowlist(agentName: string): string[] {
+  const file = path.join(ALLOWLIST_DIR, `${agentName}.files.json`);
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every(x => typeof x === 'string')) {
+      return parsed.map(p => p.replace(/^\/+/, ''));
+    }
+  } catch {}
+  return [];
+}
+
+function buildBwrapArgs(sandboxRoot: string, cmd: string, args: string[], agentName?: string): string[] {
   const bwrapArgs: string[] = [
     '--ro-bind', '/usr', '/usr',
     '--ro-bind', '/lib', '/lib',
@@ -270,9 +285,27 @@ function buildBwrapArgs(sandboxRoot: string, cmd: string, args: string[]): strin
     bwrapArgs.push('--ro-bind', nodeRoot, nodeRoot);
   }
 
+  // Mount Python user site-packages (e.g. ~/.local/lib/python3.10/site-packages)
+  if (SANDBOX_PYTHON_USER_SITE && fs.existsSync(SANDBOX_PYTHON_USER_SITE)) {
+    bwrapArgs.push('--ro-bind', SANDBOX_PYTHON_USER_SITE, SANDBOX_PYTHON_USER_SITE);
+  }
+
   // Sandbox directory: read-write. Only this path is visible; everything
   // else under /tmp (and the rest of the filesystem) is invisible.
   bwrapArgs.push('--bind', sandboxRoot, sandboxRoot);
+
+  // Mount agent allowlisted project files read-only into .data/
+  if (agentName) {
+    const allowlist = loadSandboxAllowlist(agentName);
+    for (const relPath of allowlist) {
+      const src = path.join(PROJECT_ROOT, relPath);
+      if (!fs.existsSync(src)) continue;
+      const dest = path.join(sandboxRoot, '.data', relPath);
+      const destDir = path.dirname(dest);
+      fs.mkdirSync(destDir, { recursive: true });
+      bwrapArgs.push('--ro-bind', src, dest);
+    }
+  }
 
   // Change to sandbox directory
   bwrapArgs.push('--chdir', sandboxRoot);
@@ -311,9 +344,10 @@ export function sandboxExec(
     code: string;
     timeout_ms?: number;
   },
-): { stdout: string; stderr: string; exit_code: number; truncated: boolean } {
+): SandboxExecResult {
   const root = ensureSandboxDir(agentName, userId);
   const timeout = Math.min(options.timeout_ms ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const filesBefore = snapshotFiles(root);
 
   let cmd: string;
   let args: string[];
@@ -326,7 +360,7 @@ export function sandboxExec(
   } else {
     const pipError = validatePipInstallCommand(options.code);
     if (pipError) {
-      return { stdout: '', stderr: pipError, exit_code: 2, truncated: false };
+      return { stdout: '', stderr: pipError, exit_code: 2, truncated: false, generated_files: [] };
     }
     cmd = '/bin/sh';
     args = ['-c', options.code];
@@ -353,7 +387,7 @@ export function sandboxExec(
 
   try {
     const spawnArgs: [string, string[]] = useBwrap
-      ? ['bwrap', buildBwrapArgs(root, cmd, args)]
+      ? ['bwrap', buildBwrapArgs(root, cmd, args, agentName)]
       : [cmd, args];
 
     const spawnOpts: Parameters<typeof spawnSync>[2] = useBwrap
@@ -406,6 +440,7 @@ export function sandboxExec(
       stderr,
       exit_code: result.status ?? (result.signal ? -1 : 0),
       truncated: totalLen > MAX_OUTPUT_BYTES,
+      generated_files: diffFiles(filesBefore, root),
     };
   } catch (err: any) {
     return {
@@ -413,8 +448,149 @@ export function sandboxExec(
       stderr: err.message,
       exit_code: err.status ?? 1,
       truncated: false,
+      generated_files: [],
     };
   }
+}
+
+export type SandboxExecResult = { stdout: string; stderr: string; exit_code: number; truncated: boolean; generated_files: string[] };
+
+function snapshotFiles(root: string): Map<string, number> {
+  const snapshot = new Map<string, number>();
+  if (!fs.existsSync(root)) return snapshot;
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.bin') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (/^_exec_\d+\.js$/.test(entry.name)) continue;
+      try { snapshot.set(full, fs.statSync(full).mtimeMs); } catch {}
+    }
+  };
+  walk(root);
+  return snapshot;
+}
+
+function diffFiles(before: Map<string, number>, root: string): string[] {
+  const after = snapshotFiles(root);
+  const generated: string[] = [];
+  for (const [filePath, mtime] of after) {
+    const prev = before.get(filePath);
+    if (prev === undefined || mtime > prev) {
+      generated.push(filePath);
+    }
+  }
+  return generated;
+}
+
+export async function sandboxExecAsync(
+  agentName: string,
+  userId: string,
+  options: {
+    language: 'js' | 'shell';
+    code: string;
+    timeout_ms?: number;
+  },
+  onProgress?: (event: { type: 'tool_progress'; message: string }) => void,
+): Promise<SandboxExecResult> {
+  const root = ensureSandboxDir(agentName, userId);
+  const timeout = Math.min(options.timeout_ms ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const filesBefore = snapshotFiles(root);
+
+  let cmd: string;
+  let args: string[];
+
+  if (options.language === 'js') {
+    const jsFile = path.join(root, `_exec_${Date.now()}.js`);
+    fs.writeFileSync(jsFile, options.code, 'utf-8');
+    cmd = process.execPath;
+    args = [jsFile];
+  } else {
+    const pipError = validatePipInstallCommand(options.code);
+    if (pipError) {
+      return { stdout: '', stderr: pipError, exit_code: 2, truncated: false, generated_files: [] };
+    }
+    cmd = '/bin/sh';
+    args = ['-c', options.code];
+  }
+
+  const useBwrap = isBwrapAvailable();
+  const spawnCmd = useBwrap ? 'bwrap' : cmd;
+  const spawnArgs = useBwrap ? buildBwrapArgs(root, cmd, args, agentName) : args;
+  const spawnEnv = useBwrap
+    ? {}
+    : {
+        HOME: root,
+        PWD: root,
+        PATH: `${root}/.bin:${SANDBOX_PATH}`,
+        LD_LIBRARY_PATH: SANDBOX_LD_LIBRARY_PATH,
+        PYTHONPATH: SANDBOX_PYTHON_USER_SITE || undefined,
+        TMPDIR: root,
+      };
+  const spawnOpts = useBwrap
+    ? { env: spawnEnv as NodeJS.ProcessEnv }
+    : { cwd: root, env: spawnEnv as NodeJS.ProcessEnv };
+
+  return new Promise<SandboxExecResult>((resolve) => {
+    const child = spawn(spawnCmd, spawnArgs, spawnOpts);
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stdoutLen = 0;
+    let stderrLen = 0;
+    let stdoutLines = 0;
+    const startTime = Date.now();
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      if (stdoutLen < MAX_OUTPUT_BYTES) {
+        stdoutChunks.push(chunk);
+        stdoutLen += chunk.length;
+      }
+      for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i] === 0x0A) stdoutLines++;
+      }
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      if (stderrLen < MAX_OUTPUT_BYTES) {
+        stderrChunks.push(chunk);
+        stderrLen += chunk.length;
+      }
+    });
+
+    const HEARTBEAT_INTERVAL = 3000;
+    const heartbeat = setInterval(() => {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+      onProgress?.({ type: 'tool_progress', message: `sandbox_exec 执行中 (${elapsed}s, stdout ${stdoutLines} 行)` });
+    }, HEARTBEAT_INTERVAL);
+
+    const killTimer = setTimeout(() => {
+      child.kill('SIGKILL');
+    }, timeout);
+
+    child.on('close', (code, signal) => {
+      clearInterval(heartbeat);
+      clearTimeout(killTimer);
+
+      const stdout = Buffer.concat(stdoutChunks).toString('utf-8').slice(0, MAX_OUTPUT_BYTES);
+      const stderr = Buffer.concat(stderrChunks).toString('utf-8').slice(0, MAX_OUTPUT_BYTES);
+      const truncated = stdoutLen + stderrLen > MAX_OUTPUT_BYTES;
+
+      resolve({
+        stdout,
+        stderr,
+        exit_code: code ?? (signal ? -1 : 0),
+        truncated,
+        generated_files: diffFiles(filesBefore, root),
+      });
+    });
+
+    child.on('error', (err) => {
+      clearInterval(heartbeat);
+      clearTimeout(killTimer);
+      resolve({ stdout: '', stderr: err.message, exit_code: 1, truncated: false, generated_files: [] });
+    });
+  });
 }
 
 export function cleanupSandbox(agentName: string, userId: string): void {

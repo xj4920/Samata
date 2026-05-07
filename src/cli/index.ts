@@ -3,7 +3,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { select } from '@inquirer/prompts';
 import { createCliSession, destroyCliSession, streamCliInput, sendPromptReply, listCliUsers, fetchCliCommands, isConnectionError, waitForServer } from './api-client.js';
-import type { CliCommandEntry } from '../shared/cli-contract.js';
+import { toolFriendlyLabel, summarizeToolResult, type CliCommandEntry } from '../shared/cli-contract.js';
 
 function makeCompleter(getEntries: () => CliCommandEntry[]) {
   return (line: string): [string[], string] => {
@@ -78,6 +78,12 @@ async function main(): Promise<void> {
         await sendPromptReply(session.sessionId, event.promptId, answer);
       } else if (event.type === 'tool_start') {
         process.stderr.write(`\r\x1b[2m🔧 ${event.name}...\x1b[0m`);
+      } else if (event.type === 'tool_end') {
+        const summary = summarizeToolResult(event.name, event.result);
+        const dur = event.durationMs > 0 ? ` (${(event.durationMs / 1000).toFixed(1)}s)` : '';
+        const label = toolFriendlyLabel(event.name);
+        const line = summary ? `✅ ${label}${dur} → ${summary}` : `✅ ${label}${dur}`;
+        process.stderr.write(`\r\x1b[2m${line}\x1b[0m\n`);
       } else if (event.type === 'tool_progress') {
         process.stderr.write(`\r\x1b[2m⏳ ${event.message}\x1b[0m`);
       } else if (event.type === 'thinking') {

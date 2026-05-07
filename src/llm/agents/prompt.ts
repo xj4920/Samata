@@ -9,6 +9,7 @@ import { getAllSkills } from '../../commands/skill.js';
 import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 import { loadWorkspace } from '../../session/workspace.js';
+import { loadDreamFile } from '../../services/dream-analyze.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -81,6 +82,13 @@ function buildSkillsBlock(agentId?: string): string {
   return `🛠️ **可用技能 (Skills)：**\n${skillLines.join('\n')}\n\n当场景匹配某个技能时，使用 run_skill 执行，使用 get_skill 获取完整内容。`;
 }
 
+/** Build the dream block from per-agent dream file. Returns '' when no dream exists. */
+function buildDreamBlock(agentName: string): string {
+  const content = loadDreamFile(agentName);
+  if (!content) return '';
+  return content;
+}
+
 /** Build the full system prompt for an agent, injecting user context */
 export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
   const u = user ?? getCurrentUser();
@@ -94,6 +102,7 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     attachments: ATTACHMENT_GUIDANCE,
     skills: buildSkillsBlock(agentId),
     memory: buildMemoryBlock(agentId) ?? '',
+    dream: buildDreamBlock(agent.name),
     user_context: loadWorkspace(agent.name, u.id),
     datetime: buildDateTimeBlock(),
   };

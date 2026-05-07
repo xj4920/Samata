@@ -28,6 +28,7 @@ import {
 import { handleModelCommand } from '../commands/model-cmd.js';
 import { getDb } from '../db/connection.js';
 import { saveUploadedFile } from '../commands/artifact.js';
+import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
 
 interface WeworkBotInstance {
   botId: string;
@@ -114,42 +115,40 @@ async function handleAIChat(
       : baseAgentConfig;
 
     const ws = instance.wsClient;
-    const STREAM_MAX_AGE_MS = 9 * 60 * 1000;
+    const STREAM_MAX_AGE_MS = 5 * 60 * 1000;
     let streamId = generateReqId('stream');
     let streamCreatedAt = Date.now();
 
-    // WeCom 长连接流式协议要求 content 是累积式（每次调用必须包含前面所有内容 + 新增）。
-    // 用结构化状态替代纯追加日志，render() 每次从状态生成紧凑的聚合视图，
-    // 同名工具合并为一行（带计数和耗时），避免重复调用时的视觉噪音。
-    const toolStatus = new Map<string, { count: number; completed: number; totalMs: number }>();
-    const toolOrder: string[] = [];
-    let latestThinking = '';
+    // WeCom 长连接流式协议要求 content 是累积式。
+    // 使用 append 日志模式：每个事件追加为一行，用户可看到完整执行过程。
+    const progressLog: string[] = [];
+    let currentToolHint = '';
     const PLACEHOLDER = '思考中...';
+
+    const pendingToolHints = new Map<string, string[]>();
 
     const render = (answer: string | null): string => {
       const parts: string[] = [];
-      const lines: string[] = [];
-
-      if (latestThinking) {
-        lines.push(`💭 ${latestThinking}`);
-      }
-
-      for (const name of toolOrder) {
-        const s = toolStatus.get(name)!;
-        const countLabel = s.count > 1 ? ` x${s.count}` : '';
-        if (s.completed >= s.count) {
-          const timeLabel = s.totalMs > 0 ? ` (${(s.totalMs / 1000).toFixed(1)}s)` : '';
-          lines.push(`✅ ${name}${countLabel}${timeLabel}`);
-        } else {
-          lines.push(`⏳ ${name}${countLabel}...`);
-        }
-      }
+      const lines = [...progressLog];
+      if (currentToolHint) lines.push(currentToolHint);
 
       if (lines.length > 0) {
         parts.push(`<think>\n${lines.join('\n\n')}\n</think>`);
       }
       parts.push(answer ?? PLACEHOLDER);
       return parts.join('\n\n');
+    };
+
+    const STREAM_MAX_CHARS = 3000;
+
+    const rotateStream = () => {
+      ws.replyStreamNonBlocking(frame, streamId, render('⏳ 仍在处理中...'), true).catch(() => {});
+      streamId = generateReqId('stream');
+      streamCreatedAt = Date.now();
+      progressLog.length = 0;
+      currentToolHint = '';
+      ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
+      lastChunkTime = Date.now();
     };
 
     await ws.replyStream(frame, streamId, render(null), false);
@@ -161,14 +160,13 @@ async function handleAIChat(
       const now = Date.now();
 
       if (now - streamCreatedAt > STREAM_MAX_AGE_MS) {
-        ws.replyStreamNonBlocking(frame, streamId, render('⏳ 仍在处理中...'), true).catch(() => {});
-        streamId = generateReqId('stream');
-        streamCreatedAt = now;
-        toolStatus.clear();
-        toolOrder.length = 0;
-        latestThinking = '';
-        ws.replyStreamNonBlocking(frame, streamId, render(null), false).catch(() => {});
-        lastChunkTime = now;
+        rotateStream();
+        return;
+      }
+
+      const contentLen = progressLog.reduce((s, l) => s + l.length, 0);
+      if (contentLen > STREAM_MAX_CHARS) {
+        rotateStream();
         return;
       }
 
@@ -179,29 +177,38 @@ async function handleAIChat(
 
     const onProgress = (event: ProgressEvent) => {
       if (event.type === 'tool_start') {
-        const existing = toolStatus.get(event.name);
-        if (existing) {
-          existing.count++;
-        } else {
-          toolStatus.set(event.name, { count: 1, completed: 0, totalMs: 0 });
-          toolOrder.push(event.name);
-        }
+        const hint = summarizeToolInput(event.name, event.input);
+        const key = `${event.name}:${event.round}`;
+        const arr = pendingToolHints.get(key) ?? [];
+        arr.push(hint);
+        pendingToolHints.set(key, arr);
+        const label = toolFriendlyLabel(event.name);
+        currentToolHint = hint ? `⏳ ${label}：${hint}` : `⏳ ${label}...`;
       } else if (event.type === 'tool_end') {
-        const existing = toolStatus.get(event.name);
-        if (existing) {
-          existing.completed++;
-          existing.totalMs += event.durationMs;
-        }
+        currentToolHint = '';
+        const key = `${event.name}:${event.round}`;
+        const arr = pendingToolHints.get(key);
+        const hint = arr?.shift() ?? '';
+        if (!arr?.length) pendingToolHints.delete(key);
+        const label = toolFriendlyLabel(event.name);
+        const suffix = hint ? `：${hint}` : '';
+        const timeLabel = event.durationMs > 0 ? ` (${(event.durationMs / 1000).toFixed(1)}s)` : '';
+        const resultSummary = summarizeToolResult(event.name, event.result);
+        let logLine = `✅ ${label}${suffix}${timeLabel}`;
+        if (resultSummary) logLine += `\n   → ${resultSummary}`;
+        progressLog.push(logLine);
       } else if (event.type === 'tool_progress') {
-        // tool_progress is already covered by the tool's own status line
-        return;
+        currentToolHint = `⏳ ${event.message.slice(0, 200)}`;
       } else if (event.type === 'thinking') {
         const clean = event.text.replace(/<\/?think>/gi, '').trim();
         if (!clean) return;
-        latestThinking = clean.slice(0, 200);
+        progressLog.push(`💭 ${clean}`);
       }
       pushUpdate();
     };
+
+    const HEARTBEAT_MS = 15_000;
+    const heartbeatTimer = setInterval(() => pushUpdate(), HEARTBEAT_MS);
 
     try {
       const textReply = await runAgenticChat(session.history, userInput, session.user, {
@@ -214,6 +221,7 @@ async function handleAIChat(
         deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
       });
 
+      clearInterval(heartbeatTimer);
       const finalText = textReply || '（无回复内容）';
       try {
         await ws.replyStream(frame, streamId, render(finalText), true);
@@ -223,6 +231,7 @@ async function handleAIChat(
       }
       return finalText;
     } catch (err: any) {
+      clearInterval(heartbeatTimer);
       const errText = friendlyAIError(err);
       try {
         await ws.replyStream(frame, streamId, render(errText), true);

@@ -28,6 +28,7 @@ import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
+import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { buildFileHint } from '../runtime/file-hint.js';
 import { getDb } from '../db/connection.js';
@@ -339,20 +340,19 @@ async function handleAIChat(
     tools: [],
   };
 
-  // 发送过程卡片的辅助函数
+  // 发送过程卡片的辅助函数（串行化，防止并发修改 progressMessageId）
   let progressMessageId: string | undefined;
+  let progressChain: Promise<void> = Promise.resolve();
 
   const sendProgressCard = async (hint: string) => {
     try {
       const card = buildThinkingCard(hint);
       if (progressMessageId) {
-        // 如果已经有卡片了，尝试更新它
         try {
           await instance.api.updateCard(progressMessageId, card);
           return;
         } catch (updateErr: any) {
           log.dim(`[飞书:${instance.appName}] 更新过程卡片失败，尝试发送新卡片: ${updateErr.message}`);
-          // 更新失败则重置，准备发新卡片
           progressMessageId = undefined;
         }
       }
@@ -414,11 +414,21 @@ async function handleAIChat(
     if (now - lastUpdateTime < THROTTLE_MS) return;
     lastUpdateTime = now;
     let hint = '';
-    if (event.type === 'tool_start') hint = `🔧 正在调用 ${event.name}...`;
-    else if (event.type === 'tool_progress') hint = `⏳ ${event.message}`;
-    else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 80)}`;
+    if (event.type === 'tool_start') {
+      const inputHint = summarizeToolInput(event.name, event.input);
+      const label = toolFriendlyLabel(event.name);
+      hint = inputHint ? `🔧 ${label}：${inputHint}` : `🔧 ${label}...`;
+    } else if (event.type === 'tool_end') {
+      const resultSummary = summarizeToolResult(event.name, event.result);
+      const label = toolFriendlyLabel(event.name);
+      const timeLabel = event.durationMs > 0 ? ` (${(event.durationMs / 1000).toFixed(1)}s)` : '';
+      hint = resultSummary
+        ? `✅ ${label}${timeLabel}\n→ ${resultSummary}`
+        : `✅ ${label}${timeLabel}`;
+    } else if (event.type === 'tool_progress') hint = `⏳ ${event.message}`;
+    else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 200)}`;
     if (hint) {
-      void sendProgressCard(hint);
+      progressChain = progressChain.then(() => sendProgressCard(hint)).catch(() => {});
     }
   };
 
@@ -460,18 +470,18 @@ async function handleAIChat(
     interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
   ], 'info');
 
+  await progressChain;
+
   if (processedText && progressMessageId) {
     try {
-      const finalReplyId = await sendFeishuReply(instance, chatId, processedText, {
+      await sendFeishuReply(instance, chatId, processedText, {
         ...replyOpts,
         updateMessageId: progressMessageId
       });
-      if (finalReplyId === progressMessageId) {
-        if (mediaPaths.length > 0) {
-          await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
-        }
-        return { text: '' };
+      if (mediaPaths.length > 0) {
+        await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
       }
+      return { text: '' };
     } catch (err: any) {
       log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
     }

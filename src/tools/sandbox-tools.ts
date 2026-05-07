@@ -6,7 +6,7 @@ import {
   sandboxWriteFile,
   sandboxReadFile,
   sandboxList,
-  sandboxExec,
+  sandboxExecAsync,
 } from '../commands/sandbox.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
@@ -47,7 +47,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'sandbox_exec',
-    description: '在沙箱中执行代码。支持 JavaScript（Node.js）和 shell 命令。沙箱与项目完全隔离。重要：cwd 已自动设为沙箱根目录（sandbox_write_file 写入的文件就在此），禁止使用 cd 切换目录或拼接 /tmp 等绝对路径，直接用相对路径即可（如 python3 script.py）。Python 环境（python3）已预装：oracledb, pandas, numpy, matplotlib, openpyxl, xlrd, requests, beautifulsoup4, lxml, pillow, paramiko, cryptography，无需 pip install。若确需安装额外包，必须使用内网源参数：--index http://pypi.gf.com.cn/simple/ --trusted-host pypi.gf.com.cn。超时默认 30 秒，最大 120 秒。',
+    description: '在沙箱中执行代码。支持 JavaScript（Node.js）和 shell 命令。沙箱与项目完全隔离。重要：cwd 已自动设为沙箱根目录（sandbox_write_file 写入的文件就在此），禁止使用 cd 切换目录或拼接 /tmp 等绝对路径，直接用相对路径即可（如 python3 script.py）。项目白名单文件（config/agents/<agent>.files.json 中列出的）已只读挂载到 .data/ 目录下，可通过 .data/<相对路径> 访问（如 open(".data/docs/wind-tables-schema.md")）。Python 环境（python3）已预装：psycopg2, pandas, numpy, matplotlib, openpyxl, xlrd, requests, beautifulsoup4, lxml, pillow, paramiko, cryptography，无需 pip install。若确需安装额外包，必须使用内网源参数：--index http://pypi.gf.com.cn/simple/ --trusted-host pypi.gf.com.cn。超时默认 30 秒，最大 120 秒。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -67,10 +67,10 @@ function getSandboxContext(): { agentName: string; userId: string } | string {
   return { agentName: agent.name, userId: user.id };
 }
 
-export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
-  const ctx = getSandboxContext();
-  if (typeof ctx === 'string') return JSON.stringify({ error: ctx });
-  const { agentName, userId } = ctx;
+export async function handleTool(name: string, input: any, ctx?: ToolContext): Promise<string | null> {
+  const sandboxCtx = getSandboxContext();
+  if (typeof sandboxCtx === 'string') return JSON.stringify({ error: sandboxCtx });
+  const { agentName, userId } = sandboxCtx;
 
   switch (name) {
     case 'sandbox_write_file':
@@ -80,11 +80,11 @@ export async function handleTool(name: string, input: any, _ctx?: ToolContext): 
     case 'sandbox_list':
       return JSON.stringify(sandboxList(agentName, userId, input.path));
     case 'sandbox_exec':
-      return JSON.stringify(sandboxExec(agentName, userId, {
+      return JSON.stringify(await sandboxExecAsync(agentName, userId, {
         language: input.language,
         code: input.code,
         timeout_ms: input.timeout_ms,
-      }));
+      }, ctx?.onProgress));
     default:
       return null;
   }
