@@ -20,8 +20,19 @@ const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const GF_PIP_INDEX_URL = 'http://pypi.gf.com.cn/simple/';
 const GF_PIP_TRUSTED_HOST = 'pypi.gf.com.cn';
-const SANDBOX_PATH = '/usr/local/python-3.10.4/bin:/usr/local/bin:/usr/bin:/bin';
-const SANDBOX_LD_LIBRARY_PATH = '/usr/local/python-3.10.4/lib:/usr/local/lib';
+const SANDBOX_PYTHON_ROOT = '/usr/local/python-3.10.4';
+const SANDBOX_PATH = `${SANDBOX_PYTHON_ROOT}/bin:/usr/local/bin:/usr/bin:/bin`;
+const SANDBOX_LD_LIBRARY_PATH = `${SANDBOX_PYTHON_ROOT}/lib:/usr/local/lib`;
+
+const SANDBOX_PYTHON_USER_SITE = (() => {
+  try {
+    const py = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    const r = spawnSync(py, ['-c', 'import site; print(site.getusersitepackages())'], {
+      encoding: 'utf-8', timeout: 5000,
+    });
+    return r.stdout?.trim() || '';
+  } catch { return ''; }
+})();
 
 function debugSandboxLog(input: {
   runId: string;
@@ -42,6 +53,16 @@ export function getSandboxRoot(agentName: string, userId: string): string {
 function ensureSandboxDir(agentName: string, userId: string): string {
   const root = getSandboxRoot(agentName, userId);
   fs.mkdirSync(root, { recursive: true });
+
+  // Ensure python3 symlink exists in sandbox bin/ so "python3 script.py" works
+  const binDir = path.join(root, '.bin');
+  const python3Link = path.join(binDir, 'python3');
+  if (!fs.existsSync(python3Link)) {
+    fs.mkdirSync(binDir, { recursive: true });
+    const target = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    try { fs.symlinkSync(target, python3Link); } catch {}
+  }
+
   return root;
 }
 
@@ -260,8 +281,11 @@ function buildBwrapArgs(sandboxRoot: string, cmd: string, args: string[]): strin
   bwrapArgs.push('--setenv', 'HOME', sandboxRoot);
   bwrapArgs.push('--setenv', 'TMPDIR', sandboxRoot);
   bwrapArgs.push('--setenv', 'PWD', sandboxRoot);
-  bwrapArgs.push('--setenv', 'PATH', SANDBOX_PATH);
+  bwrapArgs.push('--setenv', 'PATH', `${sandboxRoot}/.bin:${SANDBOX_PATH}`);
   bwrapArgs.push('--setenv', 'LD_LIBRARY_PATH', SANDBOX_LD_LIBRARY_PATH);
+  if (SANDBOX_PYTHON_USER_SITE) {
+    bwrapArgs.push('--setenv', 'PYTHONPATH', SANDBOX_PYTHON_USER_SITE);
+  }
   bwrapArgs.push('--unsetenv', 'NVM_DIR');
   bwrapArgs.push('--unsetenv', 'NVM_BIN');
   bwrapArgs.push('--unsetenv', 'NVM_INC');
@@ -342,8 +366,9 @@ export function sandboxExec(
           env: {
             HOME: root,
             PWD: root,
-            PATH: SANDBOX_PATH,
+            PATH: `${root}/.bin:${SANDBOX_PATH}`,
             LD_LIBRARY_PATH: SANDBOX_LD_LIBRARY_PATH,
+            PYTHONPATH: SANDBOX_PYTHON_USER_SITE || undefined,
             TMPDIR: root,
           },
         };

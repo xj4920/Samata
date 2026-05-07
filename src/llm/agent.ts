@@ -821,6 +821,22 @@ export async function runAgenticChat(
 
       // 5. Append tool stats footnote to the text response
       const footnote = buildToolStatsFootnote(trace);
+      const hasText = synthResponse.content.some(
+        (b: any) => b.type === 'text' && b.text?.trim(),
+      );
+
+      if (!hasText) {
+        log.warn(`${logPrefix}最终总结 LLM 返回空文本，回退到静态摘要`);
+        const fallbackText = buildInterruptedSummary({
+          kind: 'max_rounds', limit: MAX_TOOL_ROUNDS, trace, reason: interruptReason,
+        });
+        return {
+          ...synthResponse,
+          content: [{ type: 'text', text: fallbackText + footnote } as any],
+          stop_reason: 'end_turn',
+        };
+      }
+
       const newContent = synthResponse.content.map(block => {
         if (block.type === 'text') {
           return { ...block, text: block.text + footnote };
