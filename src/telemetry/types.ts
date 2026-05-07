@@ -60,6 +60,9 @@ export interface TelemetryTurn {
   llm_calls: TelemetryLLMCall[];
   knowledge_hits: TelemetryKnowledgeHit[];
 
+  // User's original question (text + optional image hints)
+  user_question: string;
+
   // Final answer preview (first 500 chars for quick scan)
   answer_preview: string;
 }

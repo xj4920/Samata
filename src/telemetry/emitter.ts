@@ -26,7 +26,7 @@ function ensureLogsDir(): void {
 /** In-progress turn, keyed by session_id */
 const activeTurns = new Map<string, TelemetryTurn>();
 
-export function startTurn(sessionId: string, agentId: string): string {
+export function startTurn(sessionId: string, agentId: string, userInput: string): string {
   const ctx = getExecutionContext();
   const turnId = uuid();
 
@@ -51,6 +51,7 @@ export function startTurn(sessionId: string, agentId: string): string {
     tools: [],
     llm_calls: [],
     knowledge_hits: [],
+    user_question: userInput.slice(0, 2000),
     answer_preview: '',
   };
 
@@ -132,7 +133,7 @@ export function endTurn(
         loop_rounds, total_tool_calls, stop_reason,
         model, input_tokens, output_tokens,
         tools_json, llm_calls_json, knowledge_hits_json,
-        answer_preview
+        user_question, answer_preview
       ) VALUES (
         ?, ?, ?, ?, ?,
         ?, ?,
@@ -140,7 +141,7 @@ export function endTurn(
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
-        ?
+        ?, ?
       )
     `).run(
       turn.turn_id, turn.session_id, turn.user_id, turn.agent_id, turn.channel,
@@ -149,7 +150,7 @@ export function endTurn(
       turn.loop_rounds, turn.total_tool_calls, turn.stop_reason,
       turn.model, turn.input_tokens, turn.output_tokens,
       JSON.stringify(turn.tools), JSON.stringify(turn.llm_calls), JSON.stringify(turn.knowledge_hits),
-      turn.answer_preview,
+      turn.user_question, turn.answer_preview,
     );
   } catch (e: any) {
     // SQLite write failure is non-fatal; turn is already in JSONL

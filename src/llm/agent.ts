@@ -280,11 +280,15 @@ interface LoopTracker {
   lastErrorName: string;
   lastErrorCount: number;
   softWarned: boolean;
+  stateVersion: number;
 }
 
 function initLoopTracker(): LoopTracker {
-  return { calls: [], lastErrorName: '', lastErrorCount: 0, softWarned: false };
+  return { calls: [], lastErrorName: '', lastErrorCount: 0, softWarned: false, stateVersion: 0 };
 }
+
+const STATE_MUTATING_TOOLS = new Set(['sandbox_write_file', 'write_file', 'edit_file']);
+const STATE_DEPENDENT_TOOLS = new Set(['sandbox_exec', 'exec_cmd']);
 
 function fingerprint(input: unknown): string {
   if (typeof input !== 'object' || input === null) return JSON.stringify(input);
@@ -348,7 +352,7 @@ function detectLoop(tracker: LoopTracker): LoopResult {
     return { action: 'soft_warn', name: tracker.lastErrorName, fingerprint: '' };
   }
 
-  // 4. 同一工具高频调用检测（不论参数是否相同）
+  // 4. 同一工具高频调用检测（参数大多重复时才触发）
   if (recent.length >= LOOP_WINDOW) {
     const toolFreq = new Map<string, number>();
     for (const c of recent) {
@@ -356,6 +360,8 @@ function detectLoop(tracker: LoopTracker): LoopResult {
     }
     for (const [name, count] of toolFreq) {
       if (count >= LOOP_WINDOW * HIGH_FREQ_THRESHOLD) {
+        const uniqueFps = new Set(recent.filter(c => c.name === name).map(c => c.fingerprint)).size;
+        if (uniqueFps > count * 0.5) continue;
         if (tracker.softWarned) {
           return { action: 'hard_stop', name, fingerprint: '', isError: false };
         }
@@ -681,7 +687,10 @@ export async function runAgenticChat(
   const ctxStartTime = Date.now();
   const telemetrySessionId = user.id;
   const telemetryAgentId = agent?.id ?? getDefaultAgent()?.id ?? 'unknown';
-  startTurn(telemetrySessionId, telemetryAgentId);
+  const telemetryUserQuestion = images?.length
+    ? `[包含${images.length}张图片] ${userInput}`
+    : userInput;
+  startTurn(telemetrySessionId, telemetryAgentId, telemetryUserQuestion);
 
   // Helper: wrap callLLM with telemetry recording
   async function trackedCallLLM(
@@ -903,6 +912,7 @@ export async function runAgenticChat(
 
   // Agentic loop: keep processing until no more tool calls
   let round = 1;
+  let wasInterrupted = false;
   const loopTracker = initLoopTracker();
   const toolTrace: ToolTrace[] = [];
   let devtoolsCallCount = 0;
@@ -913,6 +923,7 @@ export async function runAgenticChat(
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
       const reason = `工具调用已达上限 ${MAX_TOOL_ROUNDS} 轮`;
       response = await finalSynthesis(response, reason, toolTrace, round);
+      wasInterrupted = true;
       break;
     }
 
@@ -1002,7 +1013,11 @@ export async function runAgenticChat(
     // Record fingerprints for this round and check for loops
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
-        loopTracker.calls.push({ name: block.name, fingerprint: fingerprint(block.input), round });
+        if (STATE_MUTATING_TOOLS.has(block.name)) loopTracker.stateVersion++;
+        const fp = STATE_DEPENDENT_TOOLS.has(block.name)
+          ? `${fingerprint(block.input)}::sv${loopTracker.stateVersion}`
+          : fingerprint(block.input);
+        loopTracker.calls.push({ name: block.name, fingerprint: fp, round });
       }
     }
     const loop = detectLoop(loopTracker);
@@ -1024,6 +1039,7 @@ export async function runAgenticChat(
             : `工具 "${loop.name}" 连续调用，参数相同`)
           : `工具 "${loop.name}" 高频调用（参数不同但方向重复）`;
       response = await finalSynthesis(response, reason, toolTrace, round);
+      wasInterrupted = true;
       break;
     }
 
@@ -1036,6 +1052,7 @@ export async function runAgenticChat(
       log.warn(`${logPrefix}DevTools 预算已耗尽，强制停止`);
       const reason = `浏览器工具累计调用 ${devtoolsCallCount} 次，超出上限 ${MAX_DEVTOOLS_ROUNDS}`;
       response = await finalSynthesis(response, reason, toolTrace, round);
+      wasInterrupted = true;
       break;
     }
 
@@ -1097,6 +1114,20 @@ export async function runAgenticChat(
   }
 
   const assistantContent = response.content;
+
+  if (wasInterrupted) {
+    history.length = historyLenBefore;
+    if (processedImages && processedImages.length > 0) {
+      const contentBlocks: any[] = [];
+      for (const img of processedImages) {
+        contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } });
+      }
+      contentBlocks.push({ type: 'text', text: processedInput });
+      history.push({ role: 'user', content: contentBlocks });
+    } else {
+      history.push({ role: 'user', content: processedInput });
+    }
+  }
   history.push({ role: 'assistant', content: assistantContent });
 
   // 提取文本回复

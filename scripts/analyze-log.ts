@@ -35,6 +35,7 @@ interface TelemetryJsonTurn {
   tools: { name: string; round: number; duration_ms: number; success: boolean; bytes: number; error?: string }[];
   llm_calls: { round: number; model: string; input_tokens: number; output_tokens: number; stop_reason: string; duration_ms: number }[];
   knowledge_hits: { keyword: string; hits: number; agent_id: string }[];
+  user_question: string;
   answer_preview: string;
 }
 
@@ -66,6 +67,7 @@ interface TurnRecord extends UserMessage {
   endIso?: string;
   failed: boolean;
   // Telemetry-only extensions (undefined when parsed from app logs)
+  userQuestion?: string;
   inputTokens?: number;
   outputTokens?: number;
   ctxMs?: number;
@@ -534,6 +536,7 @@ function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
         failed: t.stop_reason === 'error' || t.tools.some(tc => !!tc.error),
         actorKey: `${t.channel}:${userSuffix}`,
         // Telemetry extensions
+        userQuestion: t.user_question || undefined,
         inputTokens: t.input_tokens,
         outputTokens: t.output_tokens,
         ctxMs: t.ctx_ms,
@@ -1105,7 +1108,7 @@ async function writeToPostgres(
     let inserted = 0;
     for (const turn of turns) {
       const agentName = resolveAgentName(turn.agent, agentNameMap);
-      const userQuestion = isTelemetry ? null : turn.content;
+      const userQuestion = isTelemetry ? (turn.userQuestion || null) : turn.content;
       const answerPreview = isTelemetry ? turn.content : null;
       const toolCallsJson = turn.toolCalls.length > 0 ? JSON.stringify(turn.toolCalls) : null;
 

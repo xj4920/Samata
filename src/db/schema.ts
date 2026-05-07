@@ -1715,6 +1715,7 @@ export function initSchema(): void {
         tools_json      TEXT NOT NULL DEFAULT '[]',
         llm_calls_json  TEXT NOT NULL DEFAULT '[]',
         knowledge_hits_json TEXT NOT NULL DEFAULT '[]',
+        user_question   TEXT NOT NULL DEFAULT '',
         answer_preview  TEXT NOT NULL DEFAULT '',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -1915,6 +1916,39 @@ export function initSchema(): void {
       db.prepare(
         "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
       ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
+    }
+  });
+
+  runOnce('potato-add-sandbox-tools', () => {
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'potato'"
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+
+    let changed = false;
+    for (const t of ['sandbox_write_file', 'sandbox_read_file', 'sandbox_list', 'sandbox_exec', 'read_file']) {
+      if (!list.includes(t)) { list.push(t); changed = true; }
+    }
+    const rfIdx = userList.indexOf('read_file');
+    if (rfIdx !== -1) {
+      userList.splice(rfIdx, 1);
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'potato'"
+      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
+    }
+  });
+
+  runOnce('add-telemetry-user-question', () => {
+    const col = db.prepare("PRAGMA table_info(telemetry_turn)").all() as { name: string }[];
+    if (!col.some(c => c.name === 'user_question')) {
+      db.prepare("ALTER TABLE telemetry_turn ADD COLUMN user_question TEXT NOT NULL DEFAULT ''").run();
     }
   });
 }
