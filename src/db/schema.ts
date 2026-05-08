@@ -1919,6 +1919,39 @@ export function initSchema(): void {
     }
   });
 
+  /**
+   * ticlaw: read_file allowlist (config/agents/ticlaw.files.json) + sandbox .data/ mount for Wind docs.
+   * Removes read_file from member blocklist like otcclaw-add-read-file; defensively merges sandbox tools.
+   */
+  runOnce('ticlaw-add-read-file-wind', () => {
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'ticlaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+
+    let changed = false;
+    for (const t of ['sandbox_write_file', 'sandbox_read_file', 'sandbox_list', 'sandbox_exec', 'read_file']) {
+      if (!list.includes(t)) {
+        list.push(t);
+        changed = true;
+      }
+    }
+    const rfIdx = userList.indexOf('read_file');
+    if (rfIdx !== -1) {
+      userList.splice(rfIdx, 1);
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'ticlaw'",
+      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
+    }
+  });
+
   runOnce('potato-add-sandbox-tools', () => {
     const row = db.prepare(
       "SELECT tools_list, user_tools_list FROM agents WHERE name = 'potato'"
