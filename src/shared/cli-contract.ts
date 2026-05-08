@@ -154,14 +154,17 @@ export function summarizeToolResult(name: string, result: string): string {
       if (exitCode !== 0 && exitCode !== undefined && stderr) {
         return truncResult(`❌ ${stderr.split('\n').pop() || stderr}`);
       }
-      if (Array.isArray(files) && files.length > 0) {
-        const names = files.map((f: any) => typeof f === 'string' ? f.split('/').pop() : f?.name || f?.path?.split('/').pop()).filter(Boolean);
-        if (names.length > 0) return truncResult(`生成文件: ${names.join(', ')}`);
-      }
+      const userFiles = Array.isArray(files)
+        ? files
+            .map((f: any) => typeof f === 'string' ? f.split('/').pop() : f?.name || f?.path?.split('/').pop())
+            .filter((n: string) => n && !n.endsWith('.pyc') && !/^_exec_\d+\.(py|js)$/.test(n))
+        : [];
       if (stdout) {
         const lastMeaningful = stdout.split('\n').filter(Boolean).pop() || '';
-        return truncResult(lastMeaningful);
+        const suffix = userFiles.length > 0 ? ` → ${userFiles.join(', ')}` : '';
+        return truncResult(lastMeaningful + suffix);
       }
+      if (userFiles.length > 0) return truncResult(`生成文件: ${userFiles.join(', ')}`);
       return '';
     }
 

@@ -315,6 +315,8 @@ export interface DeliveryContext {
   appId?: string;
   weworkClient?: any;
   weworkFrame?: any;
+  /** Filled by sandbox_exec: absolute paths to generated images for WeWork upload after reply */
+  pendingWeworkImagePaths?: string[];
 }
 
 /** Context passed to every tool handler */

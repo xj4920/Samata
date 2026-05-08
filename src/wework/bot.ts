@@ -8,6 +8,8 @@
  * 1. /command → 直接调用命令函数，不经过 LLM
  * 2. 自然语言 → runAgenticChat()
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
@@ -41,6 +43,44 @@ interface WeworkBotInstance {
 }
 
 const botInstances = new Map<string, WeworkBotInstance>();
+
+/** 去掉指向服务器沙箱/本机路径的 Markdown 图片（企微客户端无法加载）。 */
+function stripUnreachableLocalMarkdownImages(text: string): string {
+  let s = text.replace(
+    /!\[([^\]]*)\]\([^)]*(?:\/tmp\/|samata[\\/]sandboxes|127\.0\.0\.1)[^)]*\)/gi,
+    (_m, alt: string) => (alt?.trim() ? `【图表】${alt.trim()}` : '【图表】'),
+  );
+  s = s.replace(
+    /!\[([^\]]*)\]\((?:\.\/|\.\.\/)[^)]+\.(?:png|jpe?g|gif|webp)\)/gi,
+    (_m, alt: string) => (alt?.trim() ? `【图表】${alt.trim()}` : '【图表】'),
+  );
+  return s;
+}
+
+/** 将 sandbox_exec 生成的图片经临时素材上传后以被动回复发出 */
+async function pushWeworkSandboxImages(
+  ws: WSClient,
+  frame: WsFrameHeaders,
+  paths: string[] | undefined,
+  logTag: string,
+): Promise<void> {
+  if (!paths?.length) return;
+  const seen = new Set<string>();
+  for (const absPath of paths) {
+    if (seen.has(absPath)) continue;
+    seen.add(absPath);
+    try {
+      if (!fs.existsSync(absPath)) continue;
+      const buf = fs.readFileSync(absPath);
+      if (buf.length === 0 || buf.length > 5 * 1024 * 1024) continue;
+      const filename = path.basename(absPath) || 'chart.png';
+      const { media_id } = await ws.uploadMedia(buf, { type: 'image', filename });
+      await ws.replyMedia(frame, 'image', media_id);
+    } catch (e: any) {
+      log.warn(`${logTag} 推送沙箱图片失败 ${absPath}: ${e?.message ?? e}`);
+    }
+  }
+}
 
 // --- Image download helper ---
 
@@ -210,6 +250,13 @@ async function handleAIChat(
     const HEARTBEAT_MS = 15_000;
     const heartbeatTimer = setInterval(() => pushUpdate(), HEARTBEAT_MS);
 
+    const deliveryContext: DeliveryContext = {
+      channel: 'wework',
+      weworkClient: instance.wsClient,
+      weworkFrame: frame,
+      pendingWeworkImagePaths: [],
+    };
+
     try {
       const textReply = await runAgenticChat(session.history, userInput, session.user, {
         streamEnabled: false,
@@ -218,17 +265,20 @@ async function handleAIChat(
         agentConfig,
         images,
         onProgress,
-        deliveryContext: { channel: 'wework', weworkClient: instance.wsClient, weworkFrame: frame } as DeliveryContext,
+        deliveryContext,
       });
 
       clearInterval(heartbeatTimer);
-      const finalText = textReply || '（无回复内容）';
+      const rawText = textReply || '（无回复内容）';
+      const finalText = stripUnreachableLocalMarkdownImages(rawText);
+      const logTag = `[企微:${instance.botName}]`;
       try {
         await ws.replyStream(frame, streamId, render(finalText), true);
       } catch {
         const retryStreamId = generateReqId('stream');
         await ws.replyStream(frame, retryStreamId, finalText, true);
       }
+      await pushWeworkSandboxImages(ws, frame, deliveryContext.pendingWeworkImagePaths, logTag);
       return finalText;
     } catch (err: any) {
       clearInterval(heartbeatTimer);

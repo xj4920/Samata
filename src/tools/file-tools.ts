@@ -66,7 +66,7 @@ function authorizeRead(inputPath: string): { filePath: string; relative: string 
   const allowlist = agentName ? loadAgentFileAllowlist(agentName) : null;
 
   if (allowlist !== null) {
-    if (!allowlist.includes(relative)) {
+    if (!allowlist.some(entry => entry.endsWith('/') ? relative.startsWith(entry) : relative === entry)) {
       return {
         error: `read_file 拒绝：${relative} 不在 ${agentName} 的可读白名单内。可读列表：${JSON.stringify(allowlist)}（如需新增，请管理员编辑 config/agents/${agentName}.files.json）`,
       };

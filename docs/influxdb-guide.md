@@ -30,16 +30,21 @@ import requests, json, os
 
 INFLUX_HOST = os.environ.get('INFLUX_HOST', '175.178.64.67')
 INFLUX_PORT = os.environ.get('INFLUX_PORT', '8181')
-INFLUX_TOKEN = os.environ.get('INFLUX_TOKEN', '')
+INFLUX_TOKEN = os.environ.get('INFLUX_TOKEN')
 BASE_URL = f"http://{INFLUX_HOST}:{INFLUX_PORT}"
 
 def query_sql(sql, db='otchk'):
+    headers = {}
+    if INFLUX_TOKEN:
+        headers["Authorization"] = f"Bearer {INFLUX_TOKEN}"
     resp = requests.post(
         f"{BASE_URL}/api/v3/query_sql",
-        headers={"Authorization": f"Bearer {INFLUX_TOKEN}"},
+        headers=headers,
         json={"db": db, "q": sql, "format": "json"},
         timeout=60,
     )
+    if resp.status_code != 200:
+        print(f"Error {resp.status_code}: {resp.text[:500]}")
     resp.raise_for_status()
     return resp.json()
 
@@ -59,16 +64,21 @@ from urllib.parse import urlencode
 
 INFLUX_HOST = os.environ.get('INFLUX_HOST', '175.178.64.67')
 INFLUX_PORT = os.environ.get('INFLUX_PORT', '8181')
-INFLUX_TOKEN = os.environ.get('INFLUX_TOKEN', '')
+INFLUX_TOKEN = os.environ.get('INFLUX_TOKEN')
 BASE_URL = f"http://{INFLUX_HOST}:{INFLUX_PORT}"
 
 def query_influxql(influxql, db='otchk'):
+    headers = {}
+    if INFLUX_TOKEN:
+        headers["Authorization"] = f"Token {INFLUX_TOKEN}"
     params = urlencode({"db": db, "q": influxql})
     resp = requests.get(
         f"{BASE_URL}/query?{params}",
-        headers={"Authorization": f"Token {INFLUX_TOKEN}"},
+        headers=headers,
         timeout=60,
     )
+    if resp.status_code != 200:
+        print(f"Error {resp.status_code}: {resp.text[:500]}")
     resp.raise_for_status()
     data = resp.json()
     series = data.get("results", [{}])[0].get("series", [{}])[0]
@@ -202,4 +212,12 @@ LIMIT 20
 4. **InfluxQL tag 限制**: tag 列在 InfluxQL 中不支持 `>=`/`<=`，日期范围查询需用正则（`=~`）或改用 SQL 端点
 5. **SQL 端点更灵活**: 推荐使用 `/api/v3/query_sql`，支持完整 SQL 语法
 6. **数据量控制**: 查询时务必带 WHERE 条件或 LIMIT，避免全量扫描
+
+## 常见陷阱与最佳实践
+
+1. **认证头处理**: `INFLUX_TOKEN` 为空时不要发送 `Bearer ` 空头或 `Token ` 空头，直接省略 Authorization header（参见上方代码示例）。发送空值 Bearer 会导致 401 认证失败，而不带 header 时 InfluxDB 可能允许匿名访问。
+2. **字段理解**: `notional_ft_t`（T 日极速存续名义本金）不是数据库中的直接字段，需要通过 `notional_ft_t_1 + ft_net` 计算得出。写 SQL 前务必确认目标列是否真实存在于上方 schema 表中，不要凭印象猜测字段名。
+3. **工具选择顺序**: 优先使用 `export_north_info_csv` / `query_trades` / `trade_summary` / `query_hedge_short` 等原生工具，哪怕需要对 CSV 结果做二次聚合也比直接查 InfluxDB 更可靠。sandbox 执行 Python 脚本查 InfluxDB 是最后手段。
+4. **环境变量校验**: sandbox 脚本必须在开头校验所有必需的环境变量（`INFLUX_HOST`、`INFLUX_PORT` 等），缺失时立即 `sys.exit(1)` 并打印明确错误信息，不要让空值静默传入请求导致难以排查的 connection 错误。
+5. **错误处理**: 所有 HTTP 请求必须用 `try-except` 包裹，捕获异常时打印 `status_code` 和 `response.text[:500]`，便于快速定位问题（是认证失败、SQL 语法错误还是网络不通）。
 

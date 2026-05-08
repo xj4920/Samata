@@ -17,7 +17,7 @@ import { spawn, spawnSync } from 'child_process';
 const SANDBOX_BASE = path.join(os.tmpdir(), 'samata', 'sandboxes');
 const MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_TIMEOUT_MS = 120_000;
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 const GF_PIP_INDEX_URL = 'http://pypi.gf.com.cn/simple/';
 const GF_PIP_TRUSTED_HOST = 'pypi.gf.com.cn';
 const SANDBOX_PYTHON_ROOT = '/usr/local/python-3.10.4';
@@ -92,12 +92,28 @@ function checkPath(root: string, inputPath: string): string | { error: string } 
   return resolved;
 }
 
+function checkPythonSyntax(filePath: string): string | null {
+  try {
+    const py = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    const r = spawnSync(py, ['-m', 'py_compile', filePath], {
+      encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (r.status !== 0) {
+      const msg = (r.stderr || r.stdout || '').trim();
+      return msg || 'Python syntax error (unknown)';
+    }
+    return null;
+  } catch {
+    return null; // validation failed to run — don't block the write
+  }
+}
+
 export function sandboxWriteFile(
   agentName: string,
   userId: string,
   filePath: string,
   content: string,
-): { success: boolean; path: string; bytes: number; error?: string } {
+): { success: boolean; path: string; bytes: number; error?: string; syntax_error?: string } {
   const root = ensureSandboxDir(agentName, userId);
   const checked = checkPath(root, filePath);
   if (typeof checked === 'object' && 'error' in checked) {
@@ -107,7 +123,19 @@ export function sandboxWriteFile(
     const dir = path.dirname(checked);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(checked, content, 'utf-8');
-    return { success: true, path: filePath, bytes: Buffer.byteLength(content, 'utf-8') };
+    const bytes = Buffer.byteLength(content, 'utf-8');
+
+    if (filePath.endsWith('.py')) {
+      const syntaxErr = checkPythonSyntax(checked);
+      if (syntaxErr) {
+        return {
+          success: true, path: filePath, bytes,
+          syntax_error: `${syntaxErr}\n提示：避免使用三引号字符串(\"\"\"....\"\"\")，改用单引号包裹 SQL，如 cur.execute('SELECT "COL" FROM "TABLE"', params)`,
+        };
+      }
+    }
+
+    return { success: true, path: filePath, bytes };
   } catch (err: any) {
     return { success: false, path: filePath, bytes: 0, error: err.message };
   }
@@ -210,6 +238,19 @@ function isBwrapAvailable(): boolean {
     _bwrapAvailable = false;
   }
   return _bwrapAvailable;
+}
+
+function validateNoAbsolutePaths(code: string): string | null {
+  if (/\bcd\s+\//.test(code)) {
+    return 'sandbox_exec 拒绝执行：检测到 cd 到绝对路径。cwd 已是沙箱根目录，请直接使用相对路径（如 python3 script.py）';
+  }
+  if (/\/tmp\/samata\/sandboxes\//.test(code)) {
+    return 'sandbox_exec 拒绝执行：禁止引用沙箱内部绝对路径。直接使用相对路径即可（如 python3 script.py）';
+  }
+  if (/\/tmp\/[^\s]+\.py\b/.test(code)) {
+    return 'sandbox_exec 拒绝执行：检测到 /tmp/*.py 绝对路径引用。sandbox_write_file 写入的文件在 cwd 中，直接用相对路径（如 python3 script.py）';
+  }
+  return null;
 }
 
 function validatePipInstallCommand(code: string): string | null {
@@ -340,7 +381,7 @@ export function sandboxExec(
   agentName: string,
   userId: string,
   options: {
-    language: 'js' | 'shell';
+    language: 'js' | 'shell' | 'python';
     code: string;
     timeout_ms?: number;
   },
@@ -357,10 +398,26 @@ export function sandboxExec(
     fs.writeFileSync(jsFile, options.code, 'utf-8');
     cmd = process.execPath; // node
     args = [jsFile];
+  } else if (options.language === 'python') {
+    const pyFile = path.join(root, `_exec_${Date.now()}.py`);
+    fs.writeFileSync(pyFile, options.code, 'utf-8');
+    const syntaxErr = checkPythonSyntax(pyFile);
+    if (syntaxErr) {
+      return {
+        stdout: '', exit_code: 2, truncated: false, generated_files: [],
+        stderr: `${syntaxErr}\n提示：避免使用三引号字符串(\"\"\"....\"\"\")，改用单引号包裹 SQL`,
+      };
+    }
+    cmd = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    args = ['-B', pyFile];
   } else {
     const pipError = validatePipInstallCommand(options.code);
     if (pipError) {
       return { stdout: '', stderr: pipError, exit_code: 2, truncated: false, generated_files: [] };
+    }
+    const absPathError = validateNoAbsolutePaths(options.code);
+    if (absPathError) {
+      return { stdout: '', stderr: absPathError, exit_code: 2, truncated: false, generated_files: [] };
     }
     cmd = '/bin/sh';
     args = ['-c', options.code];
@@ -460,10 +517,10 @@ function snapshotFiles(root: string): Map<string, number> {
   if (!fs.existsSync(root)) return snapshot;
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === '.bin') continue;
+      if (entry.name === '.bin' || entry.name === '__pycache__' || entry.name === '.data') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
-      if (/^_exec_\d+\.js$/.test(entry.name)) continue;
+      if (/^_exec_\d+\.(js|py)$/.test(entry.name)) continue;
       try { snapshot.set(full, fs.statSync(full).mtimeMs); } catch {}
     }
   };
@@ -487,7 +544,7 @@ export async function sandboxExecAsync(
   agentName: string,
   userId: string,
   options: {
-    language: 'js' | 'shell';
+    language: 'js' | 'shell' | 'python';
     code: string;
     timeout_ms?: number;
   },
@@ -505,10 +562,26 @@ export async function sandboxExecAsync(
     fs.writeFileSync(jsFile, options.code, 'utf-8');
     cmd = process.execPath;
     args = [jsFile];
+  } else if (options.language === 'python') {
+    const pyFile = path.join(root, `_exec_${Date.now()}.py`);
+    fs.writeFileSync(pyFile, options.code, 'utf-8');
+    const syntaxErr = checkPythonSyntax(pyFile);
+    if (syntaxErr) {
+      return {
+        stdout: '', exit_code: 2, truncated: false, generated_files: [],
+        stderr: `${syntaxErr}\n提示：避免使用三引号字符串(\"\"\"....\"\"\")，改用单引号包裹 SQL`,
+      };
+    }
+    cmd = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    args = ['-B', pyFile];
   } else {
     const pipError = validatePipInstallCommand(options.code);
     if (pipError) {
       return { stdout: '', stderr: pipError, exit_code: 2, truncated: false, generated_files: [] };
+    }
+    const absPathError = validateNoAbsolutePaths(options.code);
+    if (absPathError) {
+      return { stdout: '', stderr: absPathError, exit_code: 2, truncated: false, generated_files: [] };
     }
     cmd = '/bin/sh';
     args = ['-c', options.code];
