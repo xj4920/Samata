@@ -1,6 +1,6 @@
 {
   "exchange": "SSE",
-  "generated_at": "2026-04-21",
+  "generated_at": "2026-05-11",
   "description": "上海证券交易所交易日历，包含周末调休上班日",
   "days": [
     "1990-12-19",

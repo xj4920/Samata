@@ -1,39 +1,28 @@
 /**
- * 一次性脚本：从 dataSync PG dump SSE 交易日到 config/trading-calendar-sse.json
+ * 一次性脚本：从本地 PG 读取 SSE 交易日到 config/trading-calendar-sse.json
  *
  * 用法：npx tsx scripts/sync-trading-calendar.ts
  * 依赖：pg（devDependencies，仅本脚本使用）
  *
- * 连接参数默认读 dataSync 项目的 config/config.json，
+ * 默认连接本地 Docker wind_sync PG（只读用户 wind_reader），
  * 也可通过环境变量覆盖：PG_HOST / PG_PORT / PG_USER / PG_PASS / PG_DATABASE
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 // pg 是 dev-only 依赖，动态 import 避免生产代码引入
 const pg = await import('pg');
 
-const DATA_SYNC_CONFIG = join(import.meta.dirname ?? '..', '..', 'source', 'dataSync', 'config', 'config.json');
-
 function getConnectionConfig() {
-  // 环境变量优先，fallback 读 dataSync config
   const env = (key: string, fallback: string) => process.env[key] ?? fallback;
 
-  let defaults: Record<string, string>;
-  try {
-    const raw = readFileSync(DATA_SYNC_CONFIG, 'utf-8');
-    defaults = JSON.parse(raw);
-  } catch {
-    defaults = { PG_HOST: '10.8.0.1', PG_PORT: '5432', PG_USER: 'wind_sync', PG_PASS: 'wind_sync', PG_DATABASE: 'wind_sync' };
-  }
-
   return {
-    host: env('PG_HOST', defaults.PG_HOST ?? '10.8.0.1'),
-    port: parseInt(env('PG_PORT', defaults.PG_PORT ?? '5432'), 10),
-    user: env('PG_USER', defaults.PG_USER ?? 'wind_sync'),
-    password: env('PG_PASS', defaults.PG_PASS ?? 'wind_sync'),
-    database: env('PG_DATABASE', defaults.PG_DATABASE ?? 'wind_sync'),
+    host: env('PG_HOST', '127.0.0.1'),
+    port: parseInt(env('PG_PORT', '5432'), 10),
+    user: env('PG_USER', 'wind_reader'),
+    password: env('PG_PASS', 'wind_reader'),
+    database: env('PG_DATABASE', 'wind_sync'),
   };
 }
 
