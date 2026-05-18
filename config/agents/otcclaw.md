@@ -70,10 +70,14 @@
 - 问句主语是货币/期限/Fixed/Floating（如"USD 3M 固定利率"、"最新 FXD 报价"、"FXD_FRN Daily Update"）→ 使用 query_pricing_quote 查询产品利率报价矩阵
 - 产品利率报价数据有时效性，禁止导入知识库，只存入 pricing_quotes 表
 
+网络搜索：
+
+- 需要搜索公开信息时（如公司资料、新闻、研报），优先使用 `web_search` 工具
+- `web_search` 返回结构化的搜索结果（标题、摘要、链接），如需阅读全文再用 `web_fetch` 抓取
+
 浏览器工具（mcp_devtools_* 系列）：
 
-- 当需要查询无法通过现有工具获取的公开信息时（如股票行情、新闻、网页内容），可以使用浏览器工具打开网页获取
-- **禁止使用 Google（google.com）搜索**，网络不通。需要搜索引擎时请使用 **bing.cn** 或 **baidu.com**
+- 仅在需要浏览特定网页、操作页面元素时使用，不要用浏览器做搜索
 - 典型流程：mcp_devtools_navigate_page → mcp_devtools_take_snapshot → 从快照中提取所需信息
 - 需要截图时使用 mcp_devtools_take_screenshot
 - 需要在页面上执行 JS 时使用 mcp_devtools_evaluate_script

@@ -71,6 +71,12 @@ if [ "$HEADLESS" = "1" ]; then
   echo "[+] Headless mode enabled (no DISPLAY detected)."
 fi
 
+PROXY_ARGS=()
+if [ -n "${CHROME_PROXY:-}" ]; then
+  PROXY_ARGS=(--proxy-server="$CHROME_PROXY")
+  echo "[+] Proxy enabled: $CHROME_PROXY"
+fi
+
 echo "[+] Launching $CHROME_BIN with remote debugging on 127.0.0.1:$PORT"
 echo "    Profile dir: $PROFILE_DIR"
 echo "    Log file:    $LOG_FILE"
@@ -82,6 +88,7 @@ nohup "$CHROME_BIN" \
   --no-first-run \
   --no-default-browser-check \
   "${HEADLESS_ARGS[@]}" \
+  "${PROXY_ARGS[@]}" \
   >"$LOG_FILE" 2>&1 &
 
 disown || true

@@ -21,31 +21,35 @@ interface ExtractedImage {
 
 let _markerChecked = false;
 let _markerAvailable = false;
+let _markerCmd = '';
 
 function checkMarker(): boolean {
   if (_markerChecked) return _markerAvailable;
   _markerChecked = true;
-  try {
-    execFileSync('marker_single', ['--help'], { stdio: 'pipe', timeout: 10000 });
-    _markerAvailable = true;
-  } catch {
+
+  const candidates = [
+    'marker_single',
+    'marker',
+    path.join(process.env.HOME || '', '.local/bin/marker_single'),
+    path.join(process.env.HOME || '', '.local/bin/marker'),
+  ];
+
+  for (const cmd of candidates) {
     try {
-      execFileSync('marker', ['--help'], { stdio: 'pipe', timeout: 10000 });
+      execFileSync(cmd, ['--help'], { stdio: 'pipe', timeout: 10000 });
       _markerAvailable = true;
+      _markerCmd = cmd;
+      break;
     } catch {
-      _markerAvailable = false;
+      // try next
     }
   }
+
   return _markerAvailable;
 }
 
 function getMarkerCmd(): string {
-  try {
-    execFileSync('marker_single', ['--help'], { stdio: 'pipe', timeout: 5000 });
-    return 'marker_single';
-  } catch {
-    return 'marker';
-  }
+  return _markerCmd || 'marker_single';
 }
 
 function parseWithMarker(

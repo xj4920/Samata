@@ -24,6 +24,13 @@ const SANDBOX_PYTHON_ROOT = '/usr/local/python-3.10.4';
 const SANDBOX_PATH = `${SANDBOX_PYTHON_ROOT}/bin:/usr/local/bin:/usr/bin:/bin`;
 const SANDBOX_LD_LIBRARY_PATH = `${SANDBOX_PYTHON_ROOT}/lib:/usr/local/lib`;
 
+/** Written to $HOME/.config/matplotlib/matplotlibrc (HOME = sandbox root under bwrap). */
+const SANDBOX_MATPLOTLIBRC = [
+  'font.sans-serif: Noto Sans CJK SC, Noto Sans CJK TC, Noto Sans CJK JP, WenQuanYi Zen Hei, SimHei, DejaVu Sans',
+  'axes.unicode_minus: False',
+  '',
+].join('\n');
+
 const SANDBOX_PYTHON_USER_SITE = (() => {
   try {
     const py = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
@@ -63,7 +70,17 @@ function ensureSandboxDir(agentName: string, userId: string): string {
     try { fs.symlinkSync(target, python3Link); } catch {}
   }
 
+  ensureSandboxMatplotlibRc(root);
+
   return root;
+}
+
+function ensureSandboxMatplotlibRc(sandboxRoot: string): void {
+  const mplDir = path.join(sandboxRoot, '.config', 'matplotlib');
+  const rcPath = path.join(mplDir, 'matplotlibrc');
+  if (fs.existsSync(rcPath)) return;
+  fs.mkdirSync(mplDir, { recursive: true });
+  fs.writeFileSync(rcPath, SANDBOX_MATPLOTLIBRC, 'utf-8');
 }
 
 function checkPath(root: string, inputPath: string): string | { error: string } {

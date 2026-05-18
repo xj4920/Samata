@@ -17,7 +17,8 @@ function handleParseExcel(input: { file_path: string; sheet?: string; max_rows?:
   }
 
   try {
-    const workbook = XLSX.readFile(resolved);
+    const maxRows = input.max_rows ?? 500;
+    const workbook = XLSX.readFile(resolved, { sheetRows: maxRows + 1 });
     const sheetName = input.sheet ?? workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) {
@@ -27,9 +28,8 @@ function handleParseExcel(input: { file_path: string; sheet?: string; max_rows?:
       });
     }
 
-    const maxRows = input.max_rows ?? 500;
     const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet);
-    const truncated = rows.length > maxRows;
+    const truncated = rows.length >= maxRows;
     const data = truncated ? rows.slice(0, maxRows) : rows;
 
     const headers = data.length > 0 ? Object.keys(data[0]) : [];
@@ -56,7 +56,7 @@ function handleListSheets(input: { file_path: string }): string {
   }
 
   try {
-    const workbook = XLSX.readFile(resolved);
+    const workbook = XLSX.readFile(resolved, { sheetRows: 1 });
     const sheets = workbook.SheetNames.map(name => {
       const ws = workbook.Sheets[name];
       const ref = ws['!ref'];

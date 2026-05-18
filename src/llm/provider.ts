@@ -93,6 +93,34 @@ export function getModelForTask(task: TaskType): string {
 }
 
 /**
+ * 获取 dream 分析专用的 provider / model 配置。
+ * 通过 DREAM_PROVIDER / DREAM_MODEL 环境变量设置，未配置则 fallback 到全局 provider。
+ */
+export function getDreamProvider(): { provider: LLMProvider; model: string } {
+  const dreamProviderName = (process.env.DREAM_PROVIDER || '') as ProviderName;
+  const dreamModel = process.env.DREAM_MODEL || '';
+
+  if (dreamProviderName) {
+    const p = getProviderByName(dreamProviderName);
+    if (p) {
+      const model =
+        dreamModel && p.availableModels?.includes(dreamModel)
+          ? dreamModel
+          : dreamModel || p.defaultModel;
+      return { provider: p, model };
+    }
+    log.warn(
+      `DREAM_PROVIDER=${dreamProviderName} 未注册或不可用，回退到全局 provider`
+    );
+  }
+
+  return {
+    provider: getProvider(),
+    model: getModelName(),
+  };
+}
+
+/**
  * 根据任务类型获取对应的 provider
  * 支持不同任务使用不同的 provider
  */

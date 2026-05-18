@@ -56,6 +56,26 @@ function stripTags(html: string): string {
 
 interface SearchResult { title: string; url: string; snippet: string }
 
+async function searchSerper(query: string, count: number, axios: any): Promise<SearchResult[]> {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) return [];
+  const resp = await axios.request({
+    method: 'POST',
+    url: 'https://google.serper.dev/search',
+    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+    data: JSON.stringify({ q: query, num: count }),
+    timeout: 10000,
+    validateStatus: () => true,
+  });
+  if (resp.status !== 200) return [];
+  const data = resp.data;
+  return (data.organic || []).map((item: any) => ({
+    title: item.title || '',
+    url: item.link || '',
+    snippet: item.snippet || '',
+  }));
+}
+
 async function searchSogou(query: string, axios: any): Promise<SearchResult[]> {
   const url = `https://www.sogou.com/web?query=${encodeURIComponent(query)}`;
   const resp = await axios.request({
@@ -134,8 +154,12 @@ async function handleWebSearch(input: {
   const count = Math.min(Math.max(input.count ?? 8, 1), 20);
 
   try {
-    let results = await searchSogou(input.query, axios);
-    let engine = 'sogou';
+    let results = await searchSerper(input.query, count, axios);
+    let engine = 'serper';
+    if (results.length === 0) {
+      results = await searchSogou(input.query, axios);
+      engine = 'sogou';
+    }
     if (results.length === 0) {
       results = await searchBing(input.query, axios);
       engine = 'bing';

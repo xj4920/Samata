@@ -1055,7 +1055,7 @@ async function writeToPostgres(
   const pgPort = config.PG_PORT || 5432;
   const pgUser = config.PG_USER || 'wind_sync';
   const pgPass = config.PG_PASS || 'wind_sync';
-  const pgDb = config.PG_DATABASE || 'wind_sync';
+  const pgDb = 'samata';
 
   // Dynamic require via createRequire for ESM compat
   const { Client } = nodeRequire('pg');

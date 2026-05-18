@@ -130,11 +130,10 @@ function isDuplicateError(output: string[]): boolean {
 // ---------------------------------------------------------------------------
 
 interface PageMetadata {
-  page_id?: string;
+  confluence_page_id?: string;
   title?: string;
-  version?: number;
-  space_key?: string;
-  url?: string;
+  confluence_space_key?: string;
+  confluence_url?: string;
   updated?: string;
 }
 
@@ -183,10 +182,17 @@ export async function importPage(
   const meta = parseFrontmatter(absPath);
   const title = meta.title || path.basename(mdPath, '.md');
 
+  // Build /doc-import command with optional flags
+  let importCmd = `/doc-import ${absPath}`;
+  // Extract doc_date from frontmatter 'updated' field (e.g. "2026-04-27T10:30:00Z")
+  const docDate = meta.updated ? meta.updated.slice(0, 10) : undefined;
+  if (docDate) importCmd += ` --doc-date ${docDate}`;
+  if (meta.title) importCmd += ` --title ${meta.title}`;
+
   const result: ImportResult = { page_id: pageId, title, version, status: 'failed' };
 
   // 1. Import the markdown page
-  const pageRes = await client.execute(`/doc-import ${absPath}`);
+  const pageRes = await client.execute(importCmd);
   if (!pageRes.ok) {
     result.error = pageRes.error || pageRes.output?.join('; ') || '导入失败';
     return result;

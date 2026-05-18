@@ -23,6 +23,13 @@ if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   fi
 fi
 
+# 检测 better-sqlite3 是否与当前 Node ABI 兼容，不兼容则自动 rebuild
+node -e "require('better-sqlite3')" 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "⚙️  better-sqlite3 ABI 不匹配，正在 rebuild..."
+  npm rebuild better-sqlite3 2>/dev/null
+fi
+
 # Auto-detect WSL2 host IP for Chrome CDP access
 if [ -z "$WSL_HOST_IP" ] && grep -qi microsoft /proc/version 2>/dev/null; then
   export WSL_HOST_IP=$(grep nameserver /etc/resolv.conf | awk '{print $2}')

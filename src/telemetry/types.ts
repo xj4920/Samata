@@ -6,6 +6,8 @@ export interface TelemetryToolCall {
   success: boolean;
   bytes: number;
   error?: string;
+  input?: string;
+  output_preview?: string;
 }
 
 /** Single LLM call record within a turn */

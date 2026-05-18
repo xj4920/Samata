@@ -957,9 +957,23 @@ export function getDocumentContent(docIdPrefix: string): { content: string; form
 // ---------------------------------------------------------------------------
 
 export async function cliImport(args: string): Promise<void> {
-  const filePath = args.trim();
+  // Parse optional --doc-date <YYYY-MM-DD> and --title <title> from args
+  let docDate: string | undefined;
+  let title: string | undefined;
+  let rest = args.trim();
+  for (const flag of ['--doc-date', '--title']) {
+    const m = rest.match(new RegExp(`\\s+${flag.replace(/-/g, '\\-')}\\s+(\\S+)`));
+    if (m) {
+      if (flag === '--doc-date') docDate = m[1];
+      else title = m[1];
+      rest = rest.replace(m[0], ' ');
+    }
+  }
+  rest = rest.trim();
+
+  const filePath = rest;
   if (!filePath) {
-    log.print('用法: /doc-import <文件路径>');
+    log.print('用法: /doc-import <文件路径> [--doc-date YYYY-MM-DD] [--title <标题>]');
     return;
   }
 
@@ -969,7 +983,7 @@ export async function cliImport(args: string): Promise<void> {
     return;
   }
 
-  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id });
+  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id, docDate, title });
   if (result.success) {
     log.print(`文档已导入: [${result.documentId}] ${result.title}`);
     if (result.topics && result.topics.length > 0) {

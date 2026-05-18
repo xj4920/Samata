@@ -979,6 +979,8 @@ export async function runAgenticChat(
           success: !toolError,
           bytes: Buffer.byteLength(result, 'utf-8'),
           error: toolError,
+          input: JSON.stringify(block.input).slice(0, 500),
+          output_preview: result.slice(0, 300),
         });
         onProgress?.({ type: 'tool_end', name: block.name, result, round, durationMs: toolDuration });
         toolTrace.push({

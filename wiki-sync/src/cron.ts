@@ -96,6 +96,13 @@ function runCfExport(config: SyncConfig, target: CfExportTarget): void {
     CONFLUENCE_USERNAME: config.confluence.username,
     CONFLUENCE_API_TOKEN: config.confluence.api_token,
     CF_EXPORT_WORKERS: String(config.cf_export.workers),
+    // *.gf.com.cn 不走代理
+    http_proxy: '',
+    https_proxy: '',
+    HTTP_PROXY: '',
+    HTTPS_PROXY: '',
+    no_proxy: '*.gf.com.cn',
+    NO_PROXY: '*.gf.com.cn',
   };
 
   if (config.cf_export.cleanup_stale) {
@@ -112,17 +119,19 @@ function runCfExport(config: SyncConfig, target: CfExportTarget): void {
 // ---------------------------------------------------------------------------
 
 function findLockfile(outputPath: string): string | null {
-  // cf-export 的 lockfile 通常在 output 根目录下
+  // cf-export 的 lockfile 命名为 confluence-lock.json
   const candidates = [
+    path.join(outputPath, 'confluence-lock.json'),
     path.join(outputPath, 'lockfile.json'),
-    path.join(outputPath, '.lockfile.json'),
+    path.join(outputPath, '..', 'confluence-lock.json'),
     path.join(outputPath, '..', 'lockfile.json'),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  // 递归查找（最多 2 层）
-  return findFileRecursive(outputPath, 'lockfile.json', 2);
+  // 递归查找（最多 2 层），优先匹配 confluence-lock.json
+  return findFileRecursive(outputPath, 'confluence-lock.json', 2)
+    || findFileRecursive(outputPath, 'lockfile.json', 2);
 }
 
 function findFileRecursive(dir: string, filename: string, maxDepth: number): string | null {
@@ -178,7 +187,7 @@ function parsePageIdFromMd(mdPath: string): string | null {
     const endIdx = content.indexOf('\n---', 4);
     if (endIdx === -1) return null;
     const fm = yaml.parse(content.slice(4, endIdx)) as Record<string, unknown> | null;
-    return fm && typeof fm.page_id === 'string' ? fm.page_id : null;
+    return fm && typeof fm.confluence_page_id === 'string' ? fm.confluence_page_id : null;
   } catch {
     return null;
   }

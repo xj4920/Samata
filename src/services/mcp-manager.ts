@@ -215,6 +215,10 @@ function guardDevtoolsNavigation(originalName: string, input: Record<string, unk
     });
   }
 
+  if (/^https?:\/\/(www\.)?google\.[a-z.]+\//i.test(url)) {
+    return mcpError('Google 搜索在服务器 IP 上会触发验证码，已拒绝。请改用 web_search 工具或通过浏览器打开 bing.com', { url });
+  }
+
   const now = Date.now();
   const isSameRecentUrl = lastDevtoolsNavigation?.url === url
     && now - lastDevtoolsNavigation.at <= REPEATED_DEVTOOLS_NAVIGATION_WINDOW_MS;

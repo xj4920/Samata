@@ -145,7 +145,11 @@ async function sendPathToCurrentChannel(input: { path: string }, deliveryContext
     return sendViaTelegram(checked.path, checked.filename, deliveryContext);
   }
   if (deliveryContext.channel === 'wework') {
-    return sendViaWework(checked.path, checked.filename, deliveryContext);
+    const result = await sendViaWework(checked.path, checked.filename, deliveryContext);
+    if (result.success && deliveryContext.pendingWeworkImagePaths) {
+      deliveryContext.pendingWeworkImagePaths = deliveryContext.pendingWeworkImagePaths.filter(p => p !== checked.path);
+    }
+    return result;
   }
   return { success: false, error: `暂不支持的渠道: ${deliveryContext.channel}` };
 }
