@@ -33,7 +33,11 @@ export const COMMON_SET = new Set([
   // Date
   'calculate_date',
   // Web
-  'web_search', 'web_fetch',
+  'web_search', 'web_fetch', 'read_wechat_article',
+  // Archive
+  'extract_archive',
+  // Wiki
+  'file_to_wiki', 'compile_wiki',
 ]);
 
 /** Native tools that must only be visible to a single agent instance. */

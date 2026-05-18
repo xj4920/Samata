@@ -216,14 +216,14 @@ async function handleWebFetch(input: {
     if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
       const TurndownService = (await import('turndown')).default;
       // @ts-expect-error - no @types/turndown-plugin-gfm
-      const { default: turndownPluginGfm } = await import('turndown-plugin-gfm');
+      const { gfm } = await import('turndown-plugin-gfm');
       const turndown = new TurndownService({
         headingStyle: 'atx',
         codeBlockStyle: 'fenced',
         bulletListMarker: '-',
         emDelimiter: '*',
       });
-      turndown.use(turndownPluginGfm);
+      turndown.use(gfm);
       const markdown = turndown.turndown(rawBody);
       const maxLen = 30000;
       const truncated =

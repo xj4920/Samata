@@ -392,6 +392,60 @@ function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFram
   });
 }
 
+/** 处理未识别消息类型（如链接卡片、小程序等）：尝试提取可用信息并转交 AI */
+function handleUnknownMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<any>): Promise<void> {
+  return runWithExecutionContext({ channel: 'wework', appId: instance.botId }, async () => {
+    const body = frame.body;
+    if (!body) return;
+
+    const knownTypes = new Set(['text', 'image', 'mixed', 'file', 'voice', 'video']);
+    if (knownTypes.has(body.msgtype)) return;
+
+    const userId = body.from?.userid;
+    if (!userId) return;
+    const isGroup = body.chattype === 'group';
+    const mapKey = isGroup ? `g:${body.chatid}:${userId}` : userId;
+    const username = `wework_${userId.slice(-6)}`;
+    const logTag = `[企微:${instance.botName}]`;
+
+    log.dim(`${logTag} ${username}: [${body.msgtype || '未知'}消息]`);
+
+    // Try to extract useful content from the raw body
+    const parts: string[] = [];
+    const raw = JSON.stringify(body);
+
+    // Look for URLs in the message
+    const urlMatches = raw.match(/https?:\/\/[^\s"\\]+/g);
+    const mpUrls = urlMatches?.filter(u => u.includes('mp.weixin.qq.com'));
+
+    if (mpUrls?.length) {
+      parts.push(`用户分享了一篇微信公众号文章，链接: ${mpUrls[0]}`);
+    } else if (urlMatches?.length) {
+      parts.push(`用户分享了一个链接: ${urlMatches[0]}`);
+    }
+
+    // Look for title/description fields
+    for (const key of ['title', 'msg_title', 'description', 'digest']) {
+      const val = body[key] || body.link?.[key] || body.news?.[key];
+      if (val && typeof val === 'string') {
+        parts.push(`${key}: ${val}`);
+      }
+    }
+
+    if (parts.length === 0) {
+      parts.push(`用户发送了一条不支持的消息类型(${body.msgtype || 'unknown'})，请友好地告知用户可以尝试粘贴文本或链接。`);
+    }
+
+    const text = parts.join('\n');
+
+    try {
+      await handleAIChat(instance, frame, text, mapKey, userId, username);
+    } catch (err: any) {
+      log.error(`${logTag} 处理未知类型消息出错: ${err.message}`);
+    }
+  });
+}
+
 // --- Slash Commands ---
 
 async function handleSlashCommand(
@@ -569,6 +623,9 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
   ));
   ws.on('message.file', (frame) => handleFileMessageForInstance(instance, frame).catch(err =>
     log.error(`[企微:${name}] 处理文件消息出错: ${err.message}`)
+  ));
+  ws.on('message', (frame) => handleUnknownMessageForInstance(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理未知消息出错: ${err.message}`)
   ));
 
   ws.on('event.enter_chat', (frame) => handleEnterChat(instance, frame));

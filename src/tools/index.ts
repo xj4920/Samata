@@ -24,6 +24,9 @@ import * as dateTools from './date-tools.js';
 import * as wrongQuestionTools from './wrong-question-tools.js';
 import * as sandboxTools from './sandbox-tools.js';
 import * as webTools from './web-tools.js';
+import * as wechatArticleTools from './wechat-article-tools.js';
+import * as archiveTools from './archive-tools.js';
+import * as wikiTools from './wiki-tools.js';
 
 interface ToolModule {
   toolDefinitions: Anthropic.Tool[];
@@ -54,6 +57,9 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: wrongQuestionTools, category: '错题' },
   { module: sandboxTools,       category: '沙箱' },
   { module: webTools,           category: '网页' },
+  { module: wechatArticleTools, category: '公众号' },
+  { module: archiveTools,        category: '解压' },
+  { module: wikiTools,           category: 'Wiki' },
 ];
 
 const modules: ToolModule[] = moduleEntries.map(e => e.module);

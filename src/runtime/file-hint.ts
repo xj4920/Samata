@@ -17,5 +17,9 @@ export function buildFileHint(filename: string, savedPath: string, bytes: number
     return `${base}\n这是**产品利率报价表**（Fixed/Floating × 货币 × tenor），请直接调用 import_pricing_quote（默认 dry_run=true 预览；用户确认后 dry_run=false 写入），不要用 parse_excel 仅作展示。`;
   }
 
+  if (/\.(zip|rar|tar\.gz|tgz|tar\.bz2|tar)$/i.test(filename)) {
+    return `${base}\n这是压缩包，请调用 extract_archive 解压后再处理其中的文件。`;
+  }
+
   return `${base}\n请使用合适的工具（parse_word、parse_excel、read_file 等）读取文件内容。`;
 }
