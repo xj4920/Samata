@@ -36,13 +36,18 @@ export interface SyncConfig {
 
 interface LockEntry {
   version: number;
-  last_exported_at: string;
   title?: string;
-  space_key?: string;
+  export_path?: string;
 }
 
 interface Lockfile {
   [page_id: string]: LockEntry;
+}
+
+interface CfExportLockfile {
+  lockfile_version: string;
+  last_export: string;
+  pages: Lockfile;
 }
 
 interface SnapshotPage {
@@ -134,12 +139,20 @@ function findLockfile(outputPath: string): string | null {
     || findFileRecursive(outputPath, 'lockfile.json', 2);
 }
 
+function isDirectory(entry: fs.Dirent, parentDir: string): boolean {
+  if (entry.isDirectory()) return true;
+  if (entry.isSymbolicLink()) {
+    try { return fs.statSync(path.join(parentDir, entry.name)).isDirectory(); } catch { return false; }
+  }
+  return false;
+}
+
 function findFileRecursive(dir: string, filename: string, maxDepth: number): string | null {
   if (maxDepth < 0 || !fs.existsSync(dir)) return null;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const e of entries) {
     if (e.isFile() && e.name === filename) return path.join(dir, e.name);
-    if (e.isDirectory() && !e.name.startsWith('.')) {
+    if (isDirectory(e, dir) && !e.name.startsWith('.')) {
       const found = findFileRecursive(path.join(dir, e.name), filename, maxDepth - 1);
       if (found) return found;
     }
@@ -149,7 +162,9 @@ function findFileRecursive(dir: string, filename: string, maxDepth: number): str
 
 function readLockfile(filePath: string): Lockfile {
   const raw = fs.readFileSync(filePath, 'utf-8');
-  return JSON.parse(raw);
+  const data = JSON.parse(raw);
+  // cf-export produces { lockfile_version, last_export, pages: {...} }
+  return data.pages ?? data;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +202,8 @@ function parsePageIdFromMd(mdPath: string): string | null {
     const endIdx = content.indexOf('\n---', 4);
     if (endIdx === -1) return null;
     const fm = yaml.parse(content.slice(4, endIdx)) as Record<string, unknown> | null;
-    return fm && typeof fm.confluence_page_id === 'string' ? fm.confluence_page_id : null;
+    const cpi = fm?.confluence_page_id;
+    return cpi != null ? String(cpi) : null;
   } catch {
     return null;
   }
@@ -201,7 +217,7 @@ function discoverPages(outputPath: string): DiscoveredPage[] {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const e of entries) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'images') {
+      if (isDirectory(e, dir) && !e.name.startsWith('.') && e.name !== 'images' && e.name !== 'attachments') {
         walk(full);
       } else if (e.isFile() && e.name.endsWith('.md')) {
         const pageId = parsePageIdFromMd(full);
@@ -446,13 +462,19 @@ export async function runImportOnly(config: SyncConfig): Promise<void> {
   const results = await importPages(config.samata, allToImport, msg => console.log(`  ${msg}`));
 
   const now = new Date().toISOString();
+  let imported = 0, failed = 0;
   for (const r of results) {
     if (r.document_id) {
       snapshot.pages[r.page_id] = { version: r.version, document_id: r.document_id, title: r.title, imported_at: now };
+      imported++;
+    } else if (r.status === 'failed') {
+      failed++;
+      console.error(`  失败: [${r.page_id}] ${r.title} - ${r.error}`);
     }
   }
   snapshot.last_run = now;
   saveSnapshot(snapshotPath, snapshot);
+  console.log(`成功: ${imported}, 失败: ${failed}`);
   console.log('=== Import 完成 ===');
 }
 

@@ -143,8 +143,15 @@ function parseFrontmatter(filePath: string): PageMetadata {
     if (!content.startsWith('---\n')) return {};
     const endIdx = content.indexOf('\n---', 4);
     if (endIdx === -1) return {};
-    const fm = content.slice(4, endIdx);
-    return yaml.parse(fm) as PageMetadata;
+    const raw = yaml.parse(content.slice(4, endIdx)) as Record<string, unknown> | null;
+    if (!raw) return {};
+    return {
+      confluence_page_id: raw.confluence_page_id != null ? String(raw.confluence_page_id) : undefined,
+      title: typeof raw.title === 'string' ? raw.title : undefined,
+      confluence_space_key: typeof raw.confluence_space_key === 'string' ? raw.confluence_space_key : undefined,
+      confluence_url: typeof raw.confluence_url === 'string' ? raw.confluence_url : undefined,
+      updated: typeof raw.updated === 'string' ? raw.updated : undefined,
+    };
   } catch {
     return {};
   }
