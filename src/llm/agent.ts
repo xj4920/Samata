@@ -916,6 +916,7 @@ export async function runAgenticChat(
   const loopTracker = initLoopTracker();
   const toolTrace: ToolTrace[] = [];
   let devtoolsCallCount = 0;
+  const docIdsHitThisTurn = new Set<string>();
   while (response.stop_reason === 'tool_use') {
     throwIfAborted();
 
@@ -991,6 +992,16 @@ export async function runAgenticChat(
           preview: tracePreview,
           error: toolError ? truncateText(toolError, 240) : undefined,
         });
+        if (block.name === 'search_knowledge' && !toolError) {
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.documents) {
+              for (const d of parsed.documents) {
+                if (d.document_id) docIdsHitThisTurn.add(d.document_id);
+              }
+            }
+          } catch {}
+        }
         if (showThinkingOpt) {
           const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
           log.dim(`${logPrefix}   结果: ${preview}`);
@@ -1115,7 +1126,53 @@ export async function runAgenticChat(
     round += 1;
   }
 
-  const assistantContent = response.content;
+  // Wiki nudge: if multiple knowledge sources were synthesized but file_to_wiki was not called,
+  // give the LLM one more chance to persist the insight.
+  const preNudgeResponse = response;
+  if (
+    !wasInterrupted &&
+    docIdsHitThisTurn.size >= 3 &&
+    !toolTrace.some(t => t.name === 'file_to_wiki') &&
+    activeTools.some(t => t.name === 'file_to_wiki')
+  ) {
+    try {
+      history.push({ role: 'assistant', content: response.content });
+      history.push({
+        role: 'user',
+        content: `[系统提示] 本轮回答综合了 ${docIdsHitThisTurn.size} 个知识源，请判断是否值得调用 file_to_wiki 将核心洞察持久化到 Wiki（覆盖式更新）。如果内容有综合价值且尚无对应 wiki 页面，请调用；否则直接回复"跳过"即可。`,
+      });
+      const nudgeResp = await trackedCallLLM(round, false, showThinkingOpt, agentProviderOverride, undefined, onProgress);
+      round += 1;
+
+      if (nudgeResp.result.stop_reason === 'tool_use') {
+        const nudgeContent = nudgeResp.result.content;
+        history.push({ role: 'assistant', content: nudgeContent });
+        const nudgeToolResults: Anthropic.ToolResultBlockParam[] = [];
+        for (const block of nudgeContent) {
+          if (block.type === 'tool_use') {
+            if (block.name === 'file_to_wiki') {
+              log.info(`${logPrefix}[wiki-nudge] 执行 file_to_wiki`);
+              onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
+              const wikiResult = await executeTool(block.name, block.input, deliveryContext, onProgress);
+              onProgress?.({ type: 'tool_end', name: block.name, result: wikiResult, round, durationMs: 0 });
+              nudgeToolResults.push({ type: 'tool_result', tool_use_id: block.id, content: wikiResult });
+            } else {
+              nudgeToolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ skipped: true }) });
+            }
+          }
+        }
+        if (nudgeToolResults.length > 0) {
+          history.push({ role: 'user', content: nudgeToolResults });
+          await trackedCallLLM(round, false, showThinkingOpt, agentProviderOverride, undefined, undefined);
+        }
+      }
+    } catch (err: any) {
+      log.warn(`${logPrefix}[wiki-nudge] 失败，跳过: ${err.message}`);
+    }
+  }
+
+  // Use pre-nudge response for user-facing text extraction
+  const assistantContent = preNudgeResponse.content;
 
   if (wasInterrupted) {
     history.length = historyLenBefore;

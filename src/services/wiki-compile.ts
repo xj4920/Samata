@@ -20,6 +20,13 @@ const SINGULAR: Record<string, string> = {
   insights: 'insight',
 };
 
+const PLURAL: Record<string, string> = {
+  entity: 'entities',
+  concept: 'concepts',
+  summary: 'summaries',
+  insight: 'insights',
+};
+
 function toSingular(plural: string): string {
   return SINGULAR[plural] || plural.replace(/s$/, '');
 }
@@ -601,7 +608,7 @@ export function writeWikiPage(
 ): { success: boolean; path?: string; error?: string } {
   try {
     const wikiDir = ensureWikiDirs(agentId);
-    const catDir = category === 'comparison' ? 'insights' : `${category}s`;
+    const catDir = category === 'comparison' ? 'insights' : (PLURAL[category] || `${category}s`);
     const slug = toSlug(title);
     const filePath = path.join(wikiDir, catDir, `${slug}.md`);
     const related = relatedPages || [];

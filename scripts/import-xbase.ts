@@ -168,7 +168,7 @@ async function main() {
     try {
       const compileRes = await api<{ ok: boolean; output: string[] }>(
         baseUrl, 'POST', '/api/cli/execute',
-        { sessionId: session.sessionId, input: '/compile-wiki' },
+        { sessionId: session.sessionId, input: '/compile-wiki --async' },
       );
       const out = (compileRes.output || []).join('\n');
       console.log(out || 'Wiki compile done.');

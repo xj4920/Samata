@@ -240,7 +240,7 @@ export async function importPage(
   const title = meta.title || path.basename(mdPath, '.md');
 
   // Build /doc-import command with optional flags
-  let importCmd = `/doc-import ${absPath}`;
+  let importCmd = `/doc-import ${absPath} --no-compile`;
   // Extract doc_date from frontmatter 'updated' field (e.g. "2026-04-27T10:30:00Z")
   const docDate = meta.updated ? meta.updated.slice(0, 10) : undefined;
   if (docDate) importCmd += ` --doc-date ${docDate}`;

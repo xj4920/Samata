@@ -69,11 +69,20 @@ const commands: Record<string, Command> = {
   help:    { description: '显示帮助', usage: '/help', handler: showHelp },
 };
 
-async function handleCompileWiki(): Promise<void> {
+async function handleCompileWiki(args: string): Promise<void> {
   const agent = getCurrentAgent();
   if (!agent) { log.print('请先切换到一个 Agent'); return; }
-  log.print(`开始编译 Wiki (agent: ${agent.name})...`);
   const { compileAllDocuments } = await import('../services/wiki-compile.js');
+  if (args.trim() === '--async') {
+    log.print(`Wiki 编译已在后台启动 (agent: ${agent.name})，进度见 server log`);
+    compileAllDocuments(agent.id).then(r => {
+      log.info(`[compile-wiki] Done: ${r.compiled} compiled, ${r.skipped} skipped, ${r.failed} failed`);
+    }).catch(e => {
+      log.error(`[compile-wiki] Failed: ${e.message}`);
+    });
+    return;
+  }
+  log.print(`开始编译 Wiki (agent: ${agent.name})...`);
   const result = await compileAllDocuments(agent.id);
   log.print(`Wiki 编译完成: ${result.compiled} compiled, ${result.skipped} skipped, ${result.failed} failed`);
 }
@@ -226,9 +235,11 @@ export async function route(input: string): Promise<void> {
     return;
   }
 
-  const [slashCmd, ...rest] = trimmed.split(/\s+/);
+  // Split command name from args at first whitespace; preserve args spacing exactly
+  const wsIdx = trimmed.search(/\s/);
+  const slashCmd = wsIdx === -1 ? trimmed : trimmed.slice(0, wsIdx);
   const cmd = slashCmd.slice(1); // remove leading /
-  const args = rest.join(' ');
+  const args = wsIdx === -1 ? '' : trimmed.slice(wsIdx + 1).replace(/^\s+/, '');
 
   if (cmd.toLowerCase() === 'reload') {
     log.print('正在重载...');
