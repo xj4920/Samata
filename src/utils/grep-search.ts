@@ -12,6 +12,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCUMENTS_ROOT = path.resolve(__dirname, '../../data/documents');
+const WIKI_ROOT = path.resolve(__dirname, '../../data/wiki');
 
 export interface GrepSearchResult {
   source: 'document';
@@ -414,6 +415,232 @@ export function grepSearchDocuments(
       snippet: s.snippet,
       relevance: s.relevance,
       tags: s.frontmatter.tags || null,
+    });
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Wiki search (same scoring as documents, searches data/wiki/<agent>/)
+// ---------------------------------------------------------------------------
+
+export interface WikiSearchResult {
+  source: 'wiki';
+  page_path: string;
+  title: string;
+  category: string;
+  snippet: string;
+  relevance: number;
+  /** true when matched by title/related exact lookup (Phase 4) */
+  exact_match?: boolean;
+}
+
+function parseWikiFrontmatter(content: string): { title: string; related: string[]; category: string } {
+  const title = content.match(/^title:\s*"?(.+?)"?\s*$/m)?.[1] || '';
+  const category = content.match(/^category:\s*(\w+)\s*$/m)?.[1] || '';
+  const relRaw = content.match(/^related:\s*(.+)$/m)?.[1];
+  let related: string[] = [];
+  if (relRaw) {
+    const t = relRaw.trim();
+    if (t.startsWith('[')) {
+      try { related = JSON.parse(t); } catch { related = t.split(',').map(s => s.trim()); }
+    } else {
+      related = t.split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
+    }
+  }
+  return { title, related, category };
+}
+
+/**
+ * Phase 4: exact match on entity/concept page title or related list before full-text grep.
+ */
+export function searchWikiEntitiesExact(
+  keyword: string,
+  agentId: string,
+  limit = 5,
+): WikiSearchResult[] {
+  const rawKeywords = keyword.split(/\s+/).filter(Boolean);
+  if (rawKeywords.length === 0) return [];
+
+  const searchDir = path.join(WIKI_ROOT, getAgentFsName(agentId));
+  if (!fs.existsSync(searchDir)) return [];
+
+  const termsLower = rawKeywords.map(t => t.toLowerCase());
+  const results: WikiSearchResult[] = [];
+
+  for (const category of ['entities', 'concepts'] as const) {
+    const catDir = path.join(searchDir, category);
+    if (!fs.existsSync(catDir)) continue;
+
+    for (const file of fs.readdirSync(catDir).filter(f => f.endsWith('.md'))) {
+      const filePath = path.join(catDir, file);
+      let content: string;
+      try { content = fs.readFileSync(filePath, 'utf-8'); } catch { continue; }
+
+      const { title, related } = parseWikiFrontmatter(content);
+      const titleLower = title.toLowerCase();
+      const haystack = [titleLower, ...related.map(r => r.toLowerCase())];
+
+      let score = 0;
+      for (const term of termsLower) {
+        if (haystack.some(h => h === term || h.includes(term))) score += 10;
+        else if (titleLower.includes(term)) score += 5;
+      }
+      if (score === 0) continue;
+
+      const bodyStart = content.indexOf('\n---\n');
+      const body = bodyStart >= 0 ? content.slice(bodyStart + 5) : content;
+      const snippet = body.replace(/^#+\s+/gm, '').slice(0, 500);
+
+      results.push({
+        source: 'wiki',
+        page_path: `${category}/${file}`,
+        title,
+        category,
+        snippet,
+        relevance: score + 100,
+        exact_match: true,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.relevance - a.relevance);
+  return results.slice(0, limit);
+}
+
+function runRipgrepOnDir(terms: string[], searchDir: string): RgRecord[] {
+  if (!fs.existsSync(searchDir)) return [];
+
+  const args: string[] = [
+    '-F', '-i', '--json', '-C', '3',
+    '--max-count', '50',
+    '--glob', '**/*.md',
+  ];
+  for (const t of terms) {
+    args.push('-e', t);
+  }
+  args.push('--', searchDir);
+
+  try {
+    const raw = execFileSync('rg', args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
+    const lines = raw.toString().trim().split('\n').filter(Boolean);
+    const records: RgRecord[] = [];
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === 'match' || obj.type === 'context') records.push(obj);
+      } catch { /* skip non-JSON */ }
+    }
+    return records;
+  } catch (e: any) {
+    if (e.status === 1) return [];
+    log.warn(`ripgrep wiki search failed: ${e.message}`);
+    return [];
+  }
+}
+
+function fallbackScanDir(
+  terms: string[],
+  termTiers: Map<string, KeywordTier>,
+  searchDir: string,
+): ScoredFile[] {
+  if (!fs.existsSync(searchDir)) return [];
+
+  const results: ScoredFile[] = [];
+  const termsLower = terms.map(t => t.toLowerCase());
+
+  function scanRecursive(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        scanRecursive(path.join(dir, entry.name));
+      } else if (entry.name.endsWith('.md') && entry.name !== 'index.md' && entry.name !== 'log.md') {
+        const mdPath = path.join(dir, entry.name);
+        let content: string;
+        try { content = fs.readFileSync(mdPath, 'utf-8'); } catch { continue; }
+
+        const { frontmatter, range: fmRange } = parseFrontmatter(content);
+        const lines = content.split('\n');
+        const state: FileState = {
+          filePath: mdPath,
+          lines: new Map(),
+          matchLines: [],
+          submatchesByLine: new Map(),
+          frontmatter,
+          fmRange,
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          state.lines.set(i + 1, lines[i]);
+          const lower = lines[i].toLowerCase();
+          const hits: string[] = [];
+          for (const t of termsLower) {
+            if (lower.includes(t)) hits.push(t);
+          }
+          if (hits.length > 0) {
+            state.matchLines.push(i + 1);
+            state.submatchesByLine.set(i + 1, hits);
+          }
+        }
+
+        if (state.matchLines.length === 0) continue;
+        const scored = scoreFile(state, termTiers);
+        if (scored.relevance > 0) results.push(scored);
+      }
+    }
+  }
+
+  scanRecursive(searchDir);
+  return results;
+}
+
+/**
+ * Search wiki pages for a given agent. Same scoring as document search
+ * but searches data/wiki/<agent>/ directory (excluding index.md and log.md).
+ */
+export function grepSearchWiki(
+  keyword: string,
+  agentId: string,
+  limit = 5,
+): WikiSearchResult[] {
+  const rawKeywords = keyword.split(/\s+/).filter(Boolean);
+  if (rawKeywords.length === 0) return [];
+
+  const searchDir = path.join(WIKI_ROOT, getAgentFsName(agentId));
+  if (!fs.existsSync(searchDir)) return [];
+
+  const { primary, derived } = expandCJKKeywords(rawKeywords);
+  const classified = classifyTerms(primary, derived);
+  const terms = classified.map(c => c.term);
+  const termTiers = new Map<string, KeywordTier>();
+  for (const c of classified) termTiers.set(c.term.toLowerCase(), c.tier);
+
+  let scored: ScoredFile[];
+  if (rgAvailable()) {
+    const records = runRipgrepOnDir(terms, searchDir);
+    const states = assembleRecords(records);
+    scored = [...states.values()]
+      .map(s => scoreFile(s, termTiers))
+      .filter(s => s.relevance > 0);
+  } else {
+    scored = fallbackScanDir(terms, termTiers, searchDir);
+  }
+
+  scored.sort((a, b) => b.relevance - a.relevance);
+
+  const results: WikiSearchResult[] = [];
+  for (const s of scored.slice(0, limit)) {
+    const relPath = path.relative(searchDir, s.filePath);
+    // Skip index and log
+    if (relPath === 'index.md' || relPath === 'log.md') continue;
+
+    const category = path.dirname(relPath).split(path.sep)[0] || 'unknown';
+    results.push({
+      source: 'wiki',
+      page_path: relPath,
+      title: s.frontmatter.title || path.basename(s.filePath, '.md'),
+      category,
+      snippet: s.snippet,
+      relevance: s.relevance,
     });
   }
   return results;

@@ -81,6 +81,8 @@
 
 {{permissions}}
 
+{{wiki_guidance}}
+
 {{attachments}}
 
 {{skills}}

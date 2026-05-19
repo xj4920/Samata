@@ -49,6 +49,7 @@ const commands: Record<string, Command> = {
   'doc-list':   { description: '已导入的文档', usage: '/doc-list', handler: documentImport.cliList },
   'doc-del':    { description: '删除文档及知识', usage: '/doc-del <文档ID>', requiredRole: 'agent_admin', handler: documentImport.cliDelete },
   'doc-retag':  { description: '重生成文档标签', usage: '/doc-retag <文档ID|--all>', requiredRole: 'agent_admin', handler: documentImport.cliRetag },
+  'compile-wiki': { description: '批量编译 Wiki', usage: '/compile-wiki', requiredRole: 'agent_admin', handler: handleCompileWiki },
   plugin:  { description: '插件', usage: '/plugin [list]', handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
@@ -67,6 +68,15 @@ const commands: Record<string, Command> = {
 
   help:    { description: '显示帮助', usage: '/help', handler: showHelp },
 };
+
+async function handleCompileWiki(): Promise<void> {
+  const agent = getCurrentAgent();
+  if (!agent) { log.print('请先切换到一个 Agent'); return; }
+  log.print(`开始编译 Wiki (agent: ${agent.name})...`);
+  const { compileAllDocuments } = await import('../services/wiki-compile.js');
+  const result = await compileAllDocuments(agent.id);
+  log.print(`Wiki 编译完成: ${result.compiled} compiled, ${result.skipped} skipped, ${result.failed} failed`);
+}
 
 function handleWatch(args: string): void {
   const sub = args.trim().toLowerCase();

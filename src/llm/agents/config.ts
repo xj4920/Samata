@@ -37,7 +37,9 @@ export const COMMON_SET = new Set([
   // Archive
   'extract_archive',
   // Wiki
-  'file_to_wiki', 'compile_wiki',
+  'file_to_wiki', 'compile_wiki', 'recompile_document',
+  // Scheduled Tasks
+  'create_scheduled_task', 'list_scheduled_tasks', 'update_scheduled_task', 'delete_scheduled_task',
 ]);
 
 /** Native tools that must only be visible to a single agent instance. */

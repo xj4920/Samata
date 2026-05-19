@@ -1,0 +1,89 @@
+import { getDueScheduledTasks, markTaskExecuted, computeNextRun, type ScheduledTask } from '../commands/scheduled-task.js';
+import { sandboxExecAsync } from '../commands/sandbox.js';
+import { deliverMessage } from './deliver.js';
+import { log } from '../utils/logger.js';
+
+let timer: ReturnType<typeof setInterval> | null = null;
+
+const TAG = '[task-scheduler]';
+
+async function executeRemind(task: ScheduledTask): Promise<string | null> {
+  const payload = JSON.parse(task.payload) as { message: string };
+  const msg = `⏰ 定时提醒（${task.name}）：${payload.message}`;
+  const ok = await deliverMessage(task.channel, task.target_id, task.app_id, msg, TAG);
+  return ok ? 'delivered' : 'delivery_failed';
+}
+
+async function executeSandbox(task: ScheduledTask): Promise<string | null> {
+  const payload = JSON.parse(task.payload) as {
+    language: 'js' | 'shell' | 'python';
+    code: string;
+    notify?: boolean;
+    timeout_ms?: number;
+  };
+
+  const result = await sandboxExecAsync(
+    task.agent_id,
+    task.created_by ?? 'system',
+    { language: payload.language, code: payload.code, timeout_ms: payload.timeout_ms },
+  );
+
+  const summary = result.exit_code === 0
+    ? (result.stdout || '(无输出)').slice(0, 2000)
+    : `[exit ${result.exit_code}] ${(result.stderr || result.stdout || '').slice(0, 2000)}`;
+
+  if (payload.notify) {
+    const msg = `📋 定时任务「${task.name}」执行完成：\n${summary}`;
+    await deliverMessage(task.channel, task.target_id, task.app_id, msg, TAG);
+  }
+
+  return summary;
+}
+
+async function checkAndExecute(): Promise<void> {
+  let tasks: ScheduledTask[];
+  try {
+    tasks = getDueScheduledTasks();
+  } catch (err: any) {
+    log.error(`${TAG} 查询失败: ${err.message}`);
+    return;
+  }
+
+  for (const task of tasks) {
+    try {
+      let result: string | null = null;
+
+      if (task.task_type === 'remind') {
+        result = await executeRemind(task);
+      } else if (task.task_type === 'sandbox_exec') {
+        result = await executeSandbox(task);
+      }
+
+      const nextRun = computeNextRun(task.cron_expr);
+      markTaskExecuted(task.id, result, nextRun);
+      log.file(`${TAG} 已执行: ${task.id.slice(0, 8)} (${task.name}) → next ${new Date(nextRun).toISOString()}`);
+    } catch (err: any) {
+      log.error(`${TAG} 执行失败 ${task.id.slice(0, 8)}: ${err.message}`);
+      // Still advance next_run_at to avoid stuck retries
+      try {
+        const nextRun = computeNextRun(task.cron_expr);
+        markTaskExecuted(task.id, `error: ${err.message}`, nextRun);
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+export function startTaskScheduler(): void {
+  if (timer) return;
+  timer = setInterval(() => {
+    checkAndExecute().catch(err => log.error(`${TAG} checkAndExecute 异常: ${err.message}`));
+  }, 30_000);
+  log.file(`${TAG} 定时任务调度器已启动（轮询间隔 30s）`);
+}
+
+export function stopTaskScheduler(): void {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}

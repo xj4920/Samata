@@ -198,6 +198,24 @@ export function initSchema(): void {
       created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
     );
 
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id          TEXT PRIMARY KEY,
+      agent_id    TEXT NOT NULL,
+      name        TEXT NOT NULL,
+      cron_expr   TEXT NOT NULL,
+      task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec')),
+      payload     TEXT NOT NULL,
+      channel     TEXT NOT NULL,
+      target_id   TEXT,
+      app_id      TEXT,
+      enabled     INTEGER NOT NULL DEFAULT 1,
+      next_run_at INTEGER,
+      last_run_at INTEGER,
+      last_result TEXT,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      created_by  TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS todos (
       id          TEXT PRIMARY KEY,
       agent_id    TEXT REFERENCES agents(id) ON DELETE CASCADE,
@@ -1978,10 +1996,51 @@ export function initSchema(): void {
     }
   });
 
+  runOnce('add-documents-wiki-compiled-hash', () => {
+    try { db.exec("ALTER TABLE documents ADD COLUMN wiki_compiled_hash TEXT"); } catch (e) {}
+  });
+
   runOnce('add-telemetry-user-question', () => {
     const col = db.prepare("PRAGMA table_info(telemetry_turn)").all() as { name: string }[];
     if (!col.some(c => c.name === 'user_question')) {
       db.prepare("ALTER TABLE telemetry_turn ADD COLUMN user_question TEXT NOT NULL DEFAULT ''").run();
+    }
+  });
+
+  // --- Scheduled tasks & crontab tools ---
+
+  // Add crontab tools to all standard-mode agents' tools_list,
+  // and add write tools (crontab + scheduled task mutations) to user_tools_list blocklist.
+  runOnce('add-schedule-and-crontab-tools', () => {
+    const crontabTools = ['list_crontab', 'add_crontab', 'remove_crontab'];
+    const writeToolsToBlock = ['add_crontab', 'remove_crontab', 'create_scheduled_task', 'update_scheduled_task', 'delete_scheduled_task'];
+
+    const rows = db.prepare(
+      "SELECT name, tools_mode, tools_list, user_tools_list FROM agents"
+    ).all() as { name: string; tools_mode: string; tools_list: string | null; user_tools_list: string | null }[];
+
+    for (const row of rows) {
+      const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+      let changed = false;
+
+      // Add crontab tools to tools_list (for standard-mode agents; 'all' agents see everything already)
+      if (row.tools_mode === 'standard') {
+        for (const t of crontabTools) {
+          if (!list.includes(t)) { list.push(t); changed = true; }
+        }
+      }
+
+      // Add write tools to user blocklist
+      for (const t of writeToolsToBlock) {
+        if (!userList.includes(t)) { userList.push(t); changed = true; }
+      }
+
+      if (changed) {
+        db.prepare(
+          "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
+        ).run(JSON.stringify(list), JSON.stringify(userList), row.name);
+      }
     }
   });
 }

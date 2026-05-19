@@ -5,7 +5,8 @@ import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
 import { isInteractive, remoteInput } from '../runtime/execution-context.js';
 import { v4 as uuid } from 'uuid';
-import { grepSearchDocuments, type GrepSearchResult } from '../utils/grep-search.js';
+import { grepSearchDocuments, grepSearchWiki, searchWikiEntitiesExact, type GrepSearchResult, type WikiSearchResult } from '../utils/grep-search.js';
+import { discoverLinks } from '../services/wiki-links.js';
 import { BROAD_BUSINESS_TERMS, expandCJKKeywords } from '../utils/keyword-weights.js';
 
 export interface KnowledgeItem {
@@ -29,6 +30,7 @@ export interface KnowledgeItem {
  * mixing and globally sorting.
  */
 export interface KnowledgeSearchResult {
+  wiki: WikiSearchResult[];
   faq: KnowledgeItem[];
   documents: GrepSearchResult[];
 }
@@ -122,6 +124,8 @@ const DOC_LIMIT = 5;
  * LIKE-weighted FAQ relevance and grep line-count relevance are not on the
  * same scale, so mixing them would silently bias ranking).
  */
+const WIKI_LIMIT = 5;
+
 export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeSearchResult {
   if (!keyword) {
     const db = getDb();
@@ -131,12 +135,32 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeSea
           `SELECT k.* FROM knowledge k WHERE k.id IN (SELECT knowledge_id FROM knowledge_agents WHERE agent_id = ?) AND k.document_id IS NULL ORDER BY k.created_at DESC`,
         ).all(agentId) as KnowledgeItem[]
       : db.prepare(`SELECT k.* FROM knowledge k ${docFilter} ORDER BY k.created_at DESC`).all() as KnowledgeItem[];
-    return { faq, documents: [] };
+    return { wiki: [], faq, documents: [] };
   }
 
-  const faq = searchFAQs(keyword, agentId).slice(0, FAQ_LIMIT);
+  // Phase 4: wiki entity exact match first, then wiki full-text grep
+  const exactWiki = agentId ? searchWikiEntitiesExact(keyword, agentId, WIKI_LIMIT) : [];
+  const exactPaths = new Set(exactWiki.map(w => w.page_path));
+  const grepWiki = agentId
+    ? grepSearchWiki(keyword, agentId, WIKI_LIMIT).filter(w => !exactPaths.has(w.page_path))
+    : [];
+  const wiki = [...exactWiki, ...grepWiki].slice(0, WIKI_LIMIT);
+
   const documents = agentId ? grepSearchDocuments(keyword, agentId, DOC_LIMIT) : [];
-  return { faq, documents };
+  const faq = searchFAQs(keyword, agentId).slice(0, FAQ_LIMIT);
+
+  // Phase 2: async link discovery (fire-and-forget)
+  if (agentId && wiki.length >= 2) {
+    setImmediate(() => {
+      try {
+        discoverLinks(agentId, keyword, wiki.map(w => ({ title: w.title, category: w.category })));
+      } catch (e: any) {
+        log.warn(`[wiki-links] discoverLinks failed: ${e.message}`);
+      }
+    });
+  }
+
+  return { wiki, faq, documents };
 }
 
 export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agentId?: string, limit = 20): KnowledgeItem[] {
@@ -168,14 +192,24 @@ export function fetchKnowledgeByUpdatedTime(since?: string, until?: string, agen
 
 export function search(args: string): void {
   const keyword = args.trim();
-  const { faq, documents } = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
+  const { wiki, faq, documents } = fetchKnowledge(keyword || undefined, getCurrentAgent()?.id);
 
-  if (faq.length === 0 && documents.length === 0) {
+  if (wiki.length === 0 && faq.length === 0 && documents.length === 0) {
     log.print('未找到相关结果');
     return;
   }
 
   const db = getDb();
+
+  if (wiki.length > 0) {
+    log.print(`【Wiki】共 ${wiki.length} 条`);
+    for (const w of wiki) {
+      const tag = w.exact_match ? '精确' : 'grep';
+      log.print(`  [${tag}] ${w.title} (${w.category})`);
+      log.print(`           ${w.snippet.split('\n')[0].slice(0, 80)}`);
+      log.print();
+    }
+  }
 
   if (faq.length > 0) {
     log.print(`【FAQ】共 ${faq.length} 条`);
@@ -300,11 +334,23 @@ export function addKnowledge(fields: { question: string; answer: string; tags?: 
 
   const db = getDb();
   const user = getCurrentUser();
-  const id = uuid();
 
-  db.prepare(
-    'INSERT INTO knowledge (id, question, answer, tags, related_users, created_by) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, fields.question.trim(), fields.answer.trim(), fields.tags || null, fields.related_users || null, user.id);
+  const existing = db.prepare('SELECT id FROM knowledge WHERE question = ?').get(fields.question.trim()) as { id: string } | undefined;
+  if (existing) {
+    return { success: false, error: `已存在相同问题的FAQ (${existing.id.slice(0, 8)})，如需更新请使用 update_knowledge` };
+  }
+
+  const id = uuid();
+  try {
+    db.prepare(
+      'INSERT INTO knowledge (id, question, answer, tags, related_users, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(id, fields.question.trim(), fields.answer.trim(), fields.tags || null, fields.related_users || null, user.id);
+  } catch (e: any) {
+    if (e.message?.includes('UNIQUE constraint')) {
+      return { success: false, error: '该问题已存在，请使用 update_knowledge 更新' };
+    }
+    throw e;
+  }
 
   if (agentId) {
     try {

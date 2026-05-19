@@ -191,3 +191,31 @@ export type GenerateVideoInput = {
   resolution?: string;
   first_frame_image?: string;
 };
+
+// --- Scheduled Tasks ---
+export type CreateScheduledTaskInput = {
+  name: string;
+  cron_expr: string;
+  task_type: 'remind' | 'sandbox_exec';
+  payload: string;
+  timezone?: string;
+};
+export type UpdateScheduledTaskInput = {
+  id: string;
+  enabled?: boolean;
+  cron_expr?: string;
+  name?: string;
+  payload?: string;
+  timezone?: string;
+};
+export type DeleteScheduledTaskInput = { id: string };
+
+// --- System Crontab ---
+export type AddCrontabInput = {
+  cron_expr: string;
+  command: string;
+  comment?: string;
+};
+export type RemoveCrontabInput = {
+  pattern: string;
+};

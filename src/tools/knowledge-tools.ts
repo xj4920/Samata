@@ -9,7 +9,7 @@ import { recordKnowledge as recordKnowledgeTelemetry } from '../telemetry/emitte
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '同时搜索 FAQ 与文档知识，返回结构化的双分组结果：`{ faq: [...], documents: [...] }`。关键词用空格分隔，匹配任一即返回，匹配更多的条目排在前面。中文短语可直接传入（如"雪球产品对冲"），也可拆成 2-4 字短词以提高 FAQ 命中率。如果首次搜索无结果，尝试减少关键词或换用同义词。',
+    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -156,23 +156,39 @@ function extractRelevantSnippet(answer: string, keyword: string): string {
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id;
-  const { faq, documents } = fetchKnowledge(input.keyword, agentId);
+  const { faq, documents, wiki } = fetchKnowledge(input.keyword, agentId);
 
   // Record knowledge search hit for telemetry
-  const totalHits = faq.length + documents.length;
+  const totalHits = faq.length + documents.length + wiki.length;
   recordKnowledgeTelemetry(getCurrentUser()?.id ?? 'unknown', {
     keyword: input.keyword,
     hits: totalHits,
     agent_id: agentId ?? 'unknown',
   });
 
-  if (faq.length === 0 && documents.length === 0) {
+  if (faq.length === 0 && documents.length === 0 && wiki.length === 0) {
     return JSON.stringify({ message: '未找到相关结果，建议换用更短或不同的关键词重试' });
   }
 
   const faqOut: any[] = [];
   const docOut: any[] = [];
+  const wikiOut: any[] = [];
   let totalLen = 0;
+
+  // Wiki results first (compiled knowledge, higher authority)
+  for (const w of wiki) {
+    const entry = {
+      page: w.page_path,
+      title: w.title,
+      category: w.category,
+      snippet: w.snippet,
+      relevance: w.relevance,
+    };
+    const size = JSON.stringify(entry).length;
+    if (totalLen + size > MAX_SEARCH_RESULT_CHARS && wikiOut.length > 0) break;
+    wikiOut.push(entry);
+    totalLen += size;
+  }
 
   for (const item of faq) {
     const shrunkAnswer = extractRelevantSnippet(item.answer, input.keyword);
@@ -203,7 +219,11 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
     totalLen += size;
   }
 
-  return JSON.stringify({ faq: faqOut, documents: docOut });
+  const result: any = {};
+  if (wikiOut.length > 0) result.wiki = wikiOut;
+  if (faqOut.length > 0) result.faq = faqOut;
+  if (docOut.length > 0) result.documents = docOut;
+  return JSON.stringify(result);
 }
 
 function handleAddKnowledge(input: AddKnowledgeInput): string {

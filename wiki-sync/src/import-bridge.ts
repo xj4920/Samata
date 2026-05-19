@@ -47,9 +47,11 @@ interface CliExecuteResponse {
 // Samata HTTP client
 // ---------------------------------------------------------------------------
 
-class SamataClient {
+export class SamataClient {
   private baseUrl: string;
   private sessionId: string | null = null;
+  private username: string = '';
+  private agentName: string = '';
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -70,6 +72,8 @@ class SamataClient {
   }
 
   async createSession(username: string, agentName: string): Promise<void> {
+    this.username = username;
+    this.agentName = agentName;
     const data = await this.request<{ ok: boolean; session: CliSession }>(
       'POST', '/api/cli/session', { username, agentName },
     );
@@ -77,6 +81,27 @@ class SamataClient {
       throw new Error('创建 Samata session 失败: ' + JSON.stringify(data));
     }
     this.sessionId = data.session.sessionId;
+  }
+
+  hasSession(): boolean {
+    return this.sessionId !== null;
+  }
+
+  async ensureSession(): Promise<boolean> {
+    if (!this.username || !this.agentName) return false;
+    // Destroy stale session first (best effort)
+    if (this.sessionId) {
+      try {
+        await this.request('DELETE', '/api/cli/session', { sessionId: this.sessionId });
+      } catch { /* ignore */ }
+      this.sessionId = null;
+    }
+    try {
+      await this.createSession(this.username, this.agentName);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async execute(input: string): Promise<CliExecuteResponse> {
@@ -102,6 +127,30 @@ class SamataClient {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  /** Check if an error message indicates a stale/broken session */
+  private static isSessionError(err: Error): boolean {
+    const msg = err.message;
+    return msg.includes('fetch failed')
+      || msg.includes('会话不存在')
+      || msg.includes('CLI 会话')
+      || msg.includes('session')
+      || msg.includes('ECONNREFUSED')
+      || msg.includes('ETIMEDOUT');
+  }
+
+  async executeWithRetry(input: string, onProgress?: (msg: string) => void): Promise<CliExecuteResponse> {
+    try {
+      return await this.execute(input);
+    } catch (err: any) {
+      if (!SamataClient.isSessionError(err)) throw err;
+      onProgress?.(`  会话失效，重建中...`);
+      const recreated = await this.ensureSession();
+      if (!recreated) throw new Error(`会话重建失败: ${err.message}`);
+      onProgress?.(`  会话已重建，重试...`);
+      return this.execute(input);
     }
   }
 }
@@ -180,6 +229,7 @@ export async function importPage(
   mdPath: string,
   pageId: string,
   version: number,
+  onProgress?: (msg: string) => void,
 ): Promise<ImportResult> {
   const absPath = path.resolve(mdPath);
   if (!fs.existsSync(absPath)) {
@@ -199,7 +249,7 @@ export async function importPage(
   const result: ImportResult = { page_id: pageId, title, version, status: 'failed' };
 
   // 1. Import the markdown page
-  const pageRes = await client.execute(importCmd);
+  const pageRes = await client.executeWithRetry(importCmd, onProgress);
   if (!pageRes.ok) {
     result.error = pageRes.error || pageRes.output?.join('; ') || '导入失败';
     return result;
@@ -224,7 +274,7 @@ export async function importPage(
   const importedAttachments: { filename: string; document_id: string }[] = [];
 
   for (const attPath of attachments) {
-    const attRes = await client.execute(`/doc-import ${attPath}`);
+    const attRes = await client.executeWithRetry(`/doc-import ${attPath}`);
     if (attRes.ok) {
       const attId = parseDocumentId(attRes.output || []);
       if (attId) {
@@ -247,9 +297,10 @@ export async function reimportPage(
   pageId: string,
   version: number,
   oldDocumentId: string,
+  onProgress?: (msg: string) => void,
 ): Promise<ImportResult> {
   // 删除旧文档
-  const delRes = await client.execute(`/doc-del ${oldDocumentId}`);
+  const delRes = await client.executeWithRetry(`/doc-del ${oldDocumentId}`, onProgress);
   if (!delRes.ok) {
     return {
       page_id: pageId,
@@ -261,7 +312,7 @@ export async function reimportPage(
   }
 
   // 导入新版本
-  const result = await importPage(client, mdPath, pageId, version);
+  const result = await importPage(client, mdPath, pageId, version, onProgress);
   result.status = 'updated';
   return result;
 }
@@ -317,8 +368,8 @@ export async function importPages(
 
     try {
       const r = p.oldDocumentId
-        ? await reimportPage(client, p.mdPath, p.pageId, p.version, p.oldDocumentId)
-        : await importPage(client, p.mdPath, p.pageId, p.version);
+        ? await reimportPage(client, p.mdPath, p.pageId, p.version, p.oldDocumentId, onProgress)
+        : await importPage(client, p.mdPath, p.pageId, p.version, onProgress);
       results.push(r);
 
       if (r.status === 'failed') {

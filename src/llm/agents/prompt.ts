@@ -10,6 +10,7 @@ import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 import { loadWorkspace } from '../../session/workspace.js';
 import { loadDreamFile } from '../../services/dream-analyze.js';
+import { loadIndex } from '../../services/wiki-compile.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -89,6 +90,29 @@ function buildDreamBlock(agentName: string): string {
   return content;
 }
 
+/** Build wiki guidance block. Only shown when the agent has wiki content or file_to_wiki tool. */
+function buildWikiGuidance(agentId?: string): string {
+  if (!agentId) return '';
+  const index = loadIndex(agentId);
+  const hasWiki = index.length > 0;
+
+  const guidance = [
+    '知识 Wiki 规范：',
+    '- search_knowledge 返回的 wiki 结果是已编译的综合知识，优先参考',
+    '- 当回答综合了 2+ 个知识源（文档/FAQ/wiki），或发现文档间的关联、矛盾、互补关系时，调用 file_to_wiki 将洞察持久化',
+    '- 用户明确要求"记住这个"或"总结一下"时，也应调用 file_to_wiki',
+    '- **严禁在 wiki 中写入未经知识库验证的信息**：file_to_wiki 的 content 必须完全来源于 search_knowledge 返回的结果，每条信息标注 [来源: FAQ/文档标题]',
+    '- wiki 页面是覆盖式更新（非追加），写入时应包含该主题的完整最新理解',
+  ];
+
+  if (hasWiki) {
+    guidance.push(`- 当前 Wiki 已有内容，可通过 search_knowledge 检索`);
+    guidance.push('- wiki 页面中的 [[xxx]] 是关联页面链接；当需要更完整上下文时，对链接目标再次 search_knowledge 即可跟链获取');
+  }
+
+  return guidance.join('\n');
+}
+
 /** Build the full system prompt for an agent, injecting user context */
 export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
   const u = user ?? getCurrentUser();
@@ -103,6 +127,7 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     skills: buildSkillsBlock(agentId),
     memory: buildMemoryBlock(agentId) ?? '',
     dream: buildDreamBlock(agent.name),
+    wiki_guidance: buildWikiGuidance(agentId),
     user_context: loadWorkspace(agent.name, u.id),
     datetime: buildDateTimeBlock(),
   };

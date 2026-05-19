@@ -72,6 +72,7 @@ function detectFileType(filePath: string): string | null {
     '.xlsx': 'xlsx', '.xls': 'xlsx', '.csv': 'csv',
     '.pdf': 'pdf',
     '.png': 'png', '.jpg': 'jpg', '.jpeg': 'jpg', '.gif': 'gif', '.webp': 'webp', '.svg': 'svg',
+    '.html': 'html', '.htm': 'html',
   };
   return map[ext] ?? null;
 }
@@ -497,38 +498,14 @@ async function tryLLMChunking(chunks: Chunk[], rawContent: string, docTitle: str
   return chunks;
 }
 
-/** Generate tags for a document via LLM (replaces chunking — only produces tags now) */
-async function generateTagsWithLLM(markdown: string, docTitle: string, agentId: string): Promise<string> {
-  if (markdown.length <= 500) return docTitle;
-
-  const tagCandidates = collectTagCandidatesFromFs(agentId);
-  const tagInstruction = tagCandidates.length > 0
-    ? `\n可选标签（从中选取 1-5 个最相关的）：\n${tagCandidates.join('、')}\n如标签列表中没有合适的，可新建一个简短标签。`
-    : '\n为文档生成 1-5 个简短标签。';
-
-  const excerpt = markdown.length > 2000 ? markdown.slice(0, 2000) + '…' : markdown;
-
-  try {
-    const provider = getProvider();
-    const response = await provider.createMessage({
-      model: getModelName(),
-      max_tokens: 500,
-      system: '你是一个文档标签专家。请直接返回逗号分隔的标签字符串，不要使用 markdown 代码块包裹。',
-      tools: [],
-      messages: [{
-        role: 'user',
-        content: `为以下文档生成标签。\n\n文档标题：${docTitle}\n\n文档开头：\n${excerpt}\n\n${tagInstruction}\n\n只返回逗号分隔的标签，如：场外期权,定价,雪球`,
-      }],
-    });
-
-    const text = response.content[0];
-    if (text.type !== 'text') return docTitle;
-    const tags = text.text.trim().replace(/^```.*\n?/, '').replace(/\n?```$/, '').trim();
-    return tags || docTitle;
-  } catch (e: any) {
-    log.warn(`LLM 标签生成失败，使用标题作为默认标签: ${e.message}`);
-    return docTitle;
-  }
+/**
+ * Generate tags for a document.
+ * LLM-based tag extraction is disabled: bulk import showed it consistently
+ * returns the title verbatim (tag candidates snowball effect). Use
+ * `/doc-retag --all` after import if meaningful tags are needed.
+ */
+async function generateTagsWithLLM(markdown: string, docTitle: string, _agentId: string): Promise<string> {
+  return docTitle;
 }
 
 // ---------------------------------------------------------------------------
@@ -647,7 +624,11 @@ async function loadAndChunk(
 
   switch (fileType) {
     case 'md': {
-      markdown = fs.readFileSync(filePath, 'utf-8');
+      let raw = fs.readFileSync(filePath, 'utf-8');
+      if (filePath.includes('.excalidraw.')) {
+        raw = raw.replace(/%%\n[\s\S]*?%%/g, '').replace(/<!--\s*excalidraw[\s\S]*?-->/gi, '');
+      }
+      markdown = raw;
       break;
     }
 
@@ -713,6 +694,22 @@ async function loadAndChunk(
       break;
     }
 
+    case 'html': {
+      const html = fs.readFileSync(filePath, 'utf-8');
+      const TurndownService = (await import('turndown')).default;
+      // @ts-expect-error - no @types/turndown-plugin-gfm
+      const { gfm } = await import('turndown-plugin-gfm');
+      const turndown = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced',
+        bulletListMarker: '-',
+        emDelimiter: '*',
+      });
+      turndown.use(gfm);
+      markdown = turndown.turndown(html);
+      break;
+    }
+
     case 'png':
     case 'jpg':
     case 'gif':
@@ -770,7 +767,7 @@ async function loadAndChunk(
 export async function importDocument(
   filePath: string,
   agentId: string,
-  options?: { title?: string; docDate?: string; actorUserId?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
+  options?: { title?: string; docDate?: string; actorUserId?: string; skipCompile?: boolean; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<ImportResult> {
   const perm = ensureDocWriteAccess(agentId);
   if (!perm.success) return { success: false, error: perm.error };
@@ -847,6 +844,14 @@ export async function importDocument(
   ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, relPath, sizeBytes, contentHash, docDate || null);
 
   recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType });
+
+  if (!options?.skipCompile) {
+    import('../services/wiki-compile.js').then(({ compileDocumentToWiki }) => {
+      compileDocumentToWiki(agentId, docTitle, markdown, docId).catch(err => {
+        log.warn(`[wiki-compile] async compilation failed for ${docTitle}: ${err.message}`);
+      });
+    }).catch(() => {});
+  }
 
   return {
     success: true,
@@ -958,22 +963,35 @@ export function getDocumentContent(docIdPrefix: string): { content: string; form
 
 export async function cliImport(args: string): Promise<void> {
   // Parse optional --doc-date <YYYY-MM-DD> and --title <title> from args
+  // --title comes last and may contain spaces; --doc-date is a single word
   let docDate: string | undefined;
   let title: string | undefined;
   let rest = args.trim();
-  for (const flag of ['--doc-date', '--title']) {
-    const m = rest.match(new RegExp(`\\s+${flag.replace(/-/g, '\\-')}\\s+(\\S+)`));
-    if (m) {
-      if (flag === '--doc-date') docDate = m[1];
-      else title = m[1];
-      rest = rest.replace(m[0], ' ');
-    }
-  }
-  rest = rest.trim();
 
-  const filePath = rest;
+  // Extract --title (captures everything after the flag since it's always the last arg)
+  const titleIdx = rest.lastIndexOf(' --title ');
+  if (titleIdx !== -1) {
+    title = rest.slice(titleIdx + 9).trim();
+    rest = rest.slice(0, titleIdx);
+  }
+
+  // Extract --doc-date <YYYY-MM-DD>
+  const dateMatch = rest.match(/\s+--doc-date\s+(\S+)/);
+  if (dateMatch) {
+    docDate = dateMatch[1];
+    rest = rest.replace(dateMatch[0], '');
+  }
+
+  // Extract --no-compile
+  let skipCompile = false;
+  if (rest.includes('--no-compile')) {
+    skipCompile = true;
+    rest = rest.replace(/\s*--no-compile\s*/, ' ');
+  }
+
+  const filePath = rest.trim();
   if (!filePath) {
-    log.print('用法: /doc-import <文件路径> [--doc-date YYYY-MM-DD] [--title <标题>]');
+    log.print('用法: /doc-import <文件路径> [--no-compile] [--doc-date YYYY-MM-DD] [--title <标题>]');
     return;
   }
 
@@ -983,7 +1001,7 @@ export async function cliImport(args: string): Promise<void> {
     return;
   }
 
-  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id, docDate, title });
+  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id, docDate, title, skipCompile });
   if (result.success) {
     log.print(`文档已导入: [${result.documentId}] ${result.title}`);
     if (result.topics && result.topics.length > 0) {

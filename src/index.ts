@@ -10,6 +10,7 @@ import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startHedgeRatioMonitor, stopHedgeRatioMonitor } from './services/hedge-ratio-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
+import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
 import { initPlugins, stopPluginWatcher } from './plugins/registry.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
@@ -30,6 +31,7 @@ export function gracefulShutdown(): void {
   stopMonitor();
   stopHedgeRatioMonitor();
   stopReminderScheduler();
+  stopTaskScheduler();
   stopAllFeishuBots();
   stopAllWeworkBots();
   stopMcpServers();
@@ -385,6 +387,9 @@ async function main(): Promise<void> {
 
   // 启动提醒调度器
   startReminderScheduler();
+
+  // 启动定时任务调度器
+  startTaskScheduler();
 
   // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
   initMcpServers().catch(() => {});

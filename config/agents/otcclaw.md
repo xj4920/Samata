@@ -82,6 +82,8 @@
 - 需要截图时使用 mcp_devtools_take_screenshot
 - 需要在页面上执行 JS 时使用 mcp_devtools_evaluate_script
 
+{{wiki_guidance}}
+
 {{attachments}}
 
 {{skills}}
