@@ -1051,11 +1051,11 @@ async function writeToPostgres(
   }
 
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  const pgHost = config.PG_HOST || '10.8.0.1';
-  const pgPort = config.PG_PORT || 5432;
-  const pgUser = config.PG_USER || 'wind_sync';
-  const pgPass = config.PG_PASS || 'wind_sync';
-  const pgDb = 'samata';
+  const pgHost = config.LOG_PG_HOST || '10.8.0.1';
+  const pgPort = config.LOG_PG_PORT || 5432;
+  const pgUser = config.LOG_PG_USER || 'wind_sync';
+  const pgPass = config.LOG_PG_PASS || 'wind_sync';
+  const pgDb = config.LOG_PG_DB || 'samata';
 
   // Dynamic require via createRequire for ESM compat
   const { Client } = nodeRequire('pg');
