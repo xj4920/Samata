@@ -278,7 +278,7 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     const page = await browser.newPage();
-    await page.setViewport({ width, height: 800, deviceScaleFactor: 2 });
+    await page.setViewport({ width, height: 800, deviceScaleFactor: 3 });
     await page.setContent(html, { waitUntil: hasMermaid ? 'networkidle0' : 'domcontentloaded' });
 
     if (hasMermaid) {
@@ -300,7 +300,7 @@ async function handleMarkdownToImage(input: MarkdownToImageInput): Promise<strin
       }
     }
 
-    await page.setViewport({ width: effectiveWidth, height: Math.max(contentHeight, 1), deviceScaleFactor: 2 });
+    await page.setViewport({ width: effectiveWidth, height: Math.max(contentHeight, 1), deviceScaleFactor: 3 });
 
     await page.screenshot({ path: tmpFile, fullPage: false });
   } finally {

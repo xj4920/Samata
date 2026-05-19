@@ -37,7 +37,7 @@ export const COMMON_SET = new Set([
   // Archive
   'extract_archive',
   // Wiki
-  'file_to_wiki', 'compile_wiki', 'recompile_document',
+  'file_to_wiki',
   // Scheduled Tasks
   'create_scheduled_task', 'list_scheduled_tasks', 'update_scheduled_task', 'delete_scheduled_task',
 ]);

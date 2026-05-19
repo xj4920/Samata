@@ -7,7 +7,7 @@ import * as os from 'os';
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'extract_archive',
-    description: '解压压缩包文件，支持 .zip、.rar、.tar.gz、.tgz、.tar.bz2、.tar 格式。解压后返回文件列表和输出目录。',
+    description: '解压压缩包文件，支持 .zip、.rar、.7z、.tar.gz、.tgz、.tar.bz2、.tar 格式。解压后返回文件列表和输出目录。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -26,10 +26,11 @@ function resolveFilePath(filePath: string): string {
   return path.resolve(filePath);
 }
 
-function detectFormat(filePath: string): 'zip' | 'rar' | 'tar' | null {
+function detectFormat(filePath: string): 'zip' | 'rar' | 'tar' | '7z' | null {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.zip')) return 'zip';
   if (lower.endsWith('.rar')) return 'rar';
+  if (lower.endsWith('.7z')) return '7z';
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.tar.bz2') || lower.endsWith('.tar')) return 'tar';
   return null;
 }
@@ -67,10 +68,10 @@ function handleExtractArchive(input: { file_path: string; output_dir?: string })
 
   const format = detectFormat(resolved);
   if (!format) {
-    return JSON.stringify({ error: `不支持的格式，支持: .zip, .rar, .tar.gz, .tgz, .tar.bz2, .tar` });
+    return JSON.stringify({ error: `不支持的格式，支持: .zip, .rar, .7z, .tar.gz, .tgz, .tar.bz2, .tar` });
   }
 
-  const basename = path.basename(resolved).replace(/\.(zip|rar|tar\.gz|tgz|tar\.bz2|tar)$/i, '');
+  const basename = path.basename(resolved).replace(/\.(zip|rar|7z|tar\.gz|tgz|tar\.bz2|tar)$/i, '');
   const outDir = input.output_dir
     ? resolveFilePath(input.output_dir)
     : path.join(os.tmpdir(), 'samata', 'extracted', `${basename}-${Date.now()}`);
@@ -93,6 +94,12 @@ function handleExtractArchive(input: { file_path: string; output_dir?: string })
           return JSON.stringify({ error: '系统未安装 unrar，请执行: sudo apt install unrar' });
         }
         execSync(`unrar x -o+ "${resolved}" "${outDir}/"`, { stdio: 'pipe' });
+        break;
+      case '7z':
+        if (!commandExists('7z')) {
+          return JSON.stringify({ error: '系统未安装 7z，请执行: sudo apt install p7zip-full' });
+        }
+        execSync(`7z x "${resolved}" -o"${outDir}" -y`, { stdio: 'pipe' });
         break;
     }
   } catch (err: any) {

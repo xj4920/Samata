@@ -55,7 +55,7 @@ async function handleRenderDiagram(input: RenderDiagramInput): Promise<string> {
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     const page = await browser.newPage();
-    await page.setViewport({ width, height: 800, deviceScaleFactor: 2 });
+    await page.setViewport({ width, height: 800, deviceScaleFactor: 3 });
     await page.setContent(html, { waitUntil: 'networkidle0' });
 
     await page.waitForFunction(
@@ -90,7 +90,16 @@ const plugin: PluginModule = {
   toolDefinitions: [
     {
       name: 'render_diagram',
-      description: '将 Mermaid DSL 代码渲染为 PNG 图片。支持 flowchart、sequence、class、ER、gantt、pie、mindmap 等所有 Mermaid 图表类型。生成后返回本地路径，需要发送给用户请继续调用 send_image。',
+      description: [
+        '将 Mermaid DSL 代码渲染为 PNG 图片。支持 flowchart、sequence、class、ER、gantt、pie、mindmap 等所有 Mermaid 图表类型。生成后返回本地路径，需要发送给用户请继续调用 send_image。',
+        '',
+        '清晰度要求（重要）：',
+        '- 每张图节点不超过 15 个；超过时拆分为多张图',
+        '- 节点文字简短（≤10 字），详细说明放到图外的文字解释中',
+        '- 优先使用 TD（从上到下）布局；横向节点超过 5 个时改用 LR',
+        '- 避免过多交叉连线；用 subgraph 分组减少视觉复杂度',
+        '- 复杂架构拆成"总览图 + 局部图"多张输出',
+      ].join('\n'),
       input_schema: {
         type: 'object' as const,
         properties: {

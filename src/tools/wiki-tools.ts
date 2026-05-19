@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
-import { writeWikiPage, compileAllDocuments, recompileDocument } from '../services/wiki-compile.js';
-import { isAgentAdmin } from '../auth/rbac.js';
+import { writeWikiPage } from '../services/wiki-compile.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -26,26 +25,6 @@ export const toolDefinitions: Anthropic.Tool[] = [
       required: ['title', 'category', 'content'],
     },
   },
-  {
-    name: 'compile_wiki',
-    description: '对当前 Agent 的所有已导入文档执行 Wiki 编译（回溯构建知识网络）。跳过 content_hash 未变的文档。需管理员权限。',
-    input_schema: {
-      type: 'object' as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: 'recompile_document',
-    description: '在 document 内容被 edit_file 修改后，purge 旧 wiki 片段并重新编译该文档。需提供文档 ID 前缀（list_documents 获取）。',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id_prefix: { type: 'string', description: '文档 ID 或 8 位前缀' },
-      },
-      required: ['id_prefix'],
-    },
-  },
 ];
 
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
@@ -68,35 +47,6 @@ export async function handleTool(name: string, input: any, _ctx?: ToolContext): 
 
     const result = writeWikiPage(agent.id, title, category, content, related_pages);
     return JSON.stringify(result);
-  }
-
-  if (name === 'compile_wiki') {
-    const agent = getCurrentAgent();
-    if (!agent) {
-      return JSON.stringify({ success: false, error: '无法确定当前 Agent' });
-    }
-    if (!isAgentAdmin(agent.id)) {
-      return JSON.stringify({ success: false, error: '权限不足：需要 Agent 管理员权限' });
-    }
-
-    const result = await compileAllDocuments(agent.id);
-    return JSON.stringify({ success: true, ...result });
-  }
-
-  if (name === 'recompile_document') {
-    const agent = getCurrentAgent();
-    if (!agent) {
-      return JSON.stringify({ success: false, error: '无法确定当前 Agent' });
-    }
-    if (!isAgentAdmin(agent.id)) {
-      return JSON.stringify({ success: false, error: '权限不足：需要 Agent 管理员权限' });
-    }
-    const { id_prefix } = input as { id_prefix?: string };
-    if (!id_prefix?.trim()) {
-      return JSON.stringify({ success: false, error: '缺少 id_prefix' });
-    }
-    const ok = await recompileDocument(agent.id, id_prefix.trim());
-    return JSON.stringify({ success: ok, message: ok ? 'wiki 已重新编译' : '编译失败，请检查文档是否存在' });
   }
 
   return null;

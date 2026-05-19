@@ -767,7 +767,7 @@ async function loadAndChunk(
 export async function importDocument(
   filePath: string,
   agentId: string,
-  options?: { title?: string; docDate?: string; actorUserId?: string; skipCompile?: boolean; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
+  options?: { title?: string; docDate?: string; actorUserId?: string; onProgress?: (event: { type: 'tool_progress'; message: string }) => void },
 ): Promise<ImportResult> {
   const perm = ensureDocWriteAccess(agentId);
   if (!perm.success) return { success: false, error: perm.error };
@@ -844,14 +844,6 @@ export async function importDocument(
   ).run(docId, docTitle, resolved, fileType, agentId, actorUserId, relPath, sizeBytes, contentHash, docDate || null);
 
   recordEvent('document', docId, 'import', { title: docTitle, file_type: fileType });
-
-  if (!options?.skipCompile) {
-    import('../services/wiki-compile.js').then(({ compileDocumentToWiki }) => {
-      compileDocumentToWiki(agentId, docTitle, markdown, docId).catch(err => {
-        log.warn(`[wiki-compile] async compilation failed for ${docTitle}: ${err.message}`);
-      });
-    }).catch(() => {});
-  }
 
   return {
     success: true,
@@ -982,16 +974,9 @@ export async function cliImport(args: string): Promise<void> {
     rest = rest.replace(dateMatch[0], '');
   }
 
-  // Extract --no-compile
-  let skipCompile = false;
-  if (rest.includes('--no-compile')) {
-    skipCompile = true;
-    rest = rest.replace(/\s*--no-compile\s*/, ' ');
-  }
-
   const filePath = rest.trim();
   if (!filePath) {
-    log.print('用法: /doc-import <文件路径> [--no-compile] [--doc-date YYYY-MM-DD] [--title <标题>]');
+    log.print('用法: /doc-import <文件路径> [--doc-date YYYY-MM-DD] [--title <标题>]');
     return;
   }
 
@@ -1001,7 +986,7 @@ export async function cliImport(args: string): Promise<void> {
     return;
   }
 
-  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id, docDate, title, skipCompile });
+  const result = await importDocument(filePath, agentId, { actorUserId: getCurrentUser().id, docDate, title });
   if (result.success) {
     log.print(`文档已导入: [${result.documentId}] ${result.title}`);
     if (result.topics && result.topics.length > 0) {
