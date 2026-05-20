@@ -1,9 +1,9 @@
 import { getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, getAgentTools, saveAssignment, deleteAssignment, listAssignments, getBotApp, saveBotApp, getBotAppsByChannel, type BotAppRow, type AgentConfig, TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
-import { setCurrentAgent, getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
+import { getCurrentAgent, resetConversation, getGlobalTools } from '../llm/agent.js';
 import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { renderTable } from '../utils/table.js';
-import { isInteractive, remoteInput, remoteSelect, remoteConfirm } from '../runtime/execution-context.js';
+import { isInteractive, remoteInput, remoteSelect, remoteConfirm, setContextAgent } from '../runtime/execution-context.js';
 import { getDb } from '../db/connection.js';
 
 export async function handleAgent(args: string): Promise<void> {
@@ -250,9 +250,8 @@ function switchAgent(name: string): void {
     return;
   }
 
-  // Clear history when switching agents
   resetConversation();
-  setCurrentAgent(agent);
+  setContextAgent(agent);
   log.print(`已切换到 Agent: ${agent.displayName} (${agent.name})`);
   if (agent.description) {
     log.print(`  ${agent.description}`);
@@ -297,7 +296,7 @@ function delAgent(name: string): void {
   const current = getCurrentAgent();
   if (current?.name === name) {
     resetConversation();
-    setCurrentAgent(undefined);
+    setContextAgent(undefined);
     log.print('已切回默认 Agent');
   }
 }

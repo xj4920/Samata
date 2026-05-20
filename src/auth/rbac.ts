@@ -8,6 +8,7 @@ export interface User {
   id: string;
   username: string;
   role: Role;
+  display_name?: string;
 }
 
 let fallbackUser: User | null = null;
@@ -62,12 +63,12 @@ export function requireAgentAdmin(agentId: string): void {
 
 export function getAllUsers(): User[] {
   const db = getDb();
-  return db.prepare('SELECT id, username, role FROM users').all() as User[];
+  return db.prepare('SELECT id, username, role, display_name FROM users').all() as User[];
 }
 
 export function getUser(id: string): User | undefined {
   const db = getDb();
-  return db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(id) as User | undefined;
+  return db.prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(id) as User | undefined;
 }
 
 function resolveUniqueUsername(db: any, username: string, selfId: string): string {
@@ -77,21 +78,35 @@ function resolveUniqueUsername(db: any, username: string, selfId: string): strin
   return `${username}_${suffix}`;
 }
 
-export function getOrCreateUser(id: string, username: string, role: Role = 'user'): User {
+export function getOrCreateUser(id: string, username: string, role: Role = 'user', displayName?: string): User {
   const db = getDb();
   const existing = getUser(id);
   if (existing) {
+    let changed = false;
+    let newUsername = existing.username;
+    let newDisplayName = existing.display_name;
+
     if (existing.username !== username) {
-      const unique = resolveUniqueUsername(db, username, id);
-      db.prepare('UPDATE users SET username = ? WHERE id = ?').run(unique, id);
-      return { ...existing, username: unique };
+      newUsername = resolveUniqueUsername(db, username, id);
+      changed = true;
+    }
+    if (displayName && displayName !== existing.display_name) {
+      newDisplayName = displayName;
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare('UPDATE users SET username = ?, display_name = ? WHERE id = ?')
+        .run(newUsername, newDisplayName ?? null, id);
+      return { ...existing, username: newUsername, display_name: newDisplayName };
     }
     return existing;
   }
 
   const unique = resolveUniqueUsername(db, username, id);
-  db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)').run(id, unique, role);
-  return { id, username: unique, role };
+  db.prepare('INSERT INTO users (id, username, role, display_name) VALUES (?, ?, ?, ?)')
+    .run(id, unique, role, displayName ?? null);
+  return { id, username: unique, role, display_name: displayName };
 }
 
 export function createUser(username: string, role: Role = 'user'): User {

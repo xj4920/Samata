@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { route } from '../commands/router.js';
 import { runAgenticChat } from '../llm/agent.js';
-import { getAgent, getCurrentAgent, setCurrentAgent } from '../llm/agents/config.js';
+import { getAgent, getCurrentAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { runWithCapturedOutput, runWithExecutionContext } from '../runtime/execution-context.js';
 import { getCliSession, resetCliSession, toCliSessionInfo, updateCliSession, waitForPromptReply } from './cli-session.js';
@@ -15,11 +15,9 @@ function trimOutput(lines: string[]): string[] {
 
 export async function executeCliInput(sessionId: string, input: string): Promise<CliExecuteResponse> {
   const session = getCliSession(sessionId);
-  const prevAgent = getCurrentAgent();
+  const agent = getAgent(session.agentName);
 
   try {
-    setCurrentAgent(getAgent(session.agentName));
-
     if (input.trim() === '/reset') {
       const next = resetCliSession(sessionId);
       return {
@@ -30,7 +28,7 @@ export async function executeCliInput(sessionId: string, input: string): Promise
     }
 
     if (input.trim().startsWith('/')) {
-      const { output } = await runWithCapturedOutput({ channel: 'cli', user: session.user }, async () => {
+      const { output } = await runWithCapturedOutput({ channel: 'cli', user: session.user, agent }, async () => {
         await route(input);
       });
 
@@ -44,8 +42,7 @@ export async function executeCliInput(sessionId: string, input: string): Promise
       };
     }
 
-    const agent = getAgent(session.agentName);
-    const reply = await runWithCapturedOutput({ channel: 'cli', user: session.user }, async () => {
+    const reply = await runWithCapturedOutput({ channel: 'cli', user: session.user, agent }, async () => {
       return await runAgenticChat(session.history, input, session.user, {
         streamEnabled: false,
         showThinking: false,
@@ -75,8 +72,6 @@ export async function executeCliInput(sessionId: string, input: string): Promise
       output: [],
       error: err.message ?? String(err),
     };
-  } finally {
-    setCurrentAgent(prevAgent);
   }
 }
 
@@ -86,11 +81,9 @@ export async function executeCliStream(
   emit: (event: CliStreamEvent) => void,
 ): Promise<void> {
   const session = getCliSession(sessionId);
-  const prevAgent = getCurrentAgent();
+  const agent = getAgent(session.agentName);
 
   try {
-    setCurrentAgent(getAgent(session.agentName));
-
     if (input.trim() === '/reset') {
       const next = resetCliSession(sessionId);
       emit({ type: 'log', line: 'AI 对话上下文已重置' });
@@ -106,7 +99,7 @@ export async function executeCliStream(
 
     if (input.trim().startsWith('/')) {
       await runWithExecutionContext(
-        { channel: 'cli', user: session.user, interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
+        { channel: 'cli', user: session.user, agent, interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
         async () => { await route(input); },
       );
 
@@ -117,9 +110,8 @@ export async function executeCliStream(
       return;
     }
 
-    const agent = getAgent(session.agentName);
     await runWithExecutionContext(
-      { channel: 'cli', user: session.user, interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
+      { channel: 'cli', user: session.user, agent, interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
       async () => {
         await runAgenticChat(session.history, input, session.user, {
           streamEnabled: true,
@@ -140,7 +132,5 @@ export async function executeCliStream(
   } catch (err: any) {
     log.error(`CLI stream 执行失败: ${err.message}`);
     emit({ type: 'error', message: err.message ?? String(err) });
-  } finally {
-    setCurrentAgent(prevAgent);
   }
 }

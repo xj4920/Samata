@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getProvider, getProviderName, getProviderByName, getModelName, type ProviderName, type CreateMessageParams, type CreateMessageResult } from './provider.js';
 import { getCurrentUser, type User } from '../auth/rbac.js';
 import type { AgentConfig } from './agents/config.js';
-import { getAgentTools, getDefaultAgent, getCurrentAgent, setCurrentAgent, type DeliveryContext, type ToolContext } from './agents/config.js';
+import { getAgentTools, getDefaultAgent, getCurrentAgent, type DeliveryContext, type ToolContext } from './agents/config.js';
 import { buildSystemPrompt } from './agents/prompt.js';
 import { isPendingReload, setPendingReload } from './reload.js';
 import { getAllNativeTools, executeNativeTool } from '../tools/index.js';
@@ -19,7 +19,7 @@ import { startTurn, recordLLM, recordTool, endTurn } from '../telemetry/emitter.
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
-export { getCurrentAgent, setCurrentAgent };
+export { getCurrentAgent };
 
 const showThinking = () => process.env.SHOW_THINKING !== 'false';
 
@@ -714,10 +714,6 @@ export async function runAgenticChat(
     return r;
   }
 
-  // 设置当前 agent 上下文，供 tool handler（如 search_knowledge）按 agent 过滤数据
-  const prevAgent = getCurrentAgent();
-  if (agent) setCurrentAgent(agent);
-
   // 图片预处理：优先用当前 provider.describeImage，fallback 到 anthropic（Claude 原生多模态）
   let processedImages: ImageInput[] | undefined = images;
   let processedInput = userInput;
@@ -1293,5 +1289,4 @@ export async function chat(userInput: string): Promise<void> {
 
 export function resetConversation(): void {
   conversationHistory = [];
-  setCurrentAgent(undefined);
 }

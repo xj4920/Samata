@@ -974,6 +974,13 @@ export async function cliImport(args: string): Promise<void> {
     rest = rest.replace(dateMatch[0], '');
   }
 
+  // Extract --no-compile
+  let skipCompile = false;
+  if (rest.includes('--no-compile')) {
+    skipCompile = true;
+    rest = rest.replace(/\s*--no-compile\s*/, ' ');
+  }
+
   const filePath = rest.trim();
   if (!filePath) {
     log.print('用法: /doc-import <文件路径> [--doc-date YYYY-MM-DD] [--title <标题>]');

@@ -17,6 +17,7 @@ import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './fei
 import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
+import { getDefaultAgent } from './llm/agents/config.js';
 import { getAllSkills } from './commands/skill.js';
 import { startCliApiServer } from './server/cli-api.js';
 import type { Server } from 'node:http';
@@ -340,7 +341,8 @@ async function repl(): Promise<void> {
       process.stdin.on('data', onData);
 
       try {
-        await runWithExecutionContext({ channel: 'cli', interactive: true }, async () => {
+        const agent = getCurrentAgent() ?? getDefaultAgent();
+        await runWithExecutionContext({ channel: 'cli', interactive: true, agent }, async () => {
           await route(trimmed);
         });
       } catch (err: any) {

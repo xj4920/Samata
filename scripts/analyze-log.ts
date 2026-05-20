@@ -521,7 +521,7 @@ function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
       turns.push({
         time: toUTC8(new Date(t.started_at).toISOString()),
         startIso: new Date(t.started_at).toISOString(),
-        userid: `${t.channel}_${userSuffix}`,
+        userid: t.user_id,
         channel: (VALID_CHANNELS.includes(t.channel as Channel) ? t.channel : 'cli') as Channel,
         chattype: t.channel === 'cli' ? 'CLI' : '私聊',
         msgtype: 'text',
@@ -838,7 +838,7 @@ function buildTelemetrySections(turns: TurnRecord[]): string[] {
   return lines;
 }
 
-function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map<string, string>): string {
+function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map<string, string>, userNameMap: Map<string, string>): string {
   const lines: string[] = [];
   const isTelemetry = reportSource === 'telemetry';
 
@@ -858,7 +858,8 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
     const agent = sanitizeTableCell(resolveAgentName(turn.agent, agentNameMap));
     const toolSummary = formatTurnToolSummary(turn);
     const latency = sanitizeTableCell(formatTurnLatency(turn));
-    lines.push(`| ${i + 1} | ${turn.time} | ${turn.userid} | ${ch} | ${agent} | ${turn.chattype} | ${content} | ${toolSummary} | ${latency} |`);
+    const userName = resolveUserName(turn.userid, userNameMap);
+    lines.push(`| ${i + 1} | ${turn.time} | ${userName} | ${ch} | ${agent} | ${turn.chattype} | ${content} | ${toolSummary} | ${latency} |`);
   });
 
   const userCount = new Map<string, number>();
@@ -907,7 +908,8 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
   lines.push('| 用户 | 提问数 |');
   lines.push('|------|--------|');
   for (const [user, count] of [...userCount.entries()].sort((a, b) => b[1] - a[1])) {
-    lines.push(`| ${user} | ${count} |`);
+    const displayUser = resolveUserName(user, userNameMap);
+    lines.push(`| ${displayUser} | ${count} |`);
   }
 
   if (typeCount.size > 1) {
@@ -982,7 +984,7 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
   }
 
   // Anomaly monitoring (errors, no-reply, tool exhaustion, dead loops)
-  lines.push(...buildAnomalyReport(turns, agentNameMap));
+  lines.push(...buildAnomalyReport(turns, agentNameMap, userNameMap));
 
   // Telemetry-only sections
   if (reportSource === 'telemetry') {
@@ -1008,7 +1010,7 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
   return lines.join('\n');
 }
 
-function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>): string {
+function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>, userNameMap: Map<string, string>): string {
   const isTelemetry = reportSource === 'telemetry';
   const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '工具数', '耗时ms'];
   const telemetryHeaders = ['输入token', '输出token', 'ctx_ms', 'llm_ms', 'tool_ms', 'render_ms', 'loop轮次', 'stop_reason', 'knowledge命中', '工具成功', '工具失败'];
@@ -1019,8 +1021,9 @@ function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>): strin
     const content = turn.content.replace(/"/g, '""').replace(/\n/g, ' ');
     const ch = CHANNEL_LABEL[turn.channel];
     const agent = resolveAgentName(turn.agent, agentNameMap);
+    const userName = resolveUserName(turn.userid, userNameMap);
     const baseFields = [
-      i + 1, `"${turn.time}"`, `"${turn.userid}"`, `"${ch}"`, `"${agent}"`,
+      i + 1, `"${turn.time}"`, `"${userName}"`, `"${ch}"`, `"${agent}"`,
       `"${turn.chattype}"`, `"${turn.msgtype}"`, `"${content}"`,
       turn.toolCount, turn.latencyMs ?? '',
     ];
@@ -1043,6 +1046,7 @@ async function writeToPostgres(
   dates: string[],
   source: DataSource,
   agentNameMap: Map<string, string>,
+  userNameMap: Map<string, string>,
 ): Promise<void> {
   const configPath = join(process.cwd(), '..', 'dataSync', 'config', 'config.json');
   if (!existsSync(configPath)) {
@@ -1077,6 +1081,7 @@ async function writeToPostgres(
         id SERIAL PRIMARY KEY,
         time TIMESTAMPTZ NOT NULL,
         user_id TEXT NOT NULL,
+        user_name TEXT,
         channel TEXT NOT NULL,
         agent_name TEXT,
         chat_type TEXT,
@@ -1090,6 +1095,11 @@ async function writeToPostgres(
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+
+    // Add user_name column if table already existed without it
+    try {
+      await client.query('ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS user_name TEXT');
+    } catch { /* column may already exist */ }
 
     // Create unique index (ignore error if already exists)
     try {
@@ -1108,6 +1118,7 @@ async function writeToPostgres(
     let inserted = 0;
     for (const turn of turns) {
       const agentName = resolveAgentName(turn.agent, agentNameMap);
+      const userName = userNameMap.get(turn.userid) || null;
       const userQuestion = isTelemetry ? (turn.userQuestion || null) : turn.content;
       const answerPreview = isTelemetry ? turn.content : null;
       const toolCallsJson = turn.toolCalls.length > 0 ? JSON.stringify(turn.toolCalls) : null;
@@ -1115,12 +1126,13 @@ async function writeToPostgres(
       try {
         await client.query(
           `INSERT INTO samata_user_questions
-             (time, user_id, channel, agent_name, chat_type,
+             (time, user_id, user_name, channel, agent_name, chat_type,
               user_question, answer_preview, tool_calls, tool_count,
               latency_ms, source, report_date)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
            ON CONFLICT (report_date, time, user_id)
            DO UPDATE SET
+             user_name = COALESCE(EXCLUDED.user_name, samata_user_questions.user_name),
              agent_name = EXCLUDED.agent_name,
              user_question = COALESCE(EXCLUDED.user_question, samata_user_questions.user_question),
              answer_preview = COALESCE(EXCLUDED.answer_preview, samata_user_questions.answer_preview),
@@ -1131,6 +1143,7 @@ async function writeToPostgres(
           [
             turn.startIso,         // ISO 8601 timestamp
             turn.userid,
+            userName,
             turn.channel,
             agentName,
             turn.chattype,
@@ -1184,12 +1197,34 @@ function loadAgentNameMap(): Map<string, string> {
   return map;
 }
 
+function loadUserNameMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    const dbPath = join(process.cwd(), 'data', 'yanyu.db');
+    if (!existsSync(dbPath)) return map;
+    const db = new Database(dbPath, { readonly: true });
+    const rows = db.prepare('SELECT id, username, display_name FROM users WHERE display_name IS NOT NULL').all() as { id: string; username: string; display_name: string }[];
+    for (const row of rows) {
+      map.set(row.id, row.display_name);
+      map.set(row.username, row.display_name);
+    }
+    db.close();
+  } catch {
+    // DB not accessible
+  }
+  return map;
+}
+
+function resolveUserName(userId: string, nameMap: Map<string, string>): string {
+  return nameMap.get(userId) || userId;
+}
+
 function resolveAgentName(agentId: string, nameMap: Map<string, string>): string {
   if (!agentId) return '—';
   return nameMap.get(agentId) || agentId;
 }
 
-function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, string>): string[] {
+function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, string>, userNameMap: Map<string, string>): string[] {
   const lines: string[] = [];
   const isTelemetry = reportSource === 'telemetry';
 
@@ -1204,7 +1239,7 @@ function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, strin
       const ch = CHANNEL_LABEL[t.channel];
       const agent = resolveAgentName(t.agent, agentNameMap);
       const reason = t.stopReason || (t.failed ? 'error' : '—');
-      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | reason=${reason} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${resolveUserName(t.userid, userNameMap)} | reason=${reason} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
     }
     lines.push('');
   }
@@ -1220,7 +1255,7 @@ function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, strin
       const ch = CHANNEL_LABEL[t.channel];
       const agent = resolveAgentName(t.agent, agentNameMap);
       const rounds = t.loopRounds !== undefined ? ` rounds=${t.loopRounds}` : '';
-      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid}${rounds} | ${sanitizeTableCell(truncate(t.content !== '(无文本回复)' ? t.content.replace(/\n/g, ' ') : '(空)', 60))}`);
+      lines.push(`  - ${t.time} | ${ch} | ${agent} | ${resolveUserName(t.userid, userNameMap)}${rounds} | ${sanitizeTableCell(truncate(t.content !== '(无文本回复)' ? t.content.replace(/\n/g, ' ') : '(空)', 60))}`);
     }
     lines.push('');
   }
@@ -1235,7 +1270,7 @@ function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, strin
         const ch = CHANNEL_LABEL[t.channel];
         const agent = resolveAgentName(t.agent, agentNameMap);
         const tools = t.toolCount;
-        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | rounds=${t.loopRounds} tools=${tools} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${resolveUserName(t.userid, userNameMap)} | rounds=${t.loopRounds} tools=${tools} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
       }
       lines.push('');
     }
@@ -1248,7 +1283,7 @@ function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, strin
       for (const t of heavyTurns) {
         const ch = CHANNEL_LABEL[t.channel];
         const agent = resolveAgentName(t.agent, agentNameMap);
-        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | tools=${t.toolCount} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${resolveUserName(t.userid, userNameMap)} | tools=${t.toolCount} | ${sanitizeTableCell(truncate(t.content.replace(/\n/g, ' '), 60))}`);
       }
       lines.push('');
     }
@@ -1268,7 +1303,7 @@ function buildAnomalyReport(turns: TurnRecord[], agentNameMap: Map<string, strin
         const ch = CHANNEL_LABEL[t.channel];
         const agent = resolveAgentName(t.agent, agentNameMap);
         const stopInfo = t.stopReason ? ` stop=${t.stopReason}` : '';
-        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${t.userid} | rounds=${t.loopRounds} tools=${t.toolCount}${stopInfo}`);
+        lines.push(`  - ${t.time} | ${ch} | ${agent} | ${resolveUserName(t.userid, userNameMap)} | rounds=${t.loopRounds} tools=${t.toolCount}${stopInfo}`);
       }
       lines.push('');
     }
@@ -1345,11 +1380,16 @@ if (agentNameMap.size > 0) {
   console.warn(`已加载 ${agentNameMap.size} 条 agent 名称映射`);
 }
 
+const userNameMap = loadUserNameMap();
+if (userNameMap.size > 0) {
+  console.warn(`已加载 ${userNameMap.size} 条用户名称映射`);
+}
+
 const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
 const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
 const output = csvMode
-  ? buildCSV(turns, agentNameMap)
-  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix, agentNameMap);
+  ? buildCSV(turns, agentNameMap, userNameMap)
+  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix, agentNameMap, userNameMap);
 console.log(output);
 
 const outDir = join(process.cwd(), 'logs', 'daily_usage');
@@ -1364,7 +1404,7 @@ console.log(`\n=> 已写入 ${outFile}`);
 
 // PostgreSQL 写入（--pg 模式）
 if (pgMode) {
-  void writeToPostgres(turns, dates, source, agentNameMap).then(() => {
+  void writeToPostgres(turns, dates, source, agentNameMap, userNameMap).then(() => {
     process.exit(0);
   });
 }

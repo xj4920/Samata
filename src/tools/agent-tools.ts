@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
-import { getCurrentAgent, setCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, COMMON_SET, getAgentTools } from '../llm/agents/config.js';
-import { getExecutionChannel } from '../runtime/execution-context.js';
+import { getCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, COMMON_SET, getAgentTools } from '../llm/agents/config.js';
+import { getExecutionChannel, setContextAgent } from '../runtime/execution-context.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -193,9 +193,7 @@ function handleSwitchAgent(input: { name: string }): string {
   if (agent.name !== input.name && input.name !== 'otcclaw') {
     return JSON.stringify({ error: `未找到 Agent: ${input.name}` });
   }
-  // Only set agent; don't resetConversation() here because we're inside the agentic loop.
-  // The conversation history will be cleared on the next chat() call or /reset.
-  setCurrentAgent(agent);
+  setContextAgent(agent);
   return JSON.stringify({ success: true, message: `已切换到 Agent: ${agent.displayName} (${agent.name})，下次对话将使用新 Agent 配置` });
 }
 

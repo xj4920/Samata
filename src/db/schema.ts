@@ -2007,6 +2007,63 @@ export function initSchema(): void {
     }
   });
 
+  // --- Users display_name ---
+
+  runOnce('add-users-display-name', () => {
+    try { db.exec("ALTER TABLE users ADD COLUMN display_name TEXT"); } catch (e) {}
+
+    const knownNames: [string, string][] = [
+      ['wework_gzxujun', '许骏'],
+      ['wework_zhaoqingyu', '赵晴宇'],
+      ['wework_petershen', 'Peter Shen'],
+      ['wework_aprilyan', 'April Yan'],
+      ['wework_nicolasong', 'Nicolas Song'],
+      ['wework_nicoleqiu', 'Nicole Qiu'],
+      ['wework_kevinyin', 'Kevin Yin'],
+      ['wework_stevenlu', 'Steven Lu'],
+      ['wework_sunbin', '孙滨'],
+      ['wework_sunxian', '孙娴'],
+      ['wework_dongshengli', '董胜利'],
+      ['wework_guoxiaoyu', '郭晓瑜'],
+      ['wework_gzyuyang', '郁泱'],
+      ['wework_hkyangyige', '杨易歌'],
+      ['wework_huangxiaoyi', '黄晓怡'],
+      ['wework_luanyinan', '栾宜男'],
+      ['wework_lvruonan', '吕若楠'],
+      ['wework_chenwanqian', '陈婉茜'],
+      ['wework_fuhangrui', '符航睿'],
+      ['wework_gfguozhi', '郭智'],
+      ['wework_jiakunyou', '由嘉坤'],
+      ['wework_shanchuwen', '单楚文'],
+      ['wework_wangxingqiang', '王兴强'],
+      ['wework_weikunhuang', '黄伟琨'],
+      ['feishu_ou_0e6cf7a054dc5629fa4bb4209236f292', '许骏'],
+      ['feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', '许骏'],
+      ['feishu_ou_b5fcfc05455cdca7c4f934b8443bbf9c', '丁丁'],
+      ['feishu_ou_dad1044cedcb817cd0a4f96f7183b603', '多米'],
+    ];
+    const stmt = db.prepare("UPDATE users SET display_name = ? WHERE id = ? AND display_name IS NULL");
+    for (const [id, name] of knownNames) {
+      stmt.run(name, id);
+    }
+  });
+
+  runOnce('add-external-wework-display-names', () => {
+    const names: [string, string][] = [
+      ['wework_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ', '许骏'],
+      ['wework_wofvtgBgAA5XodEfNkoiCJxi077bfgSA', '栾宜男'],
+      ['wework_wofvtgBgAA_evLaVToUX0IP8-cLCLJBA', '刘航伸'],
+      ['wework_wofvtgBgAAzcWhWop8HVoPE7iJu-vAxQ', '孙滨'],
+      ['wework_wofvtgBgAAAqc2sq0LTddNVMSLms2GMw', '熊周桥'],
+      ['wework_wofvtgBgAAlmOGj8zeXvQTeF1uHJSp6w', '唐洋'],
+    ];
+    const stmt = db.prepare("UPDATE users SET display_name = ? WHERE id = ? AND display_name IS NULL");
+    for (const [id, name] of names) {
+      stmt.run(name, id);
+    }
+    db.prepare("UPDATE users SET display_name = '孙滨' WHERE id = 'wework_sunbin'").run();
+  });
+
   // --- Scheduled tasks & crontab tools ---
 
   // Add crontab tools to all standard-mode agents' tools_list,

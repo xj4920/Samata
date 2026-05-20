@@ -2,9 +2,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createCliSession, destroyCliSession, getCliSession, listCliUsers, toCliSessionInfo, resolvePromptReply } from './cli-session.js';
 import { executeCliInput, executeCliStream } from './cli-executor.js';
 import { setCurrentUser, getCurrentUser } from '../auth/rbac.js';
-import { getAgent, getCurrentAgent, setCurrentAgent } from '../llm/agents/config.js';
+import { getAgent } from '../llm/agents/config.js';
 import { getCommandEntries } from '../commands/router.js';
 import { log } from '../utils/logger.js';
+import { runWithExecutionContext } from '../runtime/execution-context.js';
 import type { CliStreamEvent } from '../shared/cli-contract.js';
 
 async function readJson(req: IncomingMessage): Promise<any> {
@@ -50,16 +51,17 @@ export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3
       if (req.method === 'POST' && url.pathname === '/api/cli/commands') {
         const body = await readJson(req);
         const session = getCliSession(body.sessionId);
+        const agent = getAgent(session.agentName);
         const prevUser = getCurrentUser();
-        const prevAgent = getCurrentAgent();
         setCurrentUser(session.user);
-        setCurrentAgent(getAgent(session.agentName));
         try {
-          const entries = getCommandEntries('cli');
+          const entries = await runWithExecutionContext(
+            { channel: 'cli', user: session.user, agent },
+            () => getCommandEntries('cli'),
+          );
           return sendJson(res, 200, { commands: entries });
         } finally {
           if (prevUser) setCurrentUser(prevUser);
-          if (prevAgent) setCurrentAgent(prevAgent);
         }
       }
 

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import util from 'node:util';
 import { input as inquirerInput, select as inquirerSelect, confirm as inquirerConfirm } from '@inquirer/prompts';
+import type { AgentConfig } from '../llm/agents/config.js';
 
 export type AppChannel = 'cli' | 'feishu' | 'telegram' | 'wework' | 'system';
 
@@ -21,6 +22,7 @@ export interface ExecutionContext {
   user?: ContextUser;
   /** bot_apps.id for feishu/wework/telegram bot instances; undefined in CLI/system */
   appId?: string;
+  agent?: AgentConfig;
   interactive?: boolean;
   promptFn?: PromptFn;
   outputCapture?: OutputCapture;
@@ -49,6 +51,15 @@ export function isInteractive(): boolean {
 
 export function getContextUser(): ContextUser | undefined {
   return storage.getStore()?.user;
+}
+
+export function getContextAgent(): AgentConfig | undefined {
+  return storage.getStore()?.agent;
+}
+
+export function setContextAgent(agent: AgentConfig | undefined): void {
+  const store = storage.getStore();
+  if (store) store.agent = agent;
 }
 
 export async function remoteInput(message: string, defaultValue?: string): Promise<string> {

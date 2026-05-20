@@ -3,7 +3,7 @@ import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../../auth/rbac.js'
 import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
-import { getExecutionChannel } from '../../runtime/execution-context.js';
+import { getExecutionChannel, getContextAgent } from '../../runtime/execution-context.js';
 import { getPluginTools } from '../../plugins/registry.js';
 import { getMcpTools } from '../../services/mcp-manager.js';
 
@@ -333,16 +333,10 @@ export interface ToolContext {
   onProgress?: (event: { type: 'tool_progress'; message: string }) => void;
 }
 
-// --- Current agent session state ---
-
-let _currentAgent: AgentConfig | undefined;
-
-export function setCurrentAgent(agent: AgentConfig | undefined): void {
-  _currentAgent = agent;
-}
+// --- Current agent session state (AsyncLocalStorage only) ---
 
 export function getCurrentAgent(): AgentConfig | undefined {
-  return _currentAgent ?? getDefaultAgent();
+  return getContextAgent();
 }
 
 /** Tools that are always available to all agents, regardless of tools_mode */

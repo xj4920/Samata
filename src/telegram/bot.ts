@@ -15,7 +15,7 @@ import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
 import { type User, isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, setCurrentAgent, type DeliveryContext } from '../llm/agent.js';
+import { runAgenticChat, type DeliveryContext } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -57,14 +57,13 @@ function getTelegramBotAppId(): string | null {
 async function handleAIChat(chatId: number, userInput: string, telegramUserId: number, telegramUsername: string): Promise<string> {
   const session = getSession(telegramUserId, telegramUsername);
   const botAppId = getTelegramBotAppId();
+  const baseAgentConfig = getAgent(session.agentName);
+  const botLLM = botAppId ? getBotAppLLM(botAppId) : {};
+  const agentConfig = (botLLM.provider || botLLM.model)
+    ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+    : baseAgentConfig;
 
-  return runWithExecutionContext({ channel: 'telegram', user: session.user, appId: botAppId ?? undefined }, async () => {
-    const baseAgentConfig = getAgent(session.agentName);
-    const botLLM = botAppId ? getBotAppLLM(botAppId) : {};
-    const agentConfig = (botLLM.provider || botLLM.model)
-      ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
-      : baseAgentConfig;
-
+  return runWithExecutionContext({ channel: 'telegram', user: session.user, appId: botAppId ?? undefined, agent: agentConfig }, async () => {
     const textReply = await runAgenticChat(session.history, userInput, session.user, {
       streamEnabled: false,
       logPrefix: `[TG:${telegramUsername}] `,
@@ -161,8 +160,11 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     if (text === '/help') {
       const session = getSession(userId, username);
       const agentConfig = getAgent(session.agentName);
-      setCurrentAgent(agentConfig);
-      const entries = getCommandEntries();
+      const botAppId = getTelegramBotAppId();
+      const entries = await runWithExecutionContext(
+        { channel: 'telegram', user: session.user, appId: botAppId ?? undefined, agent: agentConfig },
+        () => getCommandEntries(),
+      );
       const lines = ['📋 可用命令：', ''];
       for (const e of entries) {
         lines.push(`${e.name} — ${e.description}`);
@@ -205,9 +207,10 @@ async function handleMessage(msg: TgMessage): Promise<void> {
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
       const session = getSession(userId, username);
+      const agentConfig = getAgent(session.agentName);
       const botAppId = getTelegramBotAppId();
       const reply = await runWithExecutionContext(
-        { channel: 'telegram', user: session.user, appId: botAppId ?? undefined },
+        { channel: 'telegram', user: session.user, appId: botAppId ?? undefined, agent: agentConfig },
         () => handleCommand(cmd, args, userId),
       );
       if (reply !== null) {

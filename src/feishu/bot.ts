@@ -25,7 +25,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
 import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
-import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, setCurrentAgent, getCurrentAgent } from '../llm/agent.js';
+import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
 import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
@@ -329,8 +329,13 @@ async function handleAIChat(
   replyOpts?: FeishuReplyOptions,
 ): Promise<{ text: string; mediaPaths?: string[] }> {
   const session = await getSessionForInstance(instance, feishuUserId, feishuUsername);
+  const baseAgentConfig = getAgent(session.agentName);
+  const botLLM = getBotAppLLM(instance.appId);
+  const agentConfig = (botLLM.provider || botLLM.model)
+    ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+    : baseAgentConfig;
 
-  return runWithExecutionContext({ channel: 'feishu', user: session.user, appId: instance.appId }, async () => {
+  return runWithExecutionContext({ channel: 'feishu', user: session.user, appId: instance.appId, agent: agentConfig }, async () => {
   const showThinkingEnabled = instance.config.showThinking !== false;
   const traceId = replyOpts?.traceId ?? createTraceId();
   const interactionTrace: InteractionTrace = {
@@ -340,7 +345,6 @@ async function handleAIChat(
     tools: [],
   };
 
-  // 发送过程卡片的辅助函数（串行化，防止并发修改 progressMessageId）
   let progressMessageId: string | undefined;
   let progressChain: Promise<void> = Promise.resolve();
 
@@ -367,16 +371,9 @@ async function handleAIChat(
     }
   };
 
-  // 发送初始占位卡片
   if (showThinkingEnabled) {
     await sendProgressCard('🤔 思考中...');
   }
-
-  const baseAgentConfig = getAgent(session.agentName);
-  const botLLM = getBotAppLLM(instance.appId);
-  const agentConfig = (botLLM.provider || botLLM.model)
-    ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
-    : baseAgentConfig;
   logTraceBlock(instance, traceId, 'AI 对话开始', [
     `user=${session.user.username} (${session.user.role})`,
     `agent=${agentConfig.displayName} (${agentConfig.name})`,
@@ -1209,17 +1206,10 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
       const session = await getSessionForInstance(instance, senderId, '');
       const agentConfig = getAgent(session.agentName);
-      const prevAgent = getCurrentAgent();
-      setCurrentAgent(agentConfig);
-      let reply: string | null;
-      try {
-        reply = await runWithExecutionContext(
-          { channel: 'feishu', user: session.user, appId: instance.appId },
-          () => handleCommand(instance, cmd, args, senderId),
-        );
-      } finally {
-        setCurrentAgent(prevAgent);
-      }
+      const reply = await runWithExecutionContext(
+        { channel: 'feishu', user: session.user, appId: instance.appId, agent: agentConfig },
+        () => handleCommand(instance, cmd, args, senderId),
+      );
       if (reply !== null) {
         logTraceBlock(instance, traceId, '命令回复', [
           `cmd=/${cmd}`,

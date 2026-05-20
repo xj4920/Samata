@@ -14,7 +14,7 @@ import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, Mixe
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, setCurrentAgent, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
+import { runAgenticChat, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -146,13 +146,13 @@ async function handleAIChat(
   images?: ImageInput[],
 ): Promise<string> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
+  const baseAgentConfig = getAgent(session.agentName);
+  const botLLM = getBotAppLLM(instance.botId);
+  const agentConfig = (botLLM.provider || botLLM.model)
+    ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
+    : baseAgentConfig;
 
-  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId }, async () => {
-    const baseAgentConfig = getAgent(session.agentName);
-    const botLLM = getBotAppLLM(instance.botId);
-    const agentConfig = (botLLM.provider || botLLM.model)
-      ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
-      : baseAgentConfig;
+  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId, agent: agentConfig }, async () => {
 
     const ws = instance.wsClient;
     const STREAM_MAX_AGE_MS = 5 * 60 * 1000;
@@ -457,9 +457,8 @@ async function handleSlashCommand(
 ): Promise<string | null> {
   const session = getSession(instance.botId, instance.sessions, mapKey, username);
   const agentConfig = getAgent(session.agentName);
-  setCurrentAgent(agentConfig);
 
-  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId }, async () => {
+  return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId, agent: agentConfig }, async () => {
     if (text === '/start') {
       const role = isAgentAdmin(agentConfig.id) ? 'agent admin' : 'member';
       return `欢迎使用 Samata！\n\n你的身份：${role}\n\n你可以：\n• 直接输入自然语言提问\n• 使用 /help 查看可用命令\n• 使用 /reset 重置对话上下文`;
