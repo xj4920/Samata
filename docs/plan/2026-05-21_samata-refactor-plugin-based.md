@@ -7,7 +7,10 @@
 **核心原则：**
 - Agent 定义（DB 记录 + `config/agents/<name>.md`）保留在 Samata 核心
 - Agent = COMMON_SET + 按名称引用的专属 tools（来自 plugins）
-- 每个 plugin 独立可加载、独立 SQLite、互不影响
+
+**Plugin 原则：**
+1. **Plugin 之间独立，无依赖** — 不可访问其他 plugin 的 DB、不可 import 其他 plugin 的代码
+2. **Plugin 不能查询主库，不依赖 Samata 代码，与 Samata 是接口交互** — Plugin 只能通过 `PluginContext`（由 core 注入）获取有限信息，不可 import `src/` 下的任何模块，不可获取主库连接
 
 ## 目标架构
 
@@ -37,7 +40,7 @@ samata/
 │   │   ├── schedule-tools.ts
 │   │   └── delivery-tools.ts        ← COMMON_SET 保留
 │   ├── commands/                     ← 仅 COMMON_SET 对应的 commands
-│   ├── db/schema.ts                  ← 仅平台表（users/agents/knowledge/skills/memory/reminders/todos/documents/bot_apps/events/telemetry_turn/scheduled_tasks/migrations）
+│   ├── db/schema.ts                  ← 仅平台表（users/agents/knowledge/skills/memory/reminders/todos/documents/bot_apps/events[仅平台实体]/telemetry_turn/scheduled_tasks/migrations）
 │   └── llm/agents/config.ts         ← COMMON_SET + agent 配置
 ├── config/
 │   ├── agents/                       ← 所有 agent md 文件（保留在此）
@@ -116,16 +119,31 @@ samata/
 
 ### Phase 1: 增强 Plugin SDK + Plugin 加载系统
 
-**1a. `packages/plugin-sdk/src/types.ts`** — `PluginModule` 增加可选生命周期：
+**1a. `packages/plugin-sdk/src/types.ts`** — `PluginModule` 增加作用域、上下文注入和生命周期：
 
 ```ts
+type PluginScope = 'universal' | 'agent-bound';
+
+interface PluginContext {
+  /** 获取当前操作用户（plugin 记录审计日志时使用） */
+  getCurrentUser(): { id: string; name: string; role: string };
+  /** 获取 plugin 数据目录（如 data/plugins/client-manager/） */
+  getDataDir(): string;
+}
+
 interface PluginModule {
   name: string;
   description?: string;
+  /**
+   * 'universal': 自动对所有 standard-mode agent 可见（csv-export、excel-parser 等通用工具）
+   * 'agent-bound': 仅当 tool name 出现在 agent.tools_list 时可见（业务专属工具）
+   * 默认 'universal'（向后兼容现有 plugins）
+   */
+  scope?: PluginScope;
   toolDefinitions: ToolDefinition[];
-  handleTool(name: string, input: any): Promise<string | null>;
-  /** 初始化插件（含 schema 迁移） */
-  init?(): Promise<void>;
+  handleTool(name: string, input: any, ctx: PluginContext): Promise<string | null>;
+  /** 初始化插件（含 schema 迁移），core 注入 PluginContext */
+  init?(ctx: PluginContext): Promise<void>;
   /** 获取插件私有 SQLite DB */
   getDb?(): any;
   /** 获取插件配置目录 */
@@ -137,11 +155,19 @@ interface PluginModule {
 }
 ```
 
-**1b. `src/plugins/registry.ts`** — 加载时调用 `plugin.init?.()` 和 `plugin.start?.()`，关闭时调用 `plugin.stop?.()`：
+**1b. `src/plugins/registry.ts`** — 加载时注入 `PluginContext`，调用生命周期方法：
 
 ```ts
+function buildPluginContext(pluginName: string): PluginContext {
+  return {
+    getCurrentUser: () => getCurrentUser(),
+    getDataDir: () => path.join(PROJECT_ROOT, 'data', 'plugins', pluginName),
+  };
+}
+
 // 在 loadPlugin 后:
-if (plugin.init) await plugin.init();
+const ctx = buildPluginContext(plugin.name);
+if (plugin.init) await plugin.init(ctx);
 if (plugin.start) await plugin.start();
 
 // 在 stopPluginWatcher / gracefulShutdown 中:
@@ -150,7 +176,43 @@ for (const [, loaded] of loadedPlugins) {
 }
 ```
 
-**1c. 无需改动** `src/llm/agent.ts` 的 `getGlobalTools()` — plugin tools 已通过 `getPluginTools()` 自动合并。
+**1c. `src/plugins/registry.ts`** — 新增按 scope 过滤的 API：
+
+```ts
+/** 获取 universal plugin tools（自动对所有 agent 可见） */
+export function getUniversalPluginTools(): Anthropic.Tool[] {
+  return [...loadedPlugins.values()]
+    .filter(p => (p.module.scope ?? 'universal') === 'universal')
+    .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
+}
+
+/** 获取所有 plugin tools（含 agent-bound，用于名称匹配） */
+export function getAllPluginTools(): Anthropic.Tool[] {
+  return [...loadedPlugins.values()]
+    .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
+}
+```
+
+**1d. `src/llm/agents/config.ts`** — 修改 `getAgentTools()` 中 standard 模式的 plugin 工具注入：
+
+```ts
+} else if (agent.toolsMode === 'standard') {
+  // 只自动注入 universal plugin tools；agent-bound plugin tools 需在 tools_list 中显式声明
+  const universalPluginToolNames = getUniversalPluginTools().map(t => t.name);
+  const mcpToolNames = getMcpTools().map(t => t.name);
+  effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...universalPluginToolNames, ...mcpToolNames]);
+  for (const b of agent.blockTools) effectiveNames.delete(b);
+}
+```
+
+**1e. 两阶段启动**：`init()` 在主流程早期调用（schema 迁移），`start()` 在所有 bot 启动后统一调用：
+
+```ts
+// src/index.ts
+await initPlugins();          // phase 1: init() — schema migration, DB connection
+await startAllWeworkBots();   // bot 启动
+await startAllPlugins();      // phase 2: start() — monitors 等后台服务
+```
 
 ### Phase 2: 逐个迁移 Tool → Plugin
 
@@ -164,34 +226,50 @@ for (const [, loaded] of loadedPlugins) {
 7. 从 `src/tools/index.ts` 移除对应 module import
 8. 从 `src/commands/` 删除已迁移的命令文件
 
-**2a. client-manager**（9 tools）
+**2a. client-manager**（9 tools, scope: `agent-bound`）
 - tools: query_clients, view_client, get_client_history, add_client, update_client, advance_client, rollback_client, delete_client, import_pricing_schedule
-- SQLite: `data/plugins/client-manager/client-manager.db` → clients 表
+- SQLite: `data/plugins/client-manager/client-manager.db` → clients + client_events 表
 - Config: `plugins/client-manager/config/customers.json`
-- 数据迁移：从主库 clients 表复制数据到插件 SQLite
+- 数据迁移：从主库 clients 表复制数据到插件 SQLite；从主库 events 表中抽出 `entity_type='client'` 的记录导入 `client_events` 表
+- **审计日志**：client 操作的事件记录在 plugin 自己的 `client_events` 表（不再写主库 events），`get_client_history` 直接查本地表
+- Plugin DB schema:
+  ```sql
+  CREATE TABLE clients (...);
+  CREATE TABLE client_events (
+    id                TEXT PRIMARY KEY,
+    client_id         TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    payload           TEXT,
+    performed_by      TEXT NOT NULL,       -- user id
+    performed_by_name TEXT NOT NULL,       -- 冗余用户名（写入时从 ctx.getCurrentUser().name 获取）
+    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ```
+  > 原则：plugin 对主库无查询权限，用户名在写入时冗余存储，展示时无需回查 users 表
 
-**2b. trade-query**（6 tools）
+**2b. trade-query**（6 tools, scope: `agent-bound`）
 - tools: query_trades, trade_summary, plot_trades, list_customers, export_trades_csv, export_north_info_csv
 - DB: 复用 InfluxDB 连接（无 SQLite）
 - Config: `plugins/trade-query/config/trading-calendar-sse.json`
 
-**2c. pricing**（3+1 tools）
-- tools: import_pricing_quote, query_pricing_quote, list_pricing_quote_dates, import_pricing_schedule（注：import_pricing_schedule 属于 client 域但操作 clients 表，实际放 client-manager）
+**2c. pricing**（3 tools, scope: `agent-bound`）
+- tools: import_pricing_quote, query_pricing_quote, list_pricing_quote_dates
+- 注：import_pricing_schedule 操作 clients 表，放在 client-manager plugin
 - SQLite: `data/plugins/pricing/pricing.db` → pricing_quotes 表
 
-**2d. hedge-ratio**（1 tool）
+**2d. hedge-ratio**（1 tool, scope: `agent-bound`）
 - tools: query_hedge_short
 - 后台服务: hedge-ratio-monitor（定时检查对冲比并通过企微推送）
 
-**2e. wework-qa**（1 tool）
+**2e. wework-qa**（1 tool, scope: `agent-bound`）
 - tools: extract_wework_qa
 - 后台服务: wework-monitor（监听企微消息自动提取 QA）
 
-**2f. health-tracker**（7 tools）
+**2f. health-tracker**（7 tools, scope: `agent-bound`）
 - tools: add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder
 - SQLite: `data/plugins/health-tracker/health-tracker.db` → health_records + health_files 表
 
-**2g. wrong-questions**（4 tools）
+**2g. wrong-questions**（4 tools, scope: `agent-bound`）
 - tools: record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report
 - SQLite: `data/plugins/wrong-questions/wrong-questions.db` → wrong_questions + wrong_question_assets 表
 
@@ -201,9 +279,9 @@ for (const [, loaded] of loadedPlugins) {
 
 **3b. `src/commands/`** — 删除已迁移的 command 文件。
 
-**3c. `src/db/schema.ts`** — 移除 clients / pricing_quotes / health_records / health_files / wrong_questions / wrong_question_assets 表定义及相关 migration。保留 `events` 表（平台级审计日志）。
+**3c. `src/db/schema.ts`** — 移除 clients / pricing_quotes / health_records / health_files / wrong_questions / wrong_question_assets 表定义及相关 migration。保留 `events` 表（平台级审计日志，仅记录 agent/knowledge/document/skill 实体操作）。从 events 表中清除历史 `entity_type='client'` 数据（已迁移到 plugin）。
 
-**3d. `src/models/`** — 移除 `client.ts`、`event.ts`（如仅被迁移的 commands 使用）。
+**3d. `src/models/`** — 移除 `client.ts`；`event.ts` 保留（仍被 knowledge/document/skill/agent 使用）。
 
 **3e. `src/services/`** — 移除 `wework-monitor.ts`、`hedge-ratio-monitor.ts`（已迁移到对应 plugin）。
 
@@ -217,9 +295,9 @@ for (const [, loaded] of loadedPlugins) {
 
 Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_health_record`），只是这些工具的加载来源从 `src/tools/` 变为 `plugins/<xxx>/`。
 
-`getAgentTools()` 在 `standard` 模式下自动合并 `COMMON_SET + tools_list + pluginTools + mcpTools`，无需任何改动。
+`getAgentTools()` 在 `standard` 模式下合并 `COMMON_SET + tools_list + universalPluginTools + mcpTools`（Phase 1d 已修改）。`agent-bound` 插件的工具只有出现在 `tools_list` 中才可见，天然实现了 agent 隔离。
 
-`AGENT_EXCLUSIVE_TOOLS`（wrong_question 系列专属 tutor）可简化——因为插件工具通过 agent 的 `tools_list` 控制可见性，其他 agent 不加这些工具名即可。
+`AGENT_EXCLUSIVE_TOOLS` 可删除——`agent-bound` scope 已通过 `tools_list` 控制可见性，无需额外的排他映射。`alter-ego`/`admin`（`tools_mode: 'all'`）通过 `block_tools` 排除不想要的业务工具。
 
 ### Phase 5: `config/agents/` 文件不变
 
@@ -227,16 +305,21 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 
 ## 工具归属总结
 
-| Plugin | Tools | 独立 SQLite |
-|--------|-------|------------|
-| client-manager | query_clients, view_client, get_client_history, add_client, update_client, advance_client, rollback_client, delete_client, import_pricing_schedule | clients |
-| trade-query | query_trades, trade_summary, plot_trades, list_customers, export_trades_csv, export_north_info_csv | 无（InfluxDB） |
-| pricing | import_pricing_quote, query_pricing_quote, list_pricing_quote_dates | pricing_quotes |
-| hedge-ratio | query_hedge_short | 无 |
-| wework-qa | extract_wework_qa | 无 |
-| health-tracker | add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder | health_records, health_files |
-| wrong-questions | record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report | wrong_questions, wrong_question_assets |
-| *(保留在 core)* | 其余所有 COMMON_SET tools | *(主库)* |
+| Plugin | Scope | Tools | 独立 SQLite |
+|--------|-------|-------|------------|
+| csv-export | universal | export_csv | 无 |
+| diagram | universal | generate_diagram | 无 |
+| excel-parser | universal | parse_excel | 无 |
+| pdf-parser | universal | parse_pdf | 无 |
+| word-parser | universal | parse_word | 无 |
+| client-manager | agent-bound | query_clients, view_client, get_client_history, add_client, update_client, advance_client, rollback_client, delete_client, import_pricing_schedule | clients, client_events |
+| trade-query | agent-bound | query_trades, trade_summary, plot_trades, list_customers, export_trades_csv, export_north_info_csv | 无（InfluxDB） |
+| pricing | agent-bound | import_pricing_quote, query_pricing_quote, list_pricing_quote_dates | pricing_quotes |
+| hedge-ratio | agent-bound | query_hedge_short | 无 |
+| wework-qa | agent-bound | extract_wework_qa | 无 |
+| health-tracker | agent-bound | add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder | health_records, health_files |
+| wrong-questions | agent-bound | record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report | wrong_questions, wrong_question_assets |
+| *(保留在 core)* | — | 其余所有 COMMON_SET tools | *(主库：users, agents, knowledge, skills, memory, reminders, todos, documents, bot_apps, events, telemetry_turn, scheduled_tasks, migrations)* |
 
 ## Agent ↔ Plugin Tool 关系
 
@@ -264,8 +347,13 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 
 ## 风险与注意事项
 
-- **plugin 加载顺序**：`initPlugins()` 在 `src/index.ts` 中已有调用，位置合适，无需改动
-- **backward compat**：工具名不变，agent 配置不变，DB migration id 保留（但内容清空）
-- **monitor 服务**：wework-monitor 和 hedge-ratio-monitor 从 `src/index.ts` 的显式调用改为 plugin 生命周期自动启动，时序上要确保企微 bot 启动后再初始化这些 plugin（当前 `initPlugins()` 在 `startAllWeworkBots()` 之前，需要调整顺序或将 monitor 的 start 延迟）
-- **plugin 间依赖**：import_pricing_schedule 操作 clients 表（属于 client-manager plugin），需要 pricing plugin 能访问 client-manager 的 DB。方案：import_pricing_schedule 放在 client-manager plugin 中（操作自身 DB），pricing plugin 只管理 pricing_quotes 表
-- **events 表**：client 操作的事件记录在平台级 events 表，client-manager plugin 写事件时仍写入主库（通过 core 提供的 helper），或 plugin 自建 events 表
+- **plugin 加载顺序**：两阶段启动（Phase 1e），`init()` 早期完成 schema 迁移，`start()` 在 bot 启动后执行 monitor 服务
+- **backward compat**：工具名不变，agent 配置不变，现有 universal plugins 无需改动（`scope` 默认 'universal'）
+- **plugin scope 可见性**：`agent-bound` plugin 的工具不再自动注入所有 agent，必须出现在 `tools_list` 中才可见。`tools_mode='all'` 的 agent 仍然看到所有已加载 plugin tools（通过 `getAllPluginTools()`），再用 `block_tools` 排除
+- **plugin 间依赖**：import_pricing_schedule 操作 clients 表（属于 client-manager plugin），放在 client-manager 中，pricing plugin 只管 pricing_quotes 表
+- **审计日志分治**：
+  - 主库 `events` 表：仅记录平台实体（agent、knowledge、document、skill）操作
+  - client-manager plugin：自建 `client_events` 表，写入时冗余存储 `performed_by_name`（从 `ctx.getCurrentUser().name` 获取），展示时无需回查任何外部数据源
+  - 迁移时需从主库 events 抽出 `entity_type='client'` 记录 → plugin `client_events` 表（需关联 users 表补齐 performed_by_name），迁移完成后从主库 DELETE
+- **Plugin 隔离原则**：见顶部「Plugin 原则」，plugin 代码只依赖 `@samata/plugin-sdk` 类型包 + `PluginContext` 接口注入，不 import 任何 `src/` 模块
+- **混合期兼容**：迁移逐个 plugin 进行，`executeNativeTool` fallback 链保证：先查 native → 再查 plugin。同名工具 native 优先，迁移完删 native 侧即可

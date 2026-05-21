@@ -11,7 +11,6 @@ import * as fileTools from './file-tools.js';
 import * as weworkTools from './wework-tools.js';
 import * as reminderTools from './reminder-tools.js';
 import * as systemTools from './system-tools.js';
-import * as healthTools from './health-tools.js';
 import * as todoTools from './todo-tools.js';
 import * as markdownTools from './markdown-tools.js';
 import * as artifactTools from './artifact-tools.js';
@@ -21,7 +20,6 @@ import * as hedgeRatioTools from './hedge-ratio-tools.js';
 import * as documentTools from './document-tools.js';
 import * as pricingQuoteTools from './pricing-quote-tools.js';
 import * as dateTools from './date-tools.js';
-import * as wrongQuestionTools from './wrong-question-tools.js';
 import * as sandboxTools from './sandbox-tools.js';
 import * as webTools from './web-tools.js';
 import * as wechatArticleTools from './wechat-article-tools.js';
@@ -45,7 +43,6 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: weworkTools,       category: '企微' },
   { module: reminderTools,     category: '提醒' },
   { module: systemTools,       category: '系统' },
-  { module: healthTools,       category: '健康' },
   { module: todoTools,         category: '待办' },
   { module: markdownTools,     category: 'Markdown' },
   { module: artifactTools,     category: 'Artifact' },
@@ -55,7 +52,6 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: documentTools,     category: '文档' },
   { module: pricingQuoteTools, category: '报价' },
   { module: dateTools,         category: '日期' },
-  { module: wrongQuestionTools, category: '错题' },
   { module: sandboxTools,       category: '沙箱' },
   { module: webTools,           category: '网页' },
   { module: wechatArticleTools, category: '公众号' },

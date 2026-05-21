@@ -3,11 +3,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
-import type { PluginModule, PluginSkill, LoadedPlugin } from './types.js';
+import { getCurrentUser } from '../auth/rbac.js';
+import { getContextAgent } from '../runtime/execution-context.js';
+import { createReminder } from '../commands/reminder.js';
+import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PLUGINS_DIR = path.join(PROJECT_ROOT, 'plugins');
+
+function buildPluginContext(pluginName: string): PluginContext {
+  const dataDir = path.join(PROJECT_ROOT, 'data', 'plugins', pluginName);
+  return {
+    getCurrentUser: () => {
+      const u = getCurrentUser();
+      return { id: u.id, name: u.display_name || u.username, role: u.role };
+    },
+    getDataDir: () => dataDir,
+    getAgentId: () => getContextAgent()?.id,
+    getDeliveryContext: () => undefined,
+  };
+}
 
 const loadedPlugins = new Map<string, LoadedPlugin>();
 let watcher: fs.FSWatcher | null = null;
@@ -76,6 +92,12 @@ async function loadPlugin(pluginDir: string): Promise<void> {
       return;
     }
 
+    const ctx = buildPluginContext(plugin.name);
+
+    if (plugin.init) {
+      await plugin.init(ctx);
+    }
+
     let skill: PluginSkill | undefined;
     const skillPath = path.join(pluginDir, 'SKILL.md');
     if (fs.existsSync(skillPath)) {
@@ -83,7 +105,7 @@ async function loadPlugin(pluginDir: string): Promise<void> {
       skill = parseSkillMd(raw) ?? undefined;
     }
 
-    loadedPlugins.set(plugin.name, { module: plugin, skill, dir: pluginDir, loadedAt: new Date() });
+    loadedPlugins.set(plugin.name, { module: plugin, context: ctx, skill, dir: pluginDir, loadedAt: new Date() });
     log.info(`✅ Plugin [${plugin.name}]: ${plugin.toolDefinitions.length} tools loaded`);
   } catch (err: any) {
     log.warn(`⚠️  Plugin [${dirName}]: load failed — ${err.message}`);
@@ -91,6 +113,10 @@ async function loadPlugin(pluginDir: string): Promise<void> {
 }
 
 async function unloadPlugin(name: string): Promise<void> {
+  const loaded = loadedPlugins.get(name);
+  if (loaded?.module.stop) {
+    await loaded.module.stop();
+  }
   loadedPlugins.delete(name);
   log.info(`Plugin [${name}]: unloaded`);
 }
@@ -150,13 +176,48 @@ export function stopPluginWatcher(): void {
   }
 }
 
+export async function startAllPlugins(): Promise<void> {
+  for (const loaded of loadedPlugins.values()) {
+    if (loaded.module.start) {
+      try {
+        await loaded.module.start();
+      } catch (err: any) {
+        log.warn(`⚠️  Plugin [${loaded.module.name}]: start failed — ${err.message}`);
+      }
+    }
+  }
+}
+
+export async function stopAllPlugins(): Promise<void> {
+  for (const loaded of loadedPlugins.values()) {
+    if (loaded.module.stop) {
+      try {
+        await loaded.module.stop();
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+/** All plugin tools (universal + agent-bound) */
 export function getPluginTools(): Anthropic.Tool[] {
   return [...loadedPlugins.values()].flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
 }
 
-export async function executePluginTool(name: string, input: any): Promise<string | null> {
+/** Only universal plugin tools (auto-visible to all standard-mode agents) */
+export function getUniversalPluginTools(): Anthropic.Tool[] {
+  return [...loadedPlugins.values()]
+    .filter(p => (p.module.scope ?? 'universal') === 'universal')
+    .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
+}
+
+export async function executePluginTool(name: string, input: any, deliveryCtx?: { channel: string; targetId?: string; appId?: string }): Promise<string | null> {
   for (const loaded of loadedPlugins.values()) {
-    const result = await loaded.module.handleTool(name, input);
+    const ctx: PluginContext = {
+      ...loaded.context,
+      getDeliveryContext: () => deliveryCtx ? { channel: deliveryCtx.channel, targetId: deliveryCtx.targetId || '', appId: deliveryCtx.appId } : undefined,
+      createReminder: (params) => createReminder(params),
+    };
+    const result = await loaded.module.handleTool(name, input, ctx);
     if (result !== null) return result;
   }
   return null;

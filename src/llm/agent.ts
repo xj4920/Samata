@@ -86,7 +86,7 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
   if (name.startsWith('mcp_')) {
     return callMcpTool(name, input);
   }
-  const pluginResult = await executePluginTool(name, input);
+  const pluginResult = await executePluginTool(name, input, deliveryContext);
   if (pluginResult !== null) return pluginResult;
   return executeNativeTool(name, input, ctx);
 }

@@ -12,7 +12,7 @@ import { startHedgeRatioMonitor, stopHedgeRatioMonitor } from './services/hedge-
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
-import { initPlugins, stopPluginWatcher } from './plugins/registry.js';
+import { initPlugins, startAllPlugins, stopAllPlugins, stopPluginWatcher } from './plugins/registry.js';
 import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
 import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
 import { log } from './utils/logger.js';
@@ -28,6 +28,7 @@ let cliApiServer: Server | null = null;
 export function gracefulShutdown(): void {
   cliApiServer?.close();
   cliApiServer = null;
+  stopAllPlugins().catch(() => {});
   stopPluginWatcher();
   stopMonitor();
   stopHedgeRatioMonitor();
@@ -396,7 +397,7 @@ async function main(): Promise<void> {
   // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
   initMcpServers().catch(() => {});
 
-  // 加载 plugins/ 目录下的插件（热加载 + 文件监听）
+  // 加载 plugins/ 目录下的插件（phase 1: init — schema migration, DB connection）
   await initPlugins();
 
   // 启动企微机器人（长连接模式，多实例）
@@ -404,6 +405,9 @@ async function main(): Promise<void> {
 
   // 启动套保比例监控（依赖企微长连接，需在 bot 启动之后）
   startHedgeRatioMonitor({ auto: true });
+
+  // 启动 plugin 后台服务（phase 2: start — monitors 等，依赖 bot 已就绪）
+  await startAllPlugins();
 
   // 启动飞书机器人
   const feishuMode = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;

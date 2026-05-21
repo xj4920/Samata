@@ -1,0 +1,11 @@
+{
+  "name": "@samata/plugin-wrong-questions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@samata/plugin-sdk": "file:../../packages/plugin-sdk",
+    "better-sqlite3": "*",
+    "uuid": "*"
+  }
+}

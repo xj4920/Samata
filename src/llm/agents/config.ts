@@ -4,7 +4,7 @@ import { recordEvent } from '../../models/event.js';
 import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 import { getExecutionChannel, getContextAgent } from '../../runtime/execution-context.js';
-import { getPluginTools } from '../../plugins/registry.js';
+import { getPluginTools, getUniversalPluginTools } from '../../plugins/registry.js';
 import { getMcpTools } from '../../services/mcp-manager.js';
 
 /**
@@ -42,13 +42,6 @@ export const COMMON_SET = new Set([
   'create_scheduled_task', 'list_scheduled_tasks', 'update_scheduled_task', 'delete_scheduled_task',
 ]);
 
-/** Native tools that must only be visible to a single agent instance. */
-const AGENT_EXCLUSIVE_TOOLS: Record<string, string> = {
-  record_wrong_question: 'tutor',
-  list_wrong_questions: 'tutor',
-  mark_wrong_question_mastered: 'tutor',
-  wrong_question_report: 'tutor',
-};
 
 /** @deprecated Kept for backward compatibility with list_tool_presets and CLI create wizard. Use COMMON_SET + allow/block instead. */
 export const TOOL_PRESETS: Record<string, { description: string; tools: string[] }> = {
@@ -383,9 +376,9 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     effectiveNames = new Set(globalTools.map(t => t.name));
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
-    const pluginToolNames = getPluginTools().map(t => t.name);
+    const universalPluginToolNames = getUniversalPluginTools().map(t => t.name);
     const mcpToolNames = getMcpTools().map(t => t.name);
-    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...pluginToolNames, ...mcpToolNames]);
+    effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...universalPluginToolNames, ...mcpToolNames]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else {
     // Legacy allowlist/blocklist (backward compat for un-migrated agents)
@@ -399,11 +392,6 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     }
   }
 
-  for (const [toolName, ownerAgentName] of Object.entries(AGENT_EXCLUSIVE_TOOLS)) {
-    if (agent.name !== ownerAgentName) {
-      effectiveNames.delete(toolName);
-    }
-  }
 
   // Step 2: user-level filtering (non-admin)
   if (!isAdmin) {

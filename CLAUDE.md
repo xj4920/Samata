@@ -116,17 +116,29 @@ async function handleAIChat(userInput: string): Promise<string> {
 - 所有入口（CLI、飞书、Telegram）会自动保持一致
 - 无需在多个地方同步修改
 
-### Plugin 分层约束（严禁反向引用 native tool）
+### Plugin 原则
 
-`plugins/` 下的插件与 `src/` 下的 server native 工具是两个分层：
+**1. Plugin 之间独立，无依赖**
+- 不可访问其他 plugin 的 DB
+- 不可 import 其他 plugin 的代码
+- 每个 plugin 独立可加载/卸载，互不影响
 
-- **Native 工具**（`src/tools/`、`src/llm/agent.ts` 等）可以感知插件，因为 server 是编排方
+**2. Plugin 不能查询主库，不依赖 Samata 代码，与 Samata 是接口交互**
+- Plugin 只能依赖 `@samata/plugin-sdk` 类型包
+- Plugin 只能通过运行时注入的 `PluginContext` 获取有限信息（当前用户、数据目录）
+- 不可 import `src/` 下的任何模块，不可获取主库连接
+- 需要持久化的数据使用 plugin 自己的独立 SQLite（存放在 `data/plugins/<name>/`）
+- 需要用户信息时通过 `ctx.getCurrentUser()` 获取并冗余存储，不可回查 users 表
+
+**3. 严禁反向引用 native tool**
 - **Plugin**（`plugins/<name>/index.ts`）**严禁**在 `toolDefinitions.description` 或任何对外描述中：
   - 提及 native 工具名（如 `import_pricing_schedule`、`query_clients`、`view_client` 等）
   - 写"请改用 xxx 工具"之类的反引导
   - 假设 server 端的业务语义（如 customers.json 映射、clients 表结构）
 
-原因：插件是可独立加载/卸载的模块，不应耦合 server 端业务；一旦插件引用了 native tool，拆装或换 server 就会产生虚假引用和误导性提示。
+**4. Plugin 作用域（scope）**
+- `universal`：自动对所有 standard-mode agent 可见（csv-export、excel-parser 等通用工具），默认值
+- `agent-bound`：仅当 tool name 出现在 agent 的 `tools_list` 中才可见（业务专属工具）
 
 **工具选择的反引导**（"该用 A 不该用 B"）必须写在 server 层：
 - system prompt（`src/llm/agents/prompt.ts`）
