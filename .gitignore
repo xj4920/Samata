@@ -34,6 +34,7 @@ data*
 .trae/
 
 .playwright-mcp/*
+extensions/
 
 config/agents/*
 !config/agents/*.files.json
