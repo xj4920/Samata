@@ -1,6 +1,25 @@
+import fs from 'fs';
+import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
-import { writeWikiPage } from '../services/wiki-compile.js';
+
+const DATA_ROOT = path.resolve(process.cwd(), 'data');
+
+const PLURAL: Record<string, string> = {
+  entity: 'entities',
+  concept: 'concepts',
+  insight: 'insights',
+  comparison: 'insights',
+};
+
+function toSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\u4e00-\u9fff-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'untitled';
+}
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -28,26 +47,34 @@ export const toolDefinitions: Anthropic.Tool[] = [
 ];
 
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
-  if (name === 'file_to_wiki') {
-    const agent = getCurrentAgent();
-    if (!agent) {
-      return JSON.stringify({ success: false, error: '无法确定当前 Agent' });
-    }
+  if (name !== 'file_to_wiki') return null;
 
-    const { title, category, content, related_pages } = input as {
-      title: string;
-      category: 'entity' | 'concept' | 'insight' | 'comparison';
-      content: string;
-      related_pages?: string[];
-    };
-
-    if (!title || !category || !content) {
-      return JSON.stringify({ success: false, error: '缺少必要参数: title, category, content' });
-    }
-
-    const result = writeWikiPage(agent.id, title, category, content, related_pages);
-    return JSON.stringify(result);
+  const agent = getCurrentAgent();
+  if (!agent) {
+    return JSON.stringify({ success: false, error: '无法确定当前 Agent' });
   }
 
-  return null;
+  const { title, category, content } = input as {
+    title: string;
+    category: string;
+    content: string;
+  };
+
+  if (!title || !category || !content) {
+    return JSON.stringify({ success: false, error: '缺少必要参数: title, category, content' });
+  }
+
+  try {
+    const catDir = PLURAL[category] || `${category}s`;
+    const wikiDir = path.join(DATA_ROOT, 'wiki', agent.name, catDir);
+    fs.mkdirSync(wikiDir, { recursive: true });
+
+    const slug = toSlug(title);
+    const frontmatter = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ncategory: ${category}\ncreated_at: ${new Date().toISOString().slice(0, 19)}\n---\n\n`;
+    fs.writeFileSync(path.join(wikiDir, `${slug}.md`), frontmatter + content, 'utf-8');
+
+    return JSON.stringify({ success: true, path: `${catDir}/${slug}.md` });
+  } catch (err: any) {
+    return JSON.stringify({ success: false, error: err.message });
+  }
 }

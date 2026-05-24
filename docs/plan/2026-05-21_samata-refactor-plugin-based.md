@@ -112,7 +112,14 @@ samata/
     │   │   ├── commands.ts           ← 从 src/commands/wrong-question.ts 迁移
     │   │   └── db.ts                 ← wrong_questions + wrong_question_assets 表
     │   └── config/
-    └── wiki-sync/                    ← 从 extensions/wiki-sync 迁移
+    └── wiki-sync/                    ← NEW: Confluence 同步守护进程（0 tools，纯后台服务）
+        ├── index.ts                  ← PluginModule export（toolDefinitions: []）
+        ├── src/
+        │   ├── sync.ts              ← Confluence 同步逻辑（从 wiki-sync/src/cron.ts 迁移）
+        │   ├── import-bridge.ts     ← Samata HTTP 客户端（从 wiki-sync/src/import-bridge.ts 迁移）
+        │   └── cli.ts              ← 独立 CLI 入口（手动 sync/export/import/status）
+        └── config/
+            └── config.example.yaml  ← Confluence/sync 配置模板
 ```
 
 ## 实施计划
@@ -273,6 +280,15 @@ await startAllPlugins();      // phase 2: start() — monitors 等后台服务
 - tools: record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report
 - SQLite: `data/plugins/wrong-questions/wrong-questions.db` → wrong_questions + wrong_question_assets 表
 
+**2h. wiki-sync**（0 tools, scope: `universal`，纯后台服务）
+- 从独立子项目 `wiki-sync/` 迁移为 plugin（非 `extensions/`）
+- 功能：Confluence → markdown 导出（cf-export）+ 增量导入 Samata（HTTP API）
+- 后台服务：cron 定时同步（通过 `start()`/`stop()` 生命周期管理）
+- 数据：`data/plugins/wiki-sync/`（snapshot.json, .last_cron_run），archive 路径由 config.yaml 控制
+- 配置：`plugins/wiki-sync/config/config.yaml`（Confluence 凭据、同步设置、cron 表达式）
+- 保留独立 CLI 入口：`npx tsx plugins/wiki-sync/src/cli.ts sync`
+- 注：`file_to_wiki` 工具保留在核心 COMMON_SET（`src/tools/wiki-tools.ts`），不随 plugin 移动；`src/services/wiki-compile.ts` 已移除，`file_to_wiki` 简化为直接写 markdown 文件
+
 ### Phase 3: 清理核心 Samata
 
 **3a. `src/tools/index.ts`** — 移除 7 个已迁移 module import（client, trade, pricing-quote, hedge-ratio, wework, health, wrong-question），仅保留 COMMON_SET 对应的 23 个 module。
@@ -283,13 +299,13 @@ await startAllPlugins();      // phase 2: start() — monitors 等后台服务
 
 **3d. `src/models/`** — 移除 `client.ts`；`event.ts` 保留（仍被 knowledge/document/skill/agent 使用）。
 
-**3e. `src/services/`** — 移除 `wework-monitor.ts`、`hedge-ratio-monitor.ts`（已迁移到对应 plugin）。
+**3e. `src/services/`** — 移除 `wework-monitor.ts`、`hedge-ratio-monitor.ts`（已迁移到对应 plugin）；移除 `wiki-compile.ts`（`file_to_wiki` 已简化为直接写文件，`/relink-wiki` 命令已删除）。
 
 **3f. `src/index.ts`** — 移除 `startMonitor()`、`startHedgeRatioMonitor()` 调用（plugin 的 `start()` 生命周期自动处理）。
 
 **3g. `config/`** — 移动 `customers.json`、`trading-calendar-sse.json` 到对应 plugin；agent md 文件保持不变。
 
-**3h. `extensions/`** — 删除 `otc-claw/`、`personal/`（已迁移到 plugins），`wiki-sync/` 迁移到 `plugins/wiki-sync/`。
+**3h. `extensions/`** — 删除 `otc-claw/`、`personal/`（已迁移到 plugins）。`wiki-sync/`（项目根目录下的独立子项目，非 extensions 下）已迁移到 `plugins/wiki-sync/`。
 
 ### Phase 4: Agent 配置不变
 
@@ -319,6 +335,7 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | wework-qa | agent-bound | extract_wework_qa | 无 |
 | health-tracker | agent-bound | add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder | health_records, health_files |
 | wrong-questions | agent-bound | record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report | wrong_questions, wrong_question_assets |
+| wiki-sync | universal | *(无 — 纯后台 Confluence 同步服务)* | 无 |
 | *(保留在 core)* | — | 其余所有 COMMON_SET tools | *(主库：users, agents, knowledge, skills, memory, reminders, todos, documents, bot_apps, events, telemetry_turn, scheduled_tasks, migrations)* |
 
 ## Agent ↔ Plugin Tool 关系
@@ -359,7 +376,8 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | 6 | 迁移 trade-query plugin（6 tools） | ✅ 完成 | plugins/trade-query/；InfluxDB 连接独立，customers.json 从 config/ 读取 |
 | 7 | 迁移 hedge-ratio plugin（1 tool + monitor） | ✅ 完成 | plugins/hedge-ratio/；monitor 通过 dynamic import 获取企微连接 |
 | 8 | 迁移 wework-qa plugin（1 tool + monitor） | ✅ 完成 | plugins/wework-qa/；LLM provider 通过 dynamic import 注入，monitor 通过 start() 生命周期启动 |
-| 9 | 最终清理 + 全量验证 | ⏳ 待执行 | 删除 src/ 残留、tsc 检查、端到端测试 |
+| 9 | 迁移 wiki-sync plugin（0 tools，纯后台服务） | ✅ 完成 | plugins/wiki-sync/；从独立子项目 `wiki-sync/` 迁移；`file_to_wiki` 保留核心 COMMON_SET，简化实现去掉 wiki-compile 依赖；删除 `src/services/wiki-compile.ts`、`/relink-wiki` 命令 |
+| 10 | 最终清理 + 全量验证 | ⏳ 待执行 | 删除 src/ 残留、tsc 检查、端到端测试 |
 
 **已验证**：
 - `npx tsc --noEmit` 无新增错误

@@ -1,29 +1,30 @@
 /**
- * index.ts — wiki-sync CLI 入口
+ * cli.ts — wiki-sync 独立 CLI 入口
  *
- * 命令:
- *   node src/index.ts sync [--full]   增量/全量同步 (cf-export + import)
- *   node src/index.ts export          仅 cf-export
- *   node src/index.ts import          仅导入 (从已有 archive)
- *   node src/index.ts status          查看状态
- *   node src/index.ts cron            启动每日定时任务
+ * 用法（从项目根目录执行）:
+ *   npx tsx plugins/wiki-sync/src/cli.ts sync [--full] [--pages ids] [--pages-descendants]
+ *   npx tsx plugins/wiki-sync/src/cli.ts export [--pages ...]
+ *   npx tsx plugins/wiki-sync/src/cli.ts import
+ *   npx tsx plugins/wiki-sync/src/cli.ts status
+ *   npx tsx plugins/wiki-sync/src/cli.ts cron
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import * as yaml from 'yaml';
-import { runSync, runExport, runImportOnly, showStatus, type SyncConfig } from './cron.js';
+import { runSync, runExport, runImportOnly, showStatus, type SyncConfig } from './sync.js';
 
-const CONFIG_PATH = path.resolve('config.yaml');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CONFIG_PATH = process.env.WIKI_SYNC_CONFIG || path.resolve(__dirname, '..', 'config', 'config.yaml');
 
 function loadConfig(): SyncConfig {
   if (!fs.existsSync(CONFIG_PATH)) {
     console.error(`配置文件不存在: ${CONFIG_PATH}`);
-    console.error('请复制 config.yaml 并填写 Confluence 和 Samata 的连接信息');
+    console.error('请复制 config.example.yaml → config.yaml 并填写连接信息');
     process.exit(1);
   }
-  const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
-  return yaml.parse(raw) as SyncConfig;
+  return yaml.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) as SyncConfig;
 }
 
 function validateConfig(config: SyncConfig, hasCliPages: boolean): void {
@@ -36,7 +37,6 @@ function validateConfig(config: SyncConfig, hasCliPages: boolean): void {
   if (!config.samata?.username) errors.push('samata.username 未配置');
   if (!config.samata?.agent_name) errors.push('samata.agent_name 未配置');
 
-  // sync source: CLI --pages > config pages > config spaces
   if (!hasCliPages) {
     const hasPages = config.sync?.pages && config.sync.pages.length > 0;
     const hasSpaces = config.sync?.spaces && config.sync.spaces.length > 0;
@@ -64,13 +64,12 @@ function parseCliArgs(): { cmd: string; flags: Record<string, string> } {
       if (eqIdx !== -1) {
         flags[arg.slice(0, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        // next arg is the value (if it doesn't start with --)
         const next = args[i + 1];
         if (next && !next.startsWith('--')) {
           flags[arg] = next;
           i++;
         } else {
-          flags[arg] = 'true'; // boolean flag
+          flags[arg] = 'true';
         }
       }
     }
@@ -92,24 +91,14 @@ function main(): void {
     console.log(`wiki-sync — Confluence Wiki → Samata 同步工具
 
 用法:
-  npm start -- sync [--full] [--pages <id1,id2,...>] [--pages-descendants]
-      增量/全量同步 (cf-export + import)
-      --pages <ids>    只同步指定页面 ID（逗号分隔）
-      --pages-descendants  页面 ID 含全部子页
-
-  npm start -- export [--pages <id1,id2,...>] [--pages-descendants]
-      仅执行 cf-export
-
-  npm start -- import
-      仅导入 (从已有 archive 目录)
-
-  npm start -- status
-      查看同步状态
-
-  npm start -- cron
-      启动每日定时任务
+  npx tsx plugins/wiki-sync/src/cli.ts sync [--full] [--pages <id1,id2,...>] [--pages-descendants]
+  npx tsx plugins/wiki-sync/src/cli.ts export [--pages <id1,id2,...>] [--pages-descendants]
+  npx tsx plugins/wiki-sync/src/cli.ts import
+  npx tsx plugins/wiki-sync/src/cli.ts status
+  npx tsx plugins/wiki-sync/src/cli.ts cron
 
 配置文件: ${CONFIG_PATH}
+环境变量 WIKI_SYNC_CONFIG 可覆盖配置文件路径
 `);
     return;
   }
@@ -138,28 +127,21 @@ function main(): void {
       break;
     }
     case 'cron': {
-      // 每日定时任务
       const schedule = config.cron?.schedule || '0 2 * * *';
       console.log(`启动每日定时任务 (cron: ${schedule})`);
       console.log(`按 Ctrl+C 停止`);
 
-      // 简单的间隔检查（每分钟检查一次是否到预定时间）
-      // 生产环境建议使用 node-cron 或系统 crontab
       const checkAndRun = async () => {
         const now = new Date();
-        const hour = now.getHours();
-        const minute = now.getMinutes();
-        const dayOfMonth = now.getDate();
-
         const [cronMin, cronHour] = schedule.split(' ');
-        if (String(hour) === cronHour && String(minute) === cronMin) {
-          // 避免同一天重复执行（在 0-59 分钟窗口内只执行一次）
-          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
-          const lastRunFile = path.join(path.dirname(CONFIG_PATH), 'data', '.last_cron_run');
+        if (String(now.getHours()) === cronHour && String(now.getMinutes()) === cronMin) {
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const lastRunFile = path.join(path.dirname(CONFIG_PATH), '..', 'data', '.last_cron_run');
           let lastRun = '';
           try { lastRun = fs.readFileSync(lastRunFile, 'utf-8').trim(); } catch {}
 
           if (lastRun !== today) {
+            fs.mkdirSync(path.dirname(lastRunFile), { recursive: true });
             fs.writeFileSync(lastRunFile, today, 'utf-8');
             console.log(`\n[${new Date().toISOString()}] 定时任务触发`);
             try {
@@ -171,14 +153,13 @@ function main(): void {
         }
       };
 
-      // 每分钟检查一次
       setInterval(checkAndRun, 60_000);
-      checkAndRun(); // 启动时也检查一次
+      checkAndRun();
       break;
     }
     default: {
       console.error(`未知命令: ${cmd}`);
-      console.error('用法: node src/index.ts <sync|export|import|status|cron|help>');
+      console.error('用法: npx tsx plugins/wiki-sync/src/cli.ts <sync|export|import|status|cron|help>');
       process.exit(1);
     }
   }

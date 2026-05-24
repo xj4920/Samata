@@ -1,12 +1,12 @@
 /**
- * cron.ts — 每日调度 cf-export + 对比 lockfile + 触发导入
+ * sync.ts — Confluence 同步：cf-export + lockfile 对比 + 增量导入
  */
 
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { importPages, type ImportResult, type SamataConfig } from './import-bridge.js';
+import { importPages, type SamataConfig } from './import-bridge.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,12 +44,6 @@ interface Lockfile {
   [page_id: string]: LockEntry;
 }
 
-interface CfExportLockfile {
-  lockfile_version: string;
-  last_export: string;
-  pages: Lockfile;
-}
-
 interface SnapshotPage {
   version: number;
   document_id: string;
@@ -72,7 +66,6 @@ interface CfExportTarget {
 }
 
 function getCfExportTarget(config: SyncConfig, cliPages?: string[], cliDescendants?: boolean): CfExportTarget {
-  // CLI override takes precedence
   if (cliPages && cliPages.length > 0) {
     return {
       mode: cliDescendants ? 'pages-with-descendants' : 'pages',
@@ -101,7 +94,6 @@ function runCfExport(config: SyncConfig, target: CfExportTarget): void {
     CONFLUENCE_USERNAME: config.confluence.username,
     CONFLUENCE_API_TOKEN: config.confluence.api_token,
     CF_EXPORT_WORKERS: String(config.cf_export.workers),
-    // *.gf.com.cn 不走代理
     http_proxy: '',
     https_proxy: '',
     HTTP_PROXY: '',
@@ -124,7 +116,6 @@ function runCfExport(config: SyncConfig, target: CfExportTarget): void {
 // ---------------------------------------------------------------------------
 
 function findLockfile(outputPath: string): string | null {
-  // cf-export 的 lockfile 命名为 confluence-lock.json
   const candidates = [
     path.join(outputPath, 'confluence-lock.json'),
     path.join(outputPath, 'lockfile.json'),
@@ -134,7 +125,6 @@ function findLockfile(outputPath: string): string | null {
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  // 递归查找（最多 2 层），优先匹配 confluence-lock.json
   return findFileRecursive(outputPath, 'confluence-lock.json', 2)
     || findFileRecursive(outputPath, 'lockfile.json', 2);
 }
@@ -163,7 +153,6 @@ function findFileRecursive(dir: string, filename: string, maxDepth: number): str
 function readLockfile(filePath: string): Lockfile {
   const raw = fs.readFileSync(filePath, 'utf-8');
   const data = JSON.parse(raw);
-  // cf-export produces { lockfile_version, last_export, pages: {...} }
   return data.pages ?? data;
 }
 
@@ -186,12 +175,12 @@ function saveSnapshot(snapshotPath: string, snapshot: Snapshot): void {
 }
 
 // ---------------------------------------------------------------------------
-// Page discovery — walk archive directory for .md files, extract page_id from frontmatter
+// Page discovery
 // ---------------------------------------------------------------------------
 
 interface DiscoveredPage {
   mdPath: string;
-  pageId: string;   // Confluence page_id from YAML frontmatter
+  pageId: string;
   title: string;
 }
 
@@ -243,31 +232,21 @@ interface DiffResult {
   skippedCount: number;
 }
 
-function diffLockfile(
-  lockfile: Lockfile,
-  snapshot: Snapshot,
-  pages: DiscoveredPage[],
-): DiffResult {
-  const result: DiffResult = {
-    newPages: [],
-    updatedPages: [],
-    deletedPages: [],
-    skippedCount: 0,
-  };
+function diffLockfile(lockfile: Lockfile, snapshot: Snapshot, pages: DiscoveredPage[]): DiffResult {
+  const result: DiffResult = { newPages: [], updatedPages: [], deletedPages: [], skippedCount: 0 };
 
   const lockKeys = new Set(Object.keys(lockfile));
   const snapKeys = new Set(Object.keys(snapshot.pages));
 
-  // Build page_id → DiscoveredPage lookup
   const pageByPageId = new Map<string, DiscoveredPage>();
   for (const p of pages) {
-    if (pageByPageId.has(p.pageId)) continue; // first one wins if duplicate
+    if (pageByPageId.has(p.pageId)) continue;
     pageByPageId.set(p.pageId, p);
   }
 
   for (const [pageId, lockEntry] of Object.entries(lockfile)) {
     const page = pageByPageId.get(pageId);
-    if (!page) continue; // page exported but .md not found (shouldn't happen)
+    if (!page) continue;
 
     if (!snapKeys.has(pageId)) {
       result.newPages.push({ mdPath: page.mdPath, pageId, version: lockEntry.version });
@@ -283,7 +262,6 @@ function diffLockfile(
     }
   }
 
-  // Detect deleted pages
   for (const pageId of snapKeys) {
     if (!lockKeys.has(pageId)) {
       result.deletedPages.push({
@@ -310,14 +288,13 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
   const outputPath = path.resolve(config.sync.output_path);
   const snapshotPath = path.join(path.dirname(outputPath), 'snapshot.json');
 
-  // 1. Run cf-export
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       runCfExport(config, target);
       break;
     } catch (e: any) {
       if (attempt < 3) {
-        const delayMs = 300_000 * attempt; // 5min, 10min
+        const delayMs = 300_000 * attempt;
         console.error(`[cf-export] 失败 (${attempt}/3), ${delayMs / 1000}s 后重试: ${e.message}`);
         await sleep(delayMs);
       } else {
@@ -328,7 +305,6 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
     }
   }
 
-  // 2. Load lockfile and snapshot
   const lockfilePath = findLockfile(outputPath);
   if (!lockfilePath) {
     console.error('[错误] 未找到 lockfile.json，cf-export 可能未正确运行');
@@ -342,11 +318,9 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
   const pages = discoverPages(outputPath);
   console.log(`[发现] ${pages.length} 个 .md 文件, lockfile 中有 ${Object.keys(lockfile).length} 个页面`);
 
-  // 3. Diff
   const diff = diffLockfile(lockfile, snapshot, pages);
   console.log(`[diff] 新增: ${diff.newPages.length}, 更新: ${diff.updatedPages.length}, 删除: ${diff.deletedPages.length}, 跳过: ${diff.skippedCount}`);
 
-  // 4. Import new pages
   const allToImport: Array<{ mdPath: string; pageId: string; version: number; oldDocumentId?: string }> = [
     ...diff.newPages.map(p => ({ mdPath: p.mdPath, pageId: p.pageId, version: p.version })),
     ...diff.updatedPages.map(p => ({ mdPath: p.mdPath, pageId: p.pageId, version: p.version, oldDocumentId: p.oldDocumentId })),
@@ -355,7 +329,6 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
   if (allToImport.length > 0) {
     const results = await importPages(config.samata, allToImport, msg => console.log(`  ${msg}`));
 
-    // 5. Update snapshot with results
     const now = new Date().toISOString();
     for (const r of results) {
       if (r.document_id) {
@@ -366,7 +339,6 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
           imported_at: now,
         };
       } else if (r.status === 'skipped') {
-        // 内容未变但 lockfile version 变了：保留旧 document_id，更新 version
         const existing = snapshot.pages[r.page_id];
         if (existing) {
           existing.version = r.version;
@@ -374,28 +346,24 @@ export async function runSync(config: SyncConfig, fullSync: boolean = false, cli
       }
     }
 
-    // Remove deleted pages from snapshot
     for (const d of diff.deletedPages) {
       delete snapshot.pages[d.pageId];
     }
 
     snapshot.last_run = now;
 
-    // 统计
     const succeeded = results.filter(r => r.status === 'imported' || r.status === 'updated').length;
     const skipped = results.filter(r => r.status === 'skipped').length;
     const failed = results.filter(r => r.status === 'failed').length;
     console.log(`[导入完成] 成功: ${succeeded}, 跳过: ${skipped}, 失败: ${failed}`);
 
     if (failed > 0) {
-      const failedItems = results.filter(r => r.status === 'failed');
-      for (const f of failedItems) {
+      for (const f of results.filter(r => r.status === 'failed')) {
         console.error(`  失败: [${f.page_id}] ${f.title} - ${f.error}`);
       }
     }
   }
 
-  // 6. Save snapshot
   saveSnapshot(snapshotPath, snapshot);
   console.log(`[snapshot] 已保存 (${Object.keys(snapshot.pages).length} 个页面)`);
   console.log('=== Wiki Sync 完成 ===');
@@ -490,7 +458,7 @@ export function showStatus(config: SyncConfig): void {
   console.log('=== Wiki Sync Status ===');
   console.log(`Samata: ${config.samata.base_url}`);
   console.log(`Agent: ${config.samata.agent_name}`);
-  console.log(`Spaces: ${config.sync.spaces.join(', ')}`);
+  console.log(`Spaces: ${config.sync.spaces?.join(', ') || '(未配置)'}`);
   console.log(`输出目录: ${outputPath}`);
 
   if (lockfilePath) {

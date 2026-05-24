@@ -23,6 +23,7 @@ data/yanyu.db-wal
 # Local config (machine-specific)
 config/mcp-servers.json
 config/monitor.json
+plugins/wiki-sync/config/config.yaml
 
 # Temp test scripts
 scripts/test_*.mjs

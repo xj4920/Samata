@@ -1,6 +1,0 @@
-node_modules/
-dist/
-data/
-logs/
-.env
-config.yaml

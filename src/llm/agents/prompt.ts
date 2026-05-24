@@ -10,7 +10,7 @@ import { getPluginSkills } from '../../plugins/registry.js';
 import { getExecutionChannel } from '../../runtime/execution-context.js';
 import { loadWorkspace } from '../../session/workspace.js';
 import { loadDreamFile } from '../../services/dream-analyze.js';
-import { loadIndex } from '../../services/wiki-compile.js';
+import { getAgentFsName } from '../../commands/document-import.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -93,8 +93,8 @@ function buildDreamBlock(agentName: string): string {
 /** Build wiki guidance block. Only shown when the agent has wiki content or file_to_wiki tool. */
 function buildWikiGuidance(agentId?: string): string {
   if (!agentId) return '';
-  const index = loadIndex(agentId);
-  const hasWiki = index.length > 0;
+  const wikiDir = join(process.cwd(), 'data', 'wiki', getAgentFsName(agentId));
+  const hasWiki = fs.existsSync(wikiDir) && fs.readdirSync(wikiDir).some(d => !d.startsWith('.'));
 
   const guidance = [
     '知识 Wiki 规范：',

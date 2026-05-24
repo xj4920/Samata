@@ -57,8 +57,8 @@ export class SamataClient {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+  private async request<T>(method: string, urlPath: string, body?: unknown): Promise<T> {
+    const url = `${this.baseUrl}${urlPath}`;
     const res = await fetch(url, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -66,7 +66,7 @@ export class SamataClient {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status} ${method} ${path}: ${text}`);
+      throw new Error(`HTTP ${res.status} ${method} ${urlPath}: ${text}`);
     }
     return res.json() as Promise<T>;
   }
@@ -89,7 +89,6 @@ export class SamataClient {
 
   async ensureSession(): Promise<boolean> {
     if (!this.username || !this.agentName) return false;
-    // Destroy stale session first (best effort)
     if (this.sessionId) {
       try {
         await this.request('DELETE', '/api/cli/session', { sessionId: this.sessionId });
@@ -130,7 +129,6 @@ export class SamataClient {
     }
   }
 
-  /** Check if an error message indicates a stale/broken session */
   private static isSessionError(err: Error): boolean {
     const msg = err.message;
     return msg.includes('fetch failed')
@@ -159,17 +157,14 @@ export class SamataClient {
 // Output parsing
 // ---------------------------------------------------------------------------
 
-/** 从 /doc-import 的 output 中提取 document ID */
 function parseDocumentId(output: string[]): string | undefined {
   for (const line of output) {
-    // 格式: 文档已导入: [a1b2c3d4] 标题
     const m = line.match(/文档已导入:\s*\[([a-f0-9]{8})\]/);
     if (m) return m[1];
   }
   return undefined;
 }
 
-/** 检查 output 是否表示"已导入过"（内容重复） */
 function isDuplicateError(output: string[]): boolean {
   return output.some(line => line.includes('已导入过') || line.includes('请勿重复导入'));
 }
@@ -239,16 +234,13 @@ export async function importPage(
   const meta = parseFrontmatter(absPath);
   const title = meta.title || path.basename(mdPath, '.md');
 
-  // Build /doc-import command with optional flags
   let importCmd = `/doc-import ${absPath} --no-compile`;
-  // Extract doc_date from frontmatter 'updated' field (e.g. "2026-04-27T10:30:00Z")
   const docDate = meta.updated ? meta.updated.slice(0, 10) : undefined;
   if (docDate) importCmd += ` --doc-date ${docDate}`;
   if (meta.title) importCmd += ` --title ${meta.title}`;
 
   const result: ImportResult = { page_id: pageId, title, version, status: 'failed' };
 
-  // 1. Import the markdown page
   const pageRes = await client.executeWithRetry(importCmd, onProgress);
   if (!pageRes.ok) {
     result.error = pageRes.error || pageRes.output?.join('; ') || '导入失败';
@@ -268,7 +260,6 @@ export async function importPage(
     return result;
   }
 
-  // 2. Import non-image attachments
   const pageDir = path.dirname(absPath);
   const attachments = findAttachments(pageDir);
   const importedAttachments: { filename: string; document_id: string }[] = [];
@@ -281,7 +272,6 @@ export async function importPage(
         importedAttachments.push({ filename: path.basename(attPath), document_id: attId });
       }
     }
-    // 附件导入失败不阻塞
   }
 
   if (importedAttachments.length > 0) {
@@ -299,7 +289,6 @@ export async function reimportPage(
   oldDocumentId: string,
   onProgress?: (msg: string) => void,
 ): Promise<ImportResult> {
-  // 删除旧文档
   const delRes = await client.executeWithRetry(`/doc-del ${oldDocumentId}`, onProgress);
   if (!delRes.ok) {
     return {
@@ -311,7 +300,6 @@ export async function reimportPage(
     };
   }
 
-  // 导入新版本
   const result = await importPage(client, mdPath, pageId, version, onProgress);
   result.status = 'updated';
   return result;
@@ -328,7 +316,6 @@ export async function importPages(
 ): Promise<ImportResult[]> {
   const client = new SamataClient(samataConfig.base_url);
 
-  // 等待 Samata API 在线
   for (let i = 0; i < 3; i++) {
     if (await client.healthCheck()) break;
     const waitMs = 60_000 * (i + 1);

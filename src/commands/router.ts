@@ -48,7 +48,6 @@ const commands: Record<string, Command> = {
   'doc-list':   { description: '已导入的文档', usage: '/doc-list', handler: documentImport.cliList },
   'doc-del':    { description: '删除文档及知识', usage: '/doc-del <文档ID>', requiredRole: 'agent_admin', handler: documentImport.cliDelete },
   'doc-retag':  { description: '重生成文档标签', usage: '/doc-retag <文档ID|--all>', requiredRole: 'agent_admin', handler: documentImport.cliRetag },
-  'relink-wiki': { description: '为 Wiki 来源标注添加文档链接', usage: '/relink-wiki', requiredRole: 'agent_admin', handler: handleRelinkWiki },
   plugin:  { description: '插件', usage: '/plugin [list]', handler: handlePlugin, subcommands: ['list'] },
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
@@ -66,14 +65,6 @@ const commands: Record<string, Command> = {
 
   help:    { description: '显示帮助', usage: '/help', handler: showHelp },
 };
-
-async function handleRelinkWiki(): Promise<void> {
-  const agent = getCurrentAgent();
-  if (!agent) { log.print('请先切换到一个 Agent'); return; }
-  const { relinkAllWikiPages } = await import('../services/wiki-compile.js');
-  const updated = relinkAllWikiPages(agent.id);
-  log.print(`Wiki 链接更新完成: ${updated} 个页面已添加来源链接`);
-}
 
 async function handleBot(args: string): Promise<void> {
   const parts = args.trim().toLowerCase().split(/\s+/);

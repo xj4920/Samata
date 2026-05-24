@@ -3,7 +3,12 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { getWikiDir } from './wiki-compile.js';
+import { getAgentFsName } from '../commands/document-import.js';
+
+const WIKI_ROOT = path.resolve(process.cwd(), 'data/wiki');
+function getWikiDir(agentId: string): string {
+  return path.join(WIKI_ROOT, getAgentFsName(agentId));
+}
 import { log } from '../utils/logger.js';
 
 const COOCCUR_FILE = '.link-cooccurrence.json';

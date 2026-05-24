@@ -16,7 +16,7 @@ samata:
 
 # 同步配置
 sync:
-  output_path: "./data/archive"      # cf-export 输出目录
+  output_path: "./data/plugins/wiki-sync/archive"  # cf-export 输出目录
 
   # 方式一：按 Space 同步（与 pages 二选一）
   spaces: []                 # Confluence Space Key 列表，如 ["OPS", "BIZ"]
