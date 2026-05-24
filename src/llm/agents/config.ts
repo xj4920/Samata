@@ -85,6 +85,7 @@ export interface AgentConfig {
   userToolsMode: 'inherit' | 'all' | 'allowlist' | 'blocklist';
   userToolsList: string[];
   maxHistory: number;
+  customPrompt?: string;
 }
 
 /** Code-level fallback when DB has no agents */
@@ -115,6 +116,7 @@ interface AgentRow {
   user_tools_mode: string;
   user_tools_list: string | null;
   max_history: number;
+  custom_prompt: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -135,6 +137,7 @@ function rowToConfig(row: AgentRow): AgentConfig {
     userToolsMode: (row.user_tools_mode ?? 'inherit') as AgentConfig['userToolsMode'],
     userToolsList: row.user_tools_list ? JSON.parse(row.user_tools_list) : [],
     maxHistory: row.max_history,
+    customPrompt: row.custom_prompt ?? undefined,
   };
 }
 

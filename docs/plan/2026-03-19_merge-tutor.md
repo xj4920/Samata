@@ -20,7 +20,7 @@ git merge tutor
 - `src/llm/agents/config.ts` — agent config
 - `src/feishu/feishu-entry.ts`, `src/telegram/bot.ts` — bot integrations
 - `monitor.json`, `package.json`, `package-lock.json` — config/deps
-- `yanyu.db` and related binary files
+- `samata.db` and related binary files
 
 ## Result
 Fast-forward merge completed successfully. `f892c2c` is now on `main`.

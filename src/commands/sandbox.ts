@@ -6,7 +6,7 @@
  *
  * Execution uses bwrap (bubblewrap) for true filesystem isolation when
  * available: the child process can only see system dirs and the sandbox
- * directory. Project files (yanyu.db, .env, source code, etc.) are
+ * directory. Project files (samata.db, .env, source code, etc.) are
  * completely invisible inside the sandbox.
  */
 import fs from 'fs';

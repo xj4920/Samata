@@ -55,7 +55,7 @@ LLM 提取（generateTopicPrompt → 单次调用）
 
 ## 路径二：/qa 完整管线
 
-通过 `src/commands/qa.ts` 统一入口，调用 `scripts/` 下的独立脚本。数据持久化到 SQLite（`data/yanyu.db`）。
+通过 `src/commands/qa.ts` 统一入口，调用 `scripts/` 下的独立脚本。数据持久化到 SQLite（`data/samata.db`）。
 
 ```
 /qa extract [topic] [limit]     增量提取
@@ -264,7 +264,7 @@ EXTRACTION_VERSION: 1 → 2
 
 ## 数据库表结构
 
-SQLite 数据库 `data/yanyu.db`，建表脚本 `sql/init-qa-extraction-db.sql`。
+SQLite 数据库 `data/samata.db`，建表脚本 `sql/init-qa-extraction-db.sql`。
 
 ### message_processing_log（消息处理追踪）
 

@@ -141,20 +141,20 @@ describe('wework-qa plugin', () => {
       expect(result).toEqual([]);
     });
 
-    it('throws when LLM provider not injected', async () => {
-      const { extractWeworkQA, setLLMProvider } = await import('../../../plugins/wework-qa/src/commands.js');
+    it('throws when callLLM not injected', async () => {
+      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 请问如何配置FIX连接？',
         '[2026-05-20 10:01:00]: 李四: 需要在gateway.xml中设置SenderCompID',
       ]);
 
-      setLLMProvider(null as any, null as any);
-      await expect(extractWeworkQA({ topics: ['FIX'] })).rejects.toThrow('LLM provider not injected');
+      setCallLLM(null as any);
+      await expect(extractWeworkQA({ topics: ['FIX'] })).rejects.toThrow('callLLM not injected');
     });
 
     it('extracts QA pairs with mocked LLM', async () => {
-      const { extractWeworkQA, setLLMProvider } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 请问FIX连接超时怎么办？',
@@ -171,24 +171,19 @@ describe('wework-qa plugin', () => {
         context: 'FIX网关配置',
       }]);
 
-      const mockProvider = {
-        createMessage: vi.fn().mockResolvedValue({
-          content: [{ type: 'text', text: mockResponse }],
-        }),
-      };
-
-      setLLMProvider(() => mockProvider as any, () => 'test-model');
+      const mockCallLLM = vi.fn().mockResolvedValue(mockResponse);
+      setCallLLM(mockCallLLM);
 
       const result = await extractWeworkQA({ topics: ['FIX'] });
       expect(result).toHaveLength(1);
       expect(result[0].question).toBe('FIX连接超时如何处理？');
       expect(result[0].answer).toContain('HeartBtInt');
       expect(result[0].session).toBe('测试群');
-      expect(mockProvider.createMessage).toHaveBeenCalledTimes(1);
+      expect(mockCallLLM).toHaveBeenCalledTimes(1);
     });
 
     it('handles date and people filters', async () => {
-      const { extractWeworkQA, setLLMProvider } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-18 10:00:00]: 张三: FIX旧消息',
@@ -196,12 +191,8 @@ describe('wework-qa plugin', () => {
         '[2026-05-20 11:00:00]: 李四: FIX回复',
       ]);
 
-      const mockProvider = {
-        createMessage: vi.fn().mockResolvedValue({
-          content: [{ type: 'text', text: '[]' }],
-        }),
-      };
-      setLLMProvider(() => mockProvider as any, () => 'test-model');
+      const mockCallLLM = vi.fn().mockResolvedValue('[]');
+      setCallLLM(mockCallLLM);
 
       const result = await extractWeworkQA({
         topics: ['FIX'],
@@ -210,10 +201,9 @@ describe('wework-qa plugin', () => {
       });
 
       expect(result).toEqual([]);
-      // LLM was called with only 李四's message from after 05-19
-      const callArgs = mockProvider.createMessage.mock.calls[0][0];
-      expect(callArgs.messages[0].content).toContain('李四');
-      expect(callArgs.messages[0].content).not.toContain('旧消息');
+      const callArgs = mockCallLLM.mock.calls[0];
+      expect(callArgs[0][0].content).toContain('李四');
+      expect(callArgs[0][0].content).not.toContain('旧消息');
     });
   });
 

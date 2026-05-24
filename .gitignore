@@ -13,9 +13,9 @@ logs/*
 .gemini/*
 
 # SQLite database
-data/yanyu.db
-data/yanyu.db-shm
-data/yanyu.db-wal
+data/samata.db
+data/samata.db-shm
+data/samata.db-wal
 
 # Runtime
 .samata.pid

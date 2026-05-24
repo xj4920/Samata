@@ -2129,4 +2129,8 @@ export function initSchema(): void {
       }
     }
   });
+
+  runOnce('agents-add-custom-prompt', () => {
+    try { db.exec("ALTER TABLE agents ADD COLUMN custom_prompt TEXT"); } catch {}
+  });
 }

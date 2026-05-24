@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * One-time sync: backfill missing events and pricing data from yanyu.db
+ * One-time sync: backfill missing events and pricing data from samata.db
  * into the client-manager plugin DB.
  *
  * Usage: npx tsx scripts/sync-plugin-db.ts [--dry-run]
@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const MAIN_DB_PATH = path.join(ROOT, 'data/yanyu.db');
+const MAIN_DB_PATH = path.join(ROOT, 'data/samata.db');
 const PLUGIN_DB_PATH = path.join(ROOT, 'data/plugins/client-manager/client-manager.db');
 
 const dryRun = process.argv.includes('--dry-run');

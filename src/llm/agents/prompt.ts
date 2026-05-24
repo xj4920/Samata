@@ -44,9 +44,13 @@ function buildPermissionText(user: User, agent?: AgentConfig): string {
   return parts.join('。') + '。';
 }
 
-/** Load the markdown template for an agent. Falls back to _default.md when the named template is missing. */
-function loadPromptTemplate(agentName: string): string {
-  const primary = join(PROMPTS_DIR, `${agentName}.md`);
+/**
+ * Load the prompt template for an agent.
+ * Priority: agents.custom_prompt (DB) > config/agents/<name>.md > config/agents/_default.md
+ */
+function loadPromptTemplate(agent: AgentConfig): string {
+  if (agent.customPrompt) return agent.customPrompt;
+  const primary = join(PROMPTS_DIR, `${agent.name}.md`);
   if (fs.existsSync(primary)) return fs.readFileSync(primary, 'utf-8');
   const fallback = join(PROMPTS_DIR, '_default.md');
   return fs.readFileSync(fallback, 'utf-8');
@@ -118,7 +122,7 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
   const u = user ?? getCurrentUser();
   const agentId = agent.id !== 'default' ? agent.id : undefined;
 
-  const template = loadPromptTemplate(agent.name);
+  const template = loadPromptTemplate(agent);
   const vars: Record<string, string> = {
     'agent.displayName': agent.displayName,
     'agent.description': agent.description ?? '',

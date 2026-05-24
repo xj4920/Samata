@@ -13,17 +13,11 @@ const plugin: PluginModule = {
     // No DB needed; InfluxDB connection via env vars
   },
 
-  async start() {
-    // Inject wework send function lazily via dynamic import
-    try {
-      const { getFirstConnectedWsClient } = await import('../../src/wework/bot.js');
+  async start(ctx: PluginContext) {
+    if (ctx.sendNotification) {
       setSendMessage(async (chatId, msg) => {
-        const ws = getFirstConnectedWsClient();
-        if (!ws) throw new Error('无可用企微连接');
-        await ws.sendMessage(chatId, msg);
+        await ctx.sendNotification!('wework', chatId, msg.markdown.content);
       });
-    } catch {
-      // wework bot not available — monitor will skip sends
     }
     startHedgeRatioMonitor();
   },

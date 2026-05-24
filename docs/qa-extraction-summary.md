@@ -261,7 +261,7 @@ npx tsx scripts/validate-extraction-coverage.ts
 ### 1. 初始化（已完成）
 
 ```bash
-sqlite3 data/yanyu.db < sql/init-qa-extraction-db.sql
+sqlite3 data/samata.db < sql/init-qa-extraction-db.sql
 ```
 
 ### 2. 运行提取

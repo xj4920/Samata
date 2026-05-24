@@ -3,8 +3,21 @@
   "version": "1.0.0",
   "description": "Plugin SDK for Samata — defines the contract between host and plugins",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "private": true,
-  "files": ["src"]
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
 }

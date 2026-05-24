@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-const db = new Database('data/yanyu.db');
+const db = new Database('data/samata.db');
 
 const oldQuestion = '客户专线接入的费用标准是多少？';
 const newQuestion = '上海同城4M带宽的客户专线接入费用标准是多少？';

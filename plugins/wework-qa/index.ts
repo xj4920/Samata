@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
-import { extractWeworkQA, setLLMProvider } from './src/commands.js';
+import { extractWeworkQA, setCallLLM } from './src/commands.js';
 import { startWeworkMonitor, stopWeworkMonitor, setSendTelegram, setSendFeishu } from './src/monitor.js';
 
 const plugin: PluginModule = {
@@ -9,21 +11,16 @@ const plugin: PluginModule = {
   scope: 'agent-bound',
   toolDefinitions,
 
-  async init(_ctx: PluginContext) {
-    // Inject LLM provider lazily via dynamic import
-    try {
-      const { getProvider, getModelName } = await import('../../src/llm/provider.js');
-      setLLMProvider(getProvider, getModelName);
-    } catch {
-      console.warn('[wework-qa] LLM provider not available — extract_wework_qa will fail');
+  async init(ctx: PluginContext) {
+    if (ctx.callLLM) {
+      setCallLLM(ctx.callLLM);
+    } else {
+      console.warn('[wework-qa] callLLM not available — extract_wework_qa will fail');
     }
   },
 
-  async start() {
-    // Inject notification channels via dynamic imports
+  async start(ctx: PluginContext) {
     try {
-      const { readFileSync } = await import('node:fs');
-      const { resolve } = await import('node:path');
       const configPath = resolve(process.cwd(), 'config/monitor.json');
       const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
       const channels: string[] = cfg.notification?.channels || ['telegram'];
@@ -47,20 +44,10 @@ const plugin: PluginModule = {
         });
       }
 
-      if (channels.includes('feishu')) {
-        try {
-          const { FeishuAPI } = await import('../../src/feishu/api.js');
-          const { getDb } = await import('../../src/db/connection.js');
-          const row = getDb().prepare("SELECT * FROM bot_apps WHERE name = 'monitor-bot' AND channel = 'feishu' LIMIT 1").get() as any;
-          if (row) {
-            const feishuApi = new FeishuAPI({ appId: row.id, appSecret: row.secret, verificationToken: '', encryptKey: '' });
-            setSendFeishu(async (text, receiveId, receiveIdType) => {
-              await feishuApi.sendMessageTo(receiveId, receiveIdType, 'text', { text });
-            });
-          }
-        } catch {
-          // Feishu not available
-        }
+      if (channels.includes('feishu') && ctx.sendNotification) {
+        setSendFeishu(async (text, receiveId, _receiveIdType) => {
+          await ctx.sendNotification!('feishu', receiveId, text);
+        });
       }
     } catch {
       // Config not available — monitor will skip

@@ -106,22 +106,12 @@ export async function fetchWeworkMessages(params: {
 
 // ─── LLM QA extraction ─────────────────────────────────────────────────────
 
-type LLMProvider = {
-  createMessage(params: {
-    model: string;
-    max_tokens: number;
-    system: string;
-    tools: any[];
-    messages: Array<{ role: string; content: string }>;
-  }): Promise<{ content: Array<{ type: string; text?: string }> }>;
-};
+type CallLLMFn = (messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}) => Promise<string>;
 
-let _getProvider: (() => LLMProvider) | null = null;
-let _getModelName: (() => string) | null = null;
+let _callLLM: CallLLMFn | null = null;
 
-export function setLLMProvider(getProvider: () => LLMProvider, getModelName: () => string): void {
-  _getProvider = getProvider;
-  _getModelName = getModelName;
+export function setCallLLM(fn: CallLLMFn): void {
+  _callLLM = fn;
 }
 
 export async function extractWeworkQA(params: {
@@ -186,8 +176,8 @@ async function extractQAWithLLM(
   topic: string | undefined,
   limit: number
 ): Promise<QAPair[]> {
-  if (!_getProvider || !_getModelName) {
-    throw new Error('LLM provider not injected');
+  if (!_callLLM) {
+    throw new Error('callLLM not injected');
   }
 
   const conversationText = messages
@@ -217,17 +207,12 @@ ${conversationText}
 
 只返回 JSON 数组，不要其他内容。无符合标准的 Q&A 则返回 []。`;
 
-  const provider = _getProvider();
-  const response = await provider.createMessage({
-    model: _getModelName(),
-    max_tokens: 16000,
-    system: '你是一个业务知识提取专家。请直接返回 JSON 结果，不要使用 markdown 代码块包裹，不要使用 <think> 标签或其他思考过程标记。',
-    tools: [],
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const text = await _callLLM(
+    [{ role: 'user', content: prompt }],
+    { system: '你是一个业务知识提取专家。请直接返回 JSON 结果，不要使用 markdown 代码块包裹，不要使用 <think> 标签或其他思考过程标记。', max_tokens: 16000 },
+  );
 
-  const content = response.content[0];
-  if (content.type !== 'text' || !content.text) return [];
+  if (!text) return [];
 
   const qaPairs = parseLLMJsonArray<{
     question: string;
@@ -237,7 +222,7 @@ ${conversationText}
     questioner: string;
     answerer: string;
     context?: string;
-  }>(content.text);
+  }>(text);
 
   return qaPairs.map(qa => {
     const msg = messages.find(m => m.time === qa.time);

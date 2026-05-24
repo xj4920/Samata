@@ -8,7 +8,7 @@ import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 
-const DB_PATH = './data/yanyu.db';
+const DB_PATH = './data/samata.db';
 
 // Parse YAML frontmatter from markdown file content
 function parseFrontmatter(content: string): Record<string, unknown> | null {

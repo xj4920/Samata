@@ -10,10 +10,48 @@ import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './t
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
-const PLUGINS_DIR = path.join(PROJECT_ROOT, 'plugins');
+const PLUGINS_DIR = path.resolve(
+  process.env.SAMATA_PLUGINS_DIR || path.join(PROJECT_ROOT, 'plugins')
+);
+
+async function callLLMImpl(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string> {
+  const { getProvider, getModelName } = await import('../llm/provider.js');
+  const provider = getProvider();
+  const response = await provider.createMessage({
+    model: getModelName(),
+    max_tokens: options?.max_tokens || 4096,
+    system: options?.system || '',
+    tools: [],
+    messages: messages as any,
+  });
+  const textBlock = response.content.find((b) => b.type === 'text');
+  return (textBlock as any)?.text || '';
+}
+
+async function sendNotificationImpl(channel: string, targetId: string, message: string): Promise<void> {
+  if (channel === 'feishu') {
+    const { FeishuAPI } = await import('../feishu/api.js');
+    const { getDb } = await import('../db/connection.js');
+    const row = getDb().prepare(
+      "SELECT * FROM bot_apps WHERE name = 'monitor-bot' AND channel = 'feishu' LIMIT 1"
+    ).get() as any;
+    if (!row) throw new Error('No feishu monitor bot configured');
+    const api = new FeishuAPI({ appId: row.id, appSecret: row.secret, verificationToken: '', encryptKey: '' });
+    const idType = targetId.startsWith('oc_') ? 'chat_id' : targetId.startsWith('ou_') ? 'open_id' : 'user_id';
+    await api.sendMessageTo(targetId, idType, 'text', { text: message });
+  } else if (channel === 'wework') {
+    const { getFirstConnectedWsClient } = await import('../wework/bot.js');
+    const ws = getFirstConnectedWsClient();
+    if (!ws) throw new Error('无可用企微连接');
+    await ws.sendMessage(targetId, { msgtype: 'markdown', markdown: { content: message } });
+  } else {
+    throw new Error(`Unsupported notification channel: ${channel}`);
+  }
+}
 
 function buildPluginContext(pluginName: string): PluginContext {
   const dataDir = path.join(PROJECT_ROOT, 'data', 'plugins', pluginName);
+  const configDir = path.join(PROJECT_ROOT, 'config');
   return {
     getCurrentUser: () => {
       const u = getCurrentUser();
@@ -22,6 +60,9 @@ function buildPluginContext(pluginName: string): PluginContext {
     getDataDir: () => dataDir,
     getAgentId: () => getContextAgent()?.id,
     getDeliveryContext: () => undefined,
+    callLLM: callLLMImpl,
+    sendNotification: sendNotificationImpl,
+    getConfigDir: () => configDir,
   };
 }
 
@@ -180,7 +221,7 @@ export async function startAllPlugins(): Promise<void> {
   for (const loaded of loadedPlugins.values()) {
     if (loaded.module.start) {
       try {
-        await loaded.module.start();
+        await loaded.module.start(loaded.context);
       } catch (err: any) {
         log.warn(`⚠️  Plugin [${loaded.module.name}]: start failed — ${err.message}`);
       }

@@ -153,7 +153,7 @@ async function migrateFromMainDb(ctx: PluginContext): Promise<void> {
   // The main DB path is relative to project root
   const dataDir = ctx.getDataDir();
   const projectRoot = dataDir.replace(/\/data\/plugins\/client-manager$/, '');
-  const mainDbPath = `${projectRoot}/data/yanyu.db`;
+  const mainDbPath = `${projectRoot}/data/samata.db`;
 
   let mainDb: any;
   try {

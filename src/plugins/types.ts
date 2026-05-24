@@ -25,6 +25,9 @@ export interface PluginContext {
   getDeliveryContext(): DeliveryInfo | undefined;
   isAdmin?(): boolean;
   createReminder?(params: { agentId: string; message: string; remindAt: number; channel: string; targetId: string; appId?: string }): { success: boolean; id?: string };
+  callLLM?(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string>;
+  sendNotification?(channel: string, targetId: string, message: string): Promise<void>;
+  getConfigDir?(): string;
 }
 
 export interface PluginModule {
@@ -34,7 +37,7 @@ export interface PluginModule {
   toolDefinitions: ToolDefinition[];
   handleTool(name: string, input: any, ctx: PluginContext): Promise<string | null>;
   init?(ctx: PluginContext): Promise<void>;
-  start?(): Promise<void>;
+  start?(ctx: PluginContext): Promise<void>;
   stop?(): Promise<void>;
 }
 

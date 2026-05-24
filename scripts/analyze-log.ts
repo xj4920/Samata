@@ -1178,7 +1178,7 @@ function extractDateFromPath(logPath: string): string {
 function loadAgentNameMap(): Map<string, string> {
   const map = new Map<string, string>();
   try {
-    const dbPath = join(process.cwd(), 'data', 'yanyu.db');
+    const dbPath = join(process.cwd(), 'data', 'samata.db');
     if (!existsSync(dbPath)) return map;
     const db = new Database(dbPath, { readonly: true });
     const rows = db.prepare('SELECT id, name, display_name FROM agents').all() as { id: string; name: string; display_name: string }[];
@@ -1200,7 +1200,7 @@ function loadAgentNameMap(): Map<string, string> {
 function loadUserNameMap(): Map<string, string> {
   const map = new Map<string, string>();
   try {
-    const dbPath = join(process.cwd(), 'data', 'yanyu.db');
+    const dbPath = join(process.cwd(), 'data', 'samata.db');
     if (!existsSync(dbPath)) return map;
     const db = new Database(dbPath, { readonly: true });
     const rows = db.prepare('SELECT id, username, display_name FROM users WHERE display_name IS NOT NULL').all() as { id: string; username: string; display_name: string }[];

@@ -35,9 +35,9 @@ const plugin: PluginModule = {
   toolDefinitions,
 
   async init(ctx: PluginContext) {
-    const dataDir = ctx.getDataDir();
-    const projectRoot = dataDir.replace(/\/data\/plugins\/trade-query$/, '');
-    setConfigDir(path.join(projectRoot, 'config'));
+    if (ctx.getConfigDir) {
+      setConfigDir(ctx.getConfigDir());
+    }
   },
 
   async handleTool(name: string, input: any, ctx: PluginContext) {
