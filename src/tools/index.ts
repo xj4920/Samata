@@ -6,7 +6,6 @@ import * as skillTools from './skill-tools.js';
 import * as agentTools from './agent-tools.js';
 import * as memoryTools from './memory-tools.js';
 import * as fileTools from './file-tools.js';
-import * as weworkTools from './wework-tools.js';
 import * as reminderTools from './reminder-tools.js';
 import * as systemTools from './system-tools.js';
 import * as todoTools from './todo-tools.js';
@@ -34,7 +33,6 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: agentTools,        category: 'Agent' },
   { module: memoryTools,       category: '记忆' },
   { module: fileTools,         category: '文件' },
-  { module: weworkTools,       category: '企微' },
   { module: reminderTools,     category: '提醒' },
   { module: systemTools,       category: '系统' },
   { module: todoTools,         category: '待办' },

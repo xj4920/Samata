@@ -8,7 +8,6 @@ import { getExecutionChannel, getExecutionContext } from '../runtime/execution-c
 import { getProviderName, getModelName, getProviderByName, type ProviderName } from '../llm/provider.js';
 import { isTelegramBotRunning } from '../telegram/bot.js';
 import { isFeishuBotRunning, listFeishuBotHealth, type FeishuBotHealth } from '../feishu/bot.js';
-import { isMonitorRunning } from '../services/wework-monitor.js';
 import { isWeworkBotRunning } from '../wework/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
 import { getAgentTools, getBotAppLLM } from '../llm/agents/config.js';
@@ -49,7 +48,6 @@ export interface SystemStatus {
     name: string;
     running: boolean;
     detail?: string;          // e.g. "(ws)"
-    agentId?: string;         // if set, only shown when current agent matches
   }[];
   feishuBots: FeishuBotHealth[];
 }
@@ -131,11 +129,10 @@ export function fetchSystemStatus(): SystemStatus {
     uptime: formatUptime(),
     ipAddresses,
     services: [
-      { name: '企微监测', running: isMonitorRunning(), agentId: 'alter-ego' },
       { name: '企微 Bot', running: isWeworkBotRunning() },
       { name: '飞书 Bot', running: isFeishuBotRunning(), detail: feishuMode },
       { name: 'Telegram', running: isTelegramBotRunning() },
-    ].filter(svc => !svc.agentId || svc.agentId === agent?.name),
+    ],
     feishuBots: channel === 'cli' ? listFeishuBotHealth() : [],
   };
 }

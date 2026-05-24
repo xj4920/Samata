@@ -13,7 +13,6 @@ import { handleAgent, getAgentSubcommands } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
 import { handleUser } from './user.js';
 import { handleWrongQuestion } from './wrong-question.js';
-import { startMonitor, stopMonitor, isMonitorRunning } from '../services/wework-monitor.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startAllFeishuBots, stopAllFeishuBots, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
 
@@ -62,7 +61,6 @@ const commands: Record<string, Command> = {
     subcommands: ['list', 'show', 'mastered', 'report'],
   },
   model:   { description: '切换模型', usage: '/model <list|<provider>|<provider>/<model>|reset>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'reset', 'anthropic', 'minimax', 'gemini', 'openrouter', 'gf'] },
-  watch:   { description: '企微监测', usage: '/watch <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleWatch, subcommands: ['start', 'stop', 'status'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
   user:    { description: '系统用户', usage: '/user <list|add|update|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
 
@@ -75,19 +73,6 @@ async function handleRelinkWiki(): Promise<void> {
   const { relinkAllWikiPages } = await import('../services/wiki-compile.js');
   const updated = relinkAllWikiPages(agent.id);
   log.print(`Wiki 链接更新完成: ${updated} 个页面已添加来源链接`);
-}
-
-function handleWatch(args: string): void {
-  const sub = args.trim().toLowerCase();
-  if (sub === 'start') {
-    startMonitor();
-  } else if (sub === 'stop') {
-    stopMonitor();
-  } else if (sub === 'status') {
-    log.print(isMonitorRunning() ? '[monitor] 运行中' : '[monitor] 未运行');
-  } else {
-    log.print('用法: /watch start | stop | status');
-  }
 }
 
 async function handleBot(args: string): Promise<void> {

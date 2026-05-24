@@ -358,7 +358,7 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | 5 | 迁移 pricing plugin（3 tools） | ✅ 完成 | plugins/pricing/；数据迁移 2 条报价记录 |
 | 6 | 迁移 trade-query plugin（6 tools） | ✅ 完成 | plugins/trade-query/；InfluxDB 连接独立，customers.json 从 config/ 读取 |
 | 7 | 迁移 hedge-ratio plugin（1 tool + monitor） | ✅ 完成 | plugins/hedge-ratio/；monitor 通过 dynamic import 获取企微连接 |
-| 8 | 迁移 wework-qa plugin（1 tool + monitor） | ⏳ 待执行 | 后台服务依赖企微连接 |
+| 8 | 迁移 wework-qa plugin（1 tool + monitor） | ✅ 完成 | plugins/wework-qa/；LLM provider 通过 dynamic import 注入，monitor 通过 start() 生命周期启动 |
 | 9 | 最终清理 + 全量验证 | ⏳ 待执行 | 删除 src/ 残留、tsc 检查、端到端测试 |
 
 **已验证**：
@@ -370,6 +370,7 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 - trade-query plugin 加载成功（6 tools），InfluxDB 连接独立于核心
 - hedge-ratio plugin 加载成功，monitor 在 `start()` 阶段通过 dynamic import wework bot 启动轮询
 - 单元测试全量通过：15 files / 174 tests（含 3 个新 plugin 测试文件：pricing 17 tests、trade-query 12 tests、hedge-ratio 6 tests）
+- wework-qa plugin 加载成功（1 tool），monitor 在 `start()` 阶段通过 dynamic import 注入 Telegram/Feishu 通知渠道
 
 **Step 4 已解决的难点**：
 - `src/commands/client.ts` 依赖 `getDb()` 主库连接 → 完全重写为独立 SQLite（`plugins/client-manager/src/db.ts`）
@@ -381,8 +382,9 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 - pricing plugin：独立 SQLite（`data/plugins/pricing/pricing.db`），`init()` 时从主库一次性迁移 pricing_quotes 数据
 - trade-query plugin：InfluxDB 连接完全独立（从 env 读取），customers.json 从 `config/` 目录读取
 - hedge-ratio plugin：monitor 通过 `start()` 生命周期 + `dynamic import('../../src/wework/bot.js')` 注入企微连接，避免静态依赖核心代码
-- 核心清理：`src/tools/index.ts` 移除 tradeTools/hedgeRatioTools/pricingQuoteTools 三个 module import；`src/index.ts` 移除 `startHedgeRatioMonitor` 调用（plugin 的 `start()`/`stop()` 自动处理）
+- 核心清理：`src/tools/index.ts` 移除 tradeTools/hedgeRatioTools/pricingQuoteTools/weworkTools 四个 module import；`src/index.ts` 移除 `startHedgeRatioMonitor`/`startMonitor` 调用（plugin 的 `start()`/`stop()` 自动处理）
 - `src/commands/trade.ts` 暂保留（feishu/telegram formatter 仍有 import），将在 Phase 3 清理
+- wework-qa plugin：`extractWeworkQA` 需 LLM 调用，通过 `init()` 时 dynamic import `src/llm/provider.js` 注入；`fetchWeworkMessages` 自包含（读本地文件目录，路径从 `WEWORK_DUMP_DIR` env 获取）；monitor 通过 `start()` 时 dynamic import Telegram/Feishu/DB 连接实现通知推送；移除了 `/watch` CLI 命令（monitor 由 plugin 生命周期自动管理）
 
 ## 风险与注意事项
 

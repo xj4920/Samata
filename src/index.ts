@@ -7,7 +7,6 @@ import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
-import { startMonitor, stopMonitor } from './services/wework-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
@@ -29,7 +28,6 @@ export function gracefulShutdown(): void {
   cliApiServer = null;
   stopAllPlugins().catch(() => {});
   stopPluginWatcher();
-  stopMonitor();
   stopReminderScheduler();
   stopTaskScheduler();
   stopAllFeishuBots();
@@ -382,9 +380,6 @@ async function main(): Promise<void> {
   }
 
   await login();
-
-  // 启动企微监控
-  startMonitor({ auto: true });
 
   // 启动提醒调度器
   startReminderScheduler();
