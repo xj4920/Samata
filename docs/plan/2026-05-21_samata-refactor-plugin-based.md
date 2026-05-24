@@ -354,7 +354,7 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | 1 | Plugin SDK 增强（scope, PluginContext, 生命周期, getAgentTools, 两阶段启动） | ✅ 完成 | commit `c010346` |
 | 2 | 迁移 wrong-questions plugin（4 tools） | ✅ 完成 | plugins/wrong-questions/ |
 | 3 | 迁移 health-tracker plugin（7 tools） | ✅ 完成 | plugins/health-tracker/ |
-| 4 | 迁移 client-manager plugin（9 tools，最复杂） | ⏳ 待执行 | 依赖链深：client.ts 750+行、models/client.ts、trade.ts(notionals)、import_pricing_schedule(Excel+LLM) |
+| 4 | 迁移 client-manager plugin（9 tools，最复杂） | ✅ 完成 | commit `a16f27c`；数据迁移脚本 `scripts/sync-plugin-db.ts` 已补齐 44 条缺失事件 + 10 个客户报价数据 |
 | 5 | 迁移 pricing plugin（3 tools） | ⏳ 待执行 | |
 | 6 | 迁移 trade-query plugin（6 tools） | ⏳ 待执行 | InfluxDB 连接 |
 | 7 | 迁移 hedge-ratio plugin（1 tool + monitor） | ⏳ 待执行 | 后台服务依赖企微连接 |
@@ -363,15 +363,15 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 
 **已验证**：
 - `npx tsc --noEmit` 无新增错误
-- `npx tsx src/index.ts --server` 启动正常，7 个 plugin 全部加载成功
+- `npx tsx src/index.ts --server` 启动正常，8 个 plugin 全部加载成功（含 client-manager）
 - 所有 bot（企微 WS、飞书 WS）正常连接
+- client-manager plugin 数据完整性验证通过：156 事件、10 客户报价数据已同步
 
-**Step 4 难点备忘**：
-- `src/commands/client.ts` 依赖 `getDb()` 主库连接 → plugin 需完全重写为独立 SQLite
-- `fetchLatestNotionals()` 从 InfluxDB 取数据用于客户排序 → 需考虑是否在 client-manager plugin 中保留此功能或简化
-- `importPricingSchedule` 依赖 `xlsx`、LLM 推断（`getProvider`）→ 需将 LLM 调用能力加入 PluginContext 或简化
-- `isAgentAdmin` 权限检查 → 需加入 PluginContext（`ctx.isAdmin()`）
+**Step 4 已解决的难点**：
+- `src/commands/client.ts` 依赖 `getDb()` 主库连接 → 完全重写为独立 SQLite（`plugins/client-manager/src/db.ts`）
+- `isAgentAdmin` 权限检查 → 通过 `PluginContext.isAdmin()` 注入
 - `recordEvent` → 改为写 plugin 自己的 `client_events` 表（含 `performed_by_name` 冗余）
+- 数据迁移一次性迁移不支持增量同步 → `scripts/sync-plugin-db.ts` 补齐缺失数据
 
 ## 风险与注意事项
 

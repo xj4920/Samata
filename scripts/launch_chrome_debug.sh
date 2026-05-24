@@ -46,19 +46,31 @@ if is_listening; then
 fi
 
 CHROME_BIN=""
-for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    CHROME_BIN=$(command -v "$candidate")
-    break
-  fi
-done
+
+if [[ "$(uname)" == "Darwin" ]]; then
+  for app in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+             "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
+    if [ -x "$app" ]; then
+      CHROME_BIN="$app"
+      break
+    fi
+  done
+fi
+
+if [ -z "$CHROME_BIN" ]; then
+  for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      CHROME_BIN=$(command -v "$candidate")
+      break
+    fi
+  done
+fi
 
 if [ -z "$CHROME_BIN" ]; then
   cat >&2 <<EOF
-[!] Chrome/Chromium binary not found in PATH.
-    Install one of:
-      sudo apt install -y /tmp/google-chrome-stable_current_amd64.deb
-      sudo apt install -y chromium-browser
+[!] Chrome/Chromium binary not found.
+    macOS: install Google Chrome to /Applications
+    Linux: sudo apt install -y chromium-browser
 EOF
   exit 1
 fi
