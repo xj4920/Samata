@@ -13,7 +13,11 @@
     "wework": "npx tsx src/wework-entry.ts",
     "check-readme": "npx tsx scripts/check-readme.ts",
     "analyze-log": "npx tsx scripts/analyze-log.ts",
-    "claude-proxy": "tsx scripts/claude-gf-proxy.ts"
+    "claude-proxy": "tsx scripts/claude-gf-proxy.ts",
+    "test": "bash scripts/test.sh",
+    "test:unit": "bash scripts/test.sh",
+    "test:e2e": "bash scripts/test.sh --config vitest.e2e.config.ts",
+    "test:watch": "bash scripts/test.sh --watch"
   },
   "workspaces": [
     "packages/*",
@@ -55,6 +59,7 @@
     "pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.7",
     "yaml": "^2.8.2"
   }
 }
