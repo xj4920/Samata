@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 
 import * as knowledgeTools from './knowledge-tools.js';
-import * as tradeTools from './trade-tools.js';
 import * as skillTools from './skill-tools.js';
 import * as agentTools from './agent-tools.js';
 import * as memoryTools from './memory-tools.js';
@@ -15,9 +14,7 @@ import * as markdownTools from './markdown-tools.js';
 import * as artifactTools from './artifact-tools.js';
 import * as deliveryTools from './delivery-tools.js';
 import * as mediaGenTools from './media-gen-tools.js';
-import * as hedgeRatioTools from './hedge-ratio-tools.js';
 import * as documentTools from './document-tools.js';
-import * as pricingQuoteTools from './pricing-quote-tools.js';
 import * as dateTools from './date-tools.js';
 import * as sandboxTools from './sandbox-tools.js';
 import * as webTools from './web-tools.js';
@@ -33,7 +30,6 @@ interface ToolModule {
 
 const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: knowledgeTools,    category: '知识库' },
-  { module: tradeTools,        category: '交易' },
   { module: skillTools,        category: 'Skill' },
   { module: agentTools,        category: 'Agent' },
   { module: memoryTools,       category: '记忆' },
@@ -46,9 +42,7 @@ const moduleEntries: { module: ToolModule; category: string }[] = [
   { module: artifactTools,     category: 'Artifact' },
   { module: deliveryTools,     category: '发送' },
   { module: mediaGenTools,     category: '媒体' },
-  { module: hedgeRatioTools,   category: '对冲比' },
   { module: documentTools,     category: '文档' },
-  { module: pricingQuoteTools, category: '报价' },
   { module: dateTools,         category: '日期' },
   { module: sandboxTools,       category: '沙箱' },
   { module: webTools,           category: '网页' },

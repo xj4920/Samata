@@ -8,7 +8,6 @@ import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './comm
 import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startMonitor, stopMonitor } from './services/wework-monitor.js';
-import { startHedgeRatioMonitor, stopHedgeRatioMonitor } from './services/hedge-ratio-monitor.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
@@ -31,7 +30,6 @@ export function gracefulShutdown(): void {
   stopAllPlugins().catch(() => {});
   stopPluginWatcher();
   stopMonitor();
-  stopHedgeRatioMonitor();
   stopReminderScheduler();
   stopTaskScheduler();
   stopAllFeishuBots();
@@ -402,9 +400,6 @@ async function main(): Promise<void> {
 
   // 启动企微机器人（长连接模式，多实例）
   await startAllWeworkBots();
-
-  // 启动套保比例监控（依赖企微长连接，需在 bot 启动之后）
-  startHedgeRatioMonitor({ auto: true });
 
   // 启动 plugin 后台服务（phase 2: start — monitors 等，依赖 bot 已就绪）
   await startAllPlugins();

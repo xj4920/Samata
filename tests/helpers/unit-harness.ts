@@ -24,6 +24,10 @@ vi.mock('../../src/plugins/registry.js', () => {
     'query_clients', 'view_client', 'get_client_history',
     'add_client', 'update_client', 'advance_client', 'rollback_client',
     'delete_client', 'import_pricing_schedule',
+    'import_pricing_quote', 'query_pricing_quote', 'list_pricing_quote_dates',
+    'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
+    'export_trades_csv', 'export_north_info_csv',
+    'query_hedge_short',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
 
   return {
