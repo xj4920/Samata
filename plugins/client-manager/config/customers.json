@@ -1,0 +1,119 @@
+[
+  {
+    "name": "Jinde",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "15779", "counter_party": "JINDE CAPITAL" },
+      { "user_id": "15778", "counter_party": "JINDE GREAT CHINA" },
+      { "user_id": "16078", "counter_party": "JINDE AETHER FUND" },
+      { "user_id": "16109", "counter_party": "JINDE QUANTITATIVE FUND" }
+    ]
+  },
+  {
+    "name": "AQUILA",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "16168", "counter_party": "JUPITER TACTICAL TRADING" },
+      { "user_id": "16277", "counter_party": "AQUILA" }
+    ]
+  },
+  {
+    "name": "Expedition",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "16286", "counter_party": "EXPEDITION" }
+    ]
+  },
+  {
+    "name": "Jane Street",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "16317", "counter_party": "JANESTREET" }
+    ]
+  },
+  {
+    "name": "Jump",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "16630", "counter_party": "JUMPZL01" },
+      { "user_id": "16631", "counter_party": "JUMPZL02" }
+    ]
+  },
+  {
+    "name": "宽德",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "16812", "counter_party": "WIZARD01" },
+      { "user_id": "16816", "counter_party": "WIZARD02" },
+      { "user_id": "17066", "counter_party": "WIZARD03" },
+      { "user_id": "17246", "counter_party": "WIZARD04" }
+    ]
+  },
+  {
+    "name": "Schonfeld",
+    "sales": "赵晴宇",
+    "products": [
+      { "user_id": "15880", "counter_party": "SCHONFELD" }
+    ]
+  },
+  {
+    "name": "LINKRIVER",
+    "sales": "张蕊",
+    "products": [
+      { "user_id": "15553", "counter_party": "LINKRIVER" }
+    ]
+  },
+  {
+    "name": "CICC",
+    "sales": "吕若楠",
+    "products": [
+      { "user_id": "11944", "counter_party": "CICC" }
+    ]
+  },
+  {
+    "name": "Dymon",
+    "sales": "路研",
+    "products": [
+      { "user_id": "15335", "counter_party": "Dymon" }
+    ]
+  },
+  {
+    "name": "JINLUO",
+    "sales": "吕若楠",
+    "products": [
+      { "user_id": "15794", "counter_party": "JINLUO" }
+    ]
+  },
+  {
+    "name": "稳博",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "16635", "counter_party": "IF-PM1" },
+      { "user_id": "15088", "counter_party": "INVESTINGFORMULA"}
+    ]
+  },
+  {
+    "name": "鸣石",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "17786", "counter_party": "MINGSHIOPTIMA" },
+      { "user_id": "18055", "counter_party": "MINGSHIOPTIMA02" },
+      { "user_id": "18210", "counter_party": "MINGSHIOPTIMAX"},
+      { "user_id": "18209", "counter_party": "MINGSHIOPTIMAX02"}
+    ]
+  },
+  {
+    "name": "磐松",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "17720", "counter_party": "VALEPINE" }
+    ]
+  },
+  {
+    "name": "全利",
+    "sales": "吕若楠",
+    "products": [
+      {"user_id": "16574", "counter_party": "PANTHEON"}
+    ]
+  }
+]

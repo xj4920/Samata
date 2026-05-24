@@ -14,12 +14,31 @@ vi.mock('../../src/db/connection.js', () => ({
   closeDb: () => { memoryDb?.close(); },
 }));
 
-vi.mock('../../src/plugins/registry.js', () => ({
-  getPluginTools: () => [],
-  executePluginTool: async () => null,
-  getPluginSkills: () => [],
-  initPlugins: async () => {},
-}));
+vi.mock('../../src/plugins/registry.js', () => {
+  // Stub tool definitions for plugins already migrated from native tools
+  const pluginTools = [
+    'add_health_record', 'query_health_records', 'health_summary',
+    'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
+    'record_wrong_question', 'list_wrong_questions',
+    'mark_wrong_question_mastered', 'wrong_question_report',
+    'query_clients', 'view_client', 'get_client_history',
+    'add_client', 'update_client', 'advance_client', 'rollback_client',
+    'delete_client', 'import_pricing_schedule',
+  ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
+
+  return {
+    getPluginTools: () => pluginTools,
+    getUniversalPluginTools: () => [],
+    executePluginTool: async () => null,
+    getPluginSkills: () => [],
+    getPluginSkillByName: () => null,
+    getLoadedPlugins: () => [],
+    initPlugins: async () => {},
+    startAllPlugins: async () => {},
+    stopAllPlugins: async () => {},
+    stopPluginWatcher: () => {},
+  };
+});
 
 vi.mock('../../src/services/mcp-manager.js', () => ({
   getMcpTools: () => [],

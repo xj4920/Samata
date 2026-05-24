@@ -2064,6 +2064,35 @@ export function initSchema(): void {
     db.prepare("UPDATE users SET display_name = '孙滨' WHERE id = 'wework_sunbin'").run();
   });
 
+  // --- 测试环境：关闭生产 wework bot，新增测试 bot 绑定 otcclaw ---
+
+  runOnce('wework-test-bot-setup', () => {
+    // 1. 关闭现有 wework bot 的 auto_start（生产 otcclaw + ticlaw）
+    db.prepare("UPDATE bot_apps SET auto_start = 0 WHERE channel = 'wework'").run();
+
+    // 2. 注册测试 bot
+    const testBotId = 'aib-l7p7MyNNEpadH2ELbHpZ0ozjczqiaWE';
+    const testSecret = '4qra3bvf4bCZW8VAL6yWnPMhNupyRSQc6HAMCGneZd2';
+    const exists = db.prepare('SELECT 1 FROM bot_apps WHERE id = ?').get(testBotId);
+    if (!exists) {
+      db.prepare(
+        'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(testBotId, 'wework', 'otcclaw-test-bot', testSecret, '{}', 1, 1);
+    } else {
+      db.prepare('UPDATE bot_apps SET auto_start = 1 WHERE id = ?').run(testBotId);
+    }
+
+    // 3. 绑定测试 bot → otcclaw agent
+    const agentRow = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
+    if (agentRow) {
+      const assignExists = db.prepare("SELECT 1 FROM agent_assignments WHERE channel = 'wework' AND app_id = ?").get(testBotId);
+      if (!assignExists) {
+        db.prepare("INSERT INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)")
+          .run(uuid(), agentRow.id, 'wework', testBotId);
+      }
+    }
+  });
+
   // --- Scheduled tasks & crontab tools ---
 
   // Add crontab tools to all standard-mode agents' tools_list,

@@ -51,7 +51,11 @@ if [ -n "$PORT_PID" ]; then
   lsof -ti :"$CLI_API_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
 fi
 
-setsid bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &
+if command -v setsid &>/dev/null; then
+  setsid bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &
+else
+  bash "$SCRIPT_DIR/scripts/launcher.sh" --server < /dev/null >> "$LOG_FILE" 2>&1 &
+fi
 echo $! > "$PID_FILE"
 
 # 等待一下，确认进程没有立即退出

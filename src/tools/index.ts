@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 
-import * as clientTools from './client-tools.js';
 import * as knowledgeTools from './knowledge-tools.js';
 import * as tradeTools from './trade-tools.js';
 import * as skillTools from './skill-tools.js';
@@ -33,7 +32,6 @@ interface ToolModule {
 }
 
 const moduleEntries: { module: ToolModule; category: string }[] = [
-  { module: clientTools,       category: '客户' },
   { module: knowledgeTools,    category: '知识库' },
   { module: tradeTools,        category: '交易' },
   { module: skillTools,        category: 'Skill' },

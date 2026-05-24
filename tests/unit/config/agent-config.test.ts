@@ -14,9 +14,9 @@ describe('getAgentTools', () => {
 
   async function getToolNames(agentName: string, isAdmin = true, channel = 'cli') {
     const { getAgent, getAgentTools } = await import('../../../src/llm/agents/config.js');
-    const { getAllNativeTools } = await import('../../../src/tools/index.js');
+    const { getGlobalTools } = await import('../../../src/llm/agent.js');
     const agent = getAgent(agentName);
-    const globalTools = getAllNativeTools();
+    const globalTools = getGlobalTools();
     return withContext({ channel, role: isAdmin ? 'admin' : 'member', agentName }, () => {
       const tools = getAgentTools(agent, globalTools, isAdmin);
       return tools.map((t: any) => t.name);

@@ -17,9 +17,15 @@ vi.mock('../../src/db/connection.js', () => ({
 
 vi.mock('../../src/plugins/registry.js', () => ({
   getPluginTools: () => [],
+  getUniversalPluginTools: () => [],
   executePluginTool: async () => null,
   getPluginSkills: () => [],
+  getPluginSkillByName: () => null,
+  getLoadedPlugins: () => [],
   initPlugins: async () => {},
+  startAllPlugins: async () => {},
+  stopAllPlugins: async () => {},
+  stopPluginWatcher: () => {},
 }));
 
 vi.mock('../../src/services/mcp-manager.js', () => ({

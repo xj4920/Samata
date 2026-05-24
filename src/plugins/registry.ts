@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
-import { getCurrentUser } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getContextAgent } from '../runtime/execution-context.js';
 import { createReminder } from '../commands/reminder.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
@@ -212,9 +212,11 @@ export function getUniversalPluginTools(): Anthropic.Tool[] {
 
 export async function executePluginTool(name: string, input: any, deliveryCtx?: { channel: string; targetId?: string; appId?: string }): Promise<string | null> {
   for (const loaded of loadedPlugins.values()) {
+    const agentId = getContextAgent()?.id;
     const ctx: PluginContext = {
       ...loaded.context,
       getDeliveryContext: () => deliveryCtx ? { channel: deliveryCtx.channel, targetId: deliveryCtx.targetId || '', appId: deliveryCtx.appId } : undefined,
+      isAdmin: () => agentId ? isAgentAdmin(agentId) : false,
       createReminder: (params) => createReminder(params),
     };
     const result = await loaded.module.handleTool(name, input, ctx);
