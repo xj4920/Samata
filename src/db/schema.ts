@@ -1467,11 +1467,12 @@ export function initSchema(): void {
         const entryPath = join(documentsRoot, entry);
         if (!fs.statSync(entryPath).isDirectory()) continue;
 
-        // Check if it's an agent directory (starts with 'agent-')
-        if (entry.startsWith('agent-')) {
-          // Check subdirs
-          const subEntries = fs.readdirSync(entryPath);
-          for (const sub of subEntries) {
+        const children = fs.readdirSync(entryPath);
+        const hasSubdirs = children.some((f: string) => fs.statSync(join(entryPath, f)).isDirectory());
+
+        if (hasSubdirs) {
+          // Agent-scoped directory (contains doc subdirs) — only prune empty subdirs
+          for (const sub of children) {
             const subPath = join(entryPath, sub);
             if (!fs.statSync(subPath).isDirectory()) continue;
             const hasOriginal = fs.readdirSync(subPath).some((f: string) => f.startsWith('original'));
@@ -1481,9 +1482,9 @@ export function initSchema(): void {
             }
           }
         } else {
-          // Flat directory (pre-migration style) — check for orphan dirs
-          const hasOriginal = fs.readdirSync(entryPath).some((f: string) => f.startsWith('original'));
-          const hasParsed = fs.readdirSync(entryPath).some((f: string) => f.startsWith('parsed'));
+          // Flat document directory (pre-migration style, e.g. data/documents/<docId8>)
+          const hasOriginal = children.some((f: string) => f.startsWith('original'));
+          const hasParsed = children.some((f: string) => f.startsWith('parsed'));
           if (!hasOriginal && !hasParsed) {
             fs.rmSync(entryPath, { recursive: true, force: true });
           }
