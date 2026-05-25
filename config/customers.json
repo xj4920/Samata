@@ -46,7 +46,10 @@
       { "user_id": "16812", "counter_party": "WIZARD01" },
       { "user_id": "16816", "counter_party": "WIZARD02" },
       { "user_id": "17066", "counter_party": "WIZARD03" },
-      { "user_id": "17246", "counter_party": "WIZARD04" }
+      { "user_id": "17246", "counter_party": "WIZARD04" },
+      { "user_id": "18107", "counter_party": "WIZARD06" },
+      { "user_id": "17862", "counter_party": "WQSOF01" },
+      { "user_id": "18336", "counter_party": "WQSOF02" }
     ]
   },
   {
@@ -110,10 +113,24 @@
     ]
   },
   {
+    "name": "金戈",
+    "sales": "陈婉茜",
+    "products": [
+      { "user_id": "17850", "counter_party": "JINGECHINA" }
+    ]
+  },
+  {
     "name": "全利",
     "sales": "吕若楠",
     "products": [
       {"user_id": "16574", "counter_party": "PANTHEON"}
+    ]
+  },
+  {
+    "name": "Prosper",
+    "sales": "",
+    "products": [
+      {"user_id": "17889", "counter_party": "PROSPERACE1"}
     ]
   }
 ]

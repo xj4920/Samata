@@ -11,6 +11,7 @@ import { isFeishuBotRunning, listFeishuBotHealth, type FeishuBotHealth } from '.
 import { isWeworkBotRunning } from '../wework/bot.js';
 import { getCurrentAgent, getGlobalTools } from '../llm/agent.js';
 import { getAgentTools, getBotAppLLM } from '../llm/agents/config.js';
+import { getLoadedPlugins } from '../plugins/registry.js';
 import { getToolCategoryMap } from '../tools/index.js';
 import { getCommandEntries } from './router.js';
 import { log } from '../utils/logger.js';
@@ -42,6 +43,7 @@ export interface SystemStatus {
   agent: { name: string; displayName: string };
   availableCommands: string[];   // slash commands visible to current agent
   availableTools: string[];      // LLM tools available to current agent
+  pluginCount: number;
   uptime: string;             // e.g. "2h 35m"
   ipAddresses: string[];      // local non-loopback IPv4 addresses
   services: {
@@ -122,6 +124,7 @@ export function fetchSystemStatus(): SystemStatus {
     model,
     knowledgeCount,
     skillCount,
+    pluginCount: getLoadedPlugins().length,
     user: { username: user.username, role: displayRole },
     agent: { name: agent?.name ?? 'unknown', displayName: agent?.displayName ?? 'unknown' },
     availableCommands,
@@ -155,7 +158,7 @@ export function formatSystemStatus(s: SystemStatus): string {
 
   lines.push(`🐾 ${s.name} ${s.version}${hashPart}`);
   lines.push(`🧠 Model: ${s.model ?? '未启用'}`);
-  lines.push(`📚 Knowledge: ${s.knowledgeCount} 条 · 🎯 Skills: ${s.skillCount} 个`);
+  lines.push(`📚 Knowledge: ${s.knowledgeCount} 条 · 🎯 Skills: ${s.skillCount} 个 · 🔌 Plugins: ${s.pluginCount} 个`);
   lines.push(`👤 User: ${s.user.username} (${s.user.role})`);
   lines.push(`🤖 Agent: ${s.agent.displayName} (${s.agent.name})`);
   lines.push(`⏱  Uptime: ${s.uptime}`);
@@ -190,10 +193,15 @@ export function formatSystemStatus(s: SystemStatus): string {
   lines.push(SEP);
   lines.push(`🛠  Tools (${s.availableTools.length}):`);
   const categoryMap = getToolCategoryMap();
+  for (const p of getLoadedPlugins()) {
+    for (const toolName of p.tools) {
+      categoryMap.set(toolName, p.name);
+    }
+  }
   const counts = new Map<string, number>();
   for (const name of s.availableTools) {
     const cat = categoryMap.get(name)
-      ?? (name.startsWith('mcp_') ? 'MCP' : 'Plugin');
+      ?? (name.startsWith('mcp_') ? 'MCP' : 'Other');
     counts.set(cat, (counts.get(cat) ?? 0) + 1);
   }
   const tags = [...counts.entries()].map(([cat, n]) => `${cat}(${n})`);
