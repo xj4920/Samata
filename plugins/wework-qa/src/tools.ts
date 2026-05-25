@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '@samata/plugin-sdk';
+import type { ToolDefinition } from '@samata-platform/plugin-sdk';
 
 export const toolDefinitions: ToolDefinition[] = [
   {

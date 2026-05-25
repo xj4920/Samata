@@ -1,4 +1,4 @@
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
 import { getPricingDb, closePricingDb, getDb } from './src/db.js';
 import { importPricingQuote, queryPricingQuote, listPricingQuoteDates } from './src/commands.js';

@@ -414,5 +414,5 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
   - 主库 `events` 表：仅记录平台实体（agent、knowledge、document、skill）操作
   - client-manager plugin：自建 `client_events` 表，写入时冗余存储 `performed_by_name`（从 `ctx.getCurrentUser().name` 获取），展示时无需回查任何外部数据源
   - 迁移时需从主库 events 抽出 `entity_type='client'` 记录 → plugin `client_events` 表（需关联 users 表补齐 performed_by_name），迁移完成后从主库 DELETE
-- **Plugin 隔离原则**：见顶部「Plugin 原则」，plugin 代码只依赖 `@samata/plugin-sdk` 类型包 + `PluginContext` 接口注入，不 import 任何 `src/` 模块
+- **Plugin 隔离原则**：见顶部「Plugin 原则」，plugin 代码只依赖 `@samata-platform/plugin-sdk` 类型包 + `PluginContext` 接口注入，不 import 任何 `src/` 模块
 - **混合期兼容**：迁移逐个 plugin 进行，`executeNativeTool` fallback 链保证：先查 native → 再查 plugin。同名工具 native 优先，迁移完删 native 侧即可

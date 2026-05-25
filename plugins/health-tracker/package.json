@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@samata/plugin-sdk": "file:../../packages/plugin-sdk",
+    "@samata-platform/plugin-sdk": "file:../../packages/plugin-sdk",
     "better-sqlite3": "*",
     "uuid": "*"
   }

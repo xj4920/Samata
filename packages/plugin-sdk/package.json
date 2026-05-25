@@ -1,5 +1,5 @@
 {
-  "name": "@samata/plugin-sdk",
+  "name": "@samata-platform/plugin-sdk",
   "version": "1.0.0",
   "description": "Plugin SDK for Samata — defines the contract between host and plugins",
   "type": "module",
@@ -17,7 +17,8 @@
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "license": "MIT"
 }

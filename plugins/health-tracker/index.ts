@@ -1,4 +1,4 @@
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
 import { getHealthDb, closeHealthDb } from './src/db.js';
 import { addHealthRecord, queryHealthRecords, getHealthSummary } from './src/commands.js';

@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@samata/plugin-sdk": "*"
+    "@samata-platform/plugin-sdk": "*"
   }
 }

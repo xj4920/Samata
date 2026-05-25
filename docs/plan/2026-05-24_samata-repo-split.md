@@ -11,7 +11,7 @@ flowchart TB
     configDir["config/agents/*.md + *.files.json"]
     dataDir["data/ (gitignored)"]
   end
-  plugins -->|"import @samata/plugin-sdk"| sdk
+  plugins -->|"import @samata-platform/plugin-sdk"| sdk
   src -->|"动态加载 plugins/"| plugins
   src -->|"读取 config/"| configDir
   src -->|"读写 data/"| dataDir
@@ -56,7 +56,7 @@ samata-plugins/
 ├── health-tracker/
 ├── wrong-questions/
 ├── wiki-sync/
-├── package.json                 # workspace root（依赖 @samata/plugin-sdk）
+├── package.json                 # workspace root（依赖 @samata-platform/plugin-sdk）
 └── tsconfig.json
 ```
 
@@ -86,12 +86,12 @@ const PLUGINS_DIR = path.resolve(
 - 生产时：plugins repo clone 到固定路径，或 symlink 到 `plugins/`
 - 极简部署：不配置 env，samata 内置空 `plugins/`，按需手动复制想要的 plugin
 
-### 2. `@samata/plugin-sdk` 发布策略
+### 2. `@samata-platform/plugin-sdk` 发布策略
 
 - 保留在 samata repo 的 `packages/plugin-sdk/` 中作为源码
-- 发布到 npm（`@samata/plugin-sdk`），plugins repo 作为普通 npm 依赖引用
+- 发布到 npm（`@samata-platform/plugin-sdk`），plugins repo 作为普通 npm 依赖引用
 - 版本语义化管理：SDK 接口变更时 bump major version
-- plugins repo 的 `package.json` 中 `"@samata/plugin-sdk": "^1.0.0"`
+- plugins repo 的 `package.json` 中 `"@samata-platform/plugin-sdk": "^1.0.0"`
 
 ### 3. 解决 Plugin 对 `src/` 的违规依赖
 
@@ -211,13 +211,13 @@ flowchart LR
 - wework-qa：3 处 `../../src/` import 替换为 `ctx.callLLM` + `ctx.sendNotification`
 - hedge-ratio：`../../src/wework/bot.js` 替换为 `ctx.sendNotification('wework', ...)`
 - trade-query：`getDataDir()` hack 替换为 `ctx.getConfigDir()`
-- 验证所有 13 个 plugin 仅依赖 `@samata/plugin-sdk` 类型 + `PluginContext` 运行时注入
+- 验证所有 13 个 plugin 仅依赖 `@samata-platform/plugin-sdk` 类型 + `PluginContext` 运行时注入
 
-### Phase 2: `@samata/plugin-sdk` 发布 ✅
+### Phase 2: `@samata-platform/plugin-sdk` 发布 ✅
 
 - `packages/plugin-sdk/` 移除 `private:true`，添加 `exports`/`dist`/`publishConfig`
 - 新增 `tsconfig.build.json` 生成 `.js` + `.d.ts`
-- 首版发布 `@samata/plugin-sdk@1.0.0`（需手动 `npm publish`）
+- 首版发布 `@samata-platform/plugin-sdk@1.0.0`（需手动 `npm publish`）
 
 ### Phase 3: Registry 支持可配置目录 ✅
 
@@ -229,7 +229,7 @@ flowchart LR
 
 - 新建 git repo `~/source/samata-plugins`
 - 将 `plugins/*` 13 个目录内容移入
-- 设置 `package.json` workspace，依赖 `@samata/plugin-sdk@^1.0.0`
+- 设置 `package.json` workspace，依赖 `@samata-platform/plugin-sdk@^1.0.0`
 - plugins 暂保留在 monorepo（待 SDK 发布后正式切换）
 
 ### Phase 5: Agent prompt 可覆盖机制 ✅

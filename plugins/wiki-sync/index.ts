@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as yaml from 'yaml';
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { runSync, type SyncConfig } from './src/sync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

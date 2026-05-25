@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@samata/plugin-sdk": "*",
+    "@samata-platform/plugin-sdk": "*",
     "pdf-parse": "^1.1.1"
   }
 }

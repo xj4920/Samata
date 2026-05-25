@@ -124,7 +124,7 @@ async function handleAIChat(userInput: string): Promise<string> {
 - 每个 plugin 独立可加载/卸载，互不影响
 
 **2. Plugin 不能查询主库，不依赖 Samata 代码，与 Samata 是接口交互**
-- Plugin 只能依赖 `@samata/plugin-sdk` 类型包
+- Plugin 只能依赖 `@samata-platform/plugin-sdk` 类型包
 - Plugin 只能通过运行时注入的 `PluginContext` 获取有限信息（当前用户、数据目录）
 - 不可 import `src/` 下的任何模块，不可获取主库连接
 - 需要持久化的数据使用 plugin 自己的独立 SQLite（存放在 `data/plugins/<name>/`）

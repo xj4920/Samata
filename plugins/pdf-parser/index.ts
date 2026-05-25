@@ -1,4 +1,4 @@
-import type { PluginModule } from '@samata/plugin-sdk';
+import type { PluginModule } from '@samata-platform/plugin-sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';

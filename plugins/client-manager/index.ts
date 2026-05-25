@@ -1,4 +1,4 @@
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
 import { getClientDb, closeClientDb, getDb } from './src/db.js';
 import { STATE_LABELS, STATE_PRIORITY, classifyClient } from './src/model.js';

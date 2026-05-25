@@ -1,4 +1,4 @@
-import type { PluginModule } from '@samata/plugin-sdk';
+import type { PluginModule } from '@samata-platform/plugin-sdk';
 import mammoth from 'mammoth';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';

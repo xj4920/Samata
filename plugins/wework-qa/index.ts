@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
 import { extractWeworkQA, setCallLLM } from './src/commands.js';
 import { startWeworkMonitor, stopWeworkMonitor, setSendTelegram, setSendFeishu } from './src/monitor.js';

@@ -1,4 +1,4 @@
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import { toolDefinitions } from './src/tools.js';
 import { fetchHedgeShort } from './src/commands.js';
 import { startHedgeRatioMonitor, stopHedgeRatioMonitor, setSendMessage } from './src/monitor.js';

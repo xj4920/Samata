@@ -1,4 +1,4 @@
-import type { PluginModule, PluginContext } from '@samata/plugin-sdk';
+import type { PluginModule, PluginContext } from '@samata-platform/plugin-sdk';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
