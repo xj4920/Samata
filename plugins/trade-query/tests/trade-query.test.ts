@@ -4,20 +4,22 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import dotenv from 'dotenv';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(process.cwd(), '.env') });
 
-import { isInfluxConfigured, queryTrades } from '../../../plugins/trade-query/src/influxdb.js';
-import { fetchTrades, fetchTradeSummary, fetchNorthInfo, fetchLatestTradeData } from '../../../plugins/trade-query/src/commands.js';
-import { loadCustomers, setConfigDir } from '../../../plugins/trade-query/src/customers.js';
+import { isInfluxConfigured, queryTrades } from '../src/influxdb.js';
+import { fetchTrades, fetchTradeSummary, fetchNorthInfo, fetchLatestTradeData } from '../src/commands.js';
+import { loadCustomers, setConfigDir } from '../src/customers.js';
 
 const SKIP = !isInfluxConfigured();
 const itLive = SKIP ? it.skip : it;
 
 describe('trade-query plugin', () => {
   beforeAll(() => {
-    setConfigDir(resolve(process.cwd(), 'config'));
+    setConfigDir(resolve(__dirname, '../config'));
   });
 
   describe('customers config', () => {

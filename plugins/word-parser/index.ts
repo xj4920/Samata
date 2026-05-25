@@ -219,6 +219,7 @@ async function handleParseWord(input: ParseWordInput): Promise<string> {
 const plugin: PluginModule = {
   name: 'word-parser',
   description: '解析 Word (.docx) 文件，提取文本或 Markdown 内容（支持公式和图片提取）',
+  scope: 'universal',
 
   toolDefinitions: [
     {

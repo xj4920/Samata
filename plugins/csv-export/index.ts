@@ -42,6 +42,7 @@ function handleExportCsv(input: {
 const plugin: PluginModule = {
   name: 'csv-export',
   description: '将 JSON 数组导出为 CSV 文件',
+  scope: 'universal',
   toolDefinitions: [{
     name: 'export_csv',
     description: '将 JSON 对象数组导出为 CSV 文件，自动提取表头并处理转义。',

@@ -1,0 +1,10 @@
+[
+  {
+    "name": "ExampleClient",
+    "sales": "张三",
+    "products": [
+      { "user_id": "10001", "counter_party": "EXAMPLE_FUND_01" },
+      { "user_id": "10002", "counter_party": "EXAMPLE_FUND_02" }
+    ]
+  }
+]

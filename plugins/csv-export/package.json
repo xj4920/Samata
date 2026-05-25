@@ -1,8 +1,0 @@
-{
-  "name": "@samata/plugin-csv-export",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@samata-platform/plugin-sdk": "*"
-  }
-}

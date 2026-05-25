@@ -245,6 +245,7 @@ async function handleParsePdf(input: {
 const plugin: PluginModule = {
   name: 'pdf-parser',
   description: '解析 PDF 文件，提取文本内容（Marker 可用时支持学术公式和图片提取）',
+  scope: 'universal',
 
   toolDefinitions: [
     {

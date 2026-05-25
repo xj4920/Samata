@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { getPricingDb, closePricingDb } from '../../../plugins/pricing/src/db.js';
-import { importPricingQuote, queryPricingQuote, listPricingQuoteDates } from '../../../plugins/pricing/src/commands.js';
+import { getPricingDb, closePricingDb } from '../src/db.js';
+import { importPricingQuote, queryPricingQuote, listPricingQuoteDates } from '../src/commands.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

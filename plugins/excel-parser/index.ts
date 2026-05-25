@@ -76,6 +76,7 @@ function handleListSheets(input: { file_path: string }): string {
 const plugin: PluginModule = {
   name: 'excel-parser',
   description: '解析 Excel/CSV 文件，提取数据和结构信息',
+  scope: 'universal',
 
   toolDefinitions: [
     {

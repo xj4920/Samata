@@ -8,8 +8,8 @@ import { resolve } from 'path';
 
 dotenv.config({ path: resolve(process.cwd(), '.env') });
 
-import { isInfluxConfigured, queryInfluxRaw } from '../../../plugins/hedge-ratio/src/influxdb.js';
-import { fetchHedgeShort } from '../../../plugins/hedge-ratio/src/commands.js';
+import { isInfluxConfigured, queryInfluxRaw } from '../src/influxdb.js';
+import { fetchHedgeShort } from '../src/commands.js';
 
 const SKIP = !isInfluxConfigured();
 const itLive = SKIP ? it.skip : it;
@@ -66,9 +66,6 @@ describe('hedge-ratio plugin', () => {
     });
 
     itLive('throws when InfluxDB not configured', async () => {
-      // This test only validates the error path logic;
-      // in live mode InfluxDB IS configured so we test the success path above.
-      // We just verify the function signature works with empty params.
       const rows = await fetchHedgeShort({});
       expect(Array.isArray(rows)).toBe(true);
     });

@@ -50,6 +50,10 @@ const plugin: PluginModule = {
   },
 };
 
+/**
+ * @deprecated One-time migration from main DB — violates plugin isolation (direct DB access).
+ * Kept for backward compat; remove after 2026-Q3 when all instances have migrated.
+ */
 async function migrateFromMainDb(ctx: PluginContext): Promise<void> {
   if (!db) return;
 

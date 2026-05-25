@@ -24,7 +24,7 @@ describe('wework-qa plugin', () => {
 
   describe('fetchWeworkMessages', () => {
     it('parses message lines correctly', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 请问期权行权价怎么计算？',
@@ -44,7 +44,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('filters by session name (case-insensitive)', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('LinkRiver系统对接', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 消息A',
@@ -59,7 +59,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('filters by keyword', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: FIX连接超时了',
@@ -73,7 +73,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('filters by sender', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 消息1',
@@ -87,7 +87,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('respects limit', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       const msgs = Array.from({ length: 20 }, (_, i) =>
         `[2026-05-20 10:${String(i).padStart(2, '0')}:00]: 张三: 消息${i}`
@@ -99,7 +99,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('sorts by time descending', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 09:00:00]: 张三: 早上',
@@ -113,7 +113,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('supports context lines around keyword matches', async () => {
-      const { fetchWeworkMessages } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { fetchWeworkMessages } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 之前的消息',
@@ -131,7 +131,7 @@ describe('wework-qa plugin', () => {
 
   describe('extractWeworkQA', () => {
     it('returns empty array when no messages match', async () => {
-      const { extractWeworkQA } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 普通消息',
@@ -142,7 +142,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('throws when callLLM not injected', async () => {
-      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA, setCallLLM } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 请问如何配置FIX连接？',
@@ -154,7 +154,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('extracts QA pairs with mocked LLM', async () => {
-      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA, setCallLLM } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-20 10:00:00]: 张三: 请问FIX连接超时怎么办？',
@@ -183,7 +183,7 @@ describe('wework-qa plugin', () => {
     });
 
     it('handles date and people filters', async () => {
-      const { extractWeworkQA, setCallLLM } = await import('../../../plugins/wework-qa/src/commands.js');
+      const { extractWeworkQA, setCallLLM } = await import('../src/commands.js');
 
       writeMessages('测试群', '2026-05-20.txt', [
         '[2026-05-18 10:00:00]: 张三: FIX旧消息',
@@ -209,7 +209,7 @@ describe('wework-qa plugin', () => {
 
   describe('plugin handleTool', () => {
     it('returns null for unknown tool name', async () => {
-      const plugin = (await import('../../../plugins/wework-qa/index.js')).default;
+      const plugin = (await import('../index.js')).default;
       const result = await plugin.handleTool('nonexistent_tool', {}, {
         getCurrentUser: () => ({ id: '1', name: 'test', role: 'admin' }),
         getDataDir: () => tmpDir,

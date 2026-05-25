@@ -13,6 +13,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PLUGINS_DIR = path.resolve(
   process.env.SAMATA_PLUGINS_DIR || path.join(PROJECT_ROOT, 'plugins')
 );
+const NPM_PLUGIN_PREFIX = '@samata-platform/plugin-';
 
 async function callLLMImpl(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string> {
   const { getProvider, getModelName } = await import('../llm/provider.js');
@@ -162,16 +163,71 @@ async function unloadPlugin(name: string): Promise<void> {
   log.info(`Plugin [${name}]: unloaded`);
 }
 
+async function loadNpmPlugin(packageName: string): Promise<void> {
+  try {
+    const mod = await import(packageName);
+    const plugin: PluginModule = mod.default;
+
+    const shortName = packageName.startsWith(NPM_PLUGIN_PREFIX)
+      ? packageName.slice(NPM_PLUGIN_PREFIX.length)
+      : packageName;
+
+    const validationError = validatePlugin(plugin, shortName);
+    if (validationError) {
+      log.warn(`⚠️  ${validationError}`);
+      return;
+    }
+
+    if (loadedPlugins.has(plugin.name)) {
+      log.dim(`Plugin [${plugin.name}]: already loaded from directory, skipping npm`);
+      return;
+    }
+
+    const conflictError = checkNameConflicts(plugin);
+    if (conflictError) {
+      log.warn(`⚠️  Plugin [${shortName}]: ${conflictError}`);
+      return;
+    }
+
+    const ctx = buildPluginContext(plugin.name);
+    if (plugin.init) await plugin.init(ctx);
+
+    loadedPlugins.set(plugin.name, { module: plugin, context: ctx, skill: undefined, dir: '', loadedAt: new Date() });
+    log.info(`✅ Plugin [${plugin.name}] (npm: ${packageName}): ${plugin.toolDefinitions.length} tools loaded`);
+  } catch (err: any) {
+    log.warn(`⚠️  npm plugin [${packageName}]: load failed — ${err.message}`);
+  }
+}
+
+function discoverNpmPlugins(): string[] {
+  const pkgPath = path.join(PROJECT_ROOT, 'package.json');
+  if (!fs.existsSync(pkgPath)) return [];
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    return Object.keys(deps).filter(name => name.startsWith(NPM_PLUGIN_PREFIX));
+  } catch {
+    return [];
+  }
+}
+
 export async function initPlugins(): Promise<void> {
-  if (!fs.existsSync(PLUGINS_DIR)) {
+  // 1. Directory scan (source plugins / development)
+  if (fs.existsSync(PLUGINS_DIR)) {
+    const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      await loadPlugin(path.join(PLUGINS_DIR, entry.name));
+    }
+  } else {
     fs.mkdirSync(PLUGINS_DIR, { recursive: true });
     log.dim('Created plugins/ directory');
   }
 
-  const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    await loadPlugin(path.join(PLUGINS_DIR, entry.name));
+  // 2. npm packages (production deployment)
+  const npmPlugins = discoverNpmPlugins();
+  for (const pkg of npmPlugins) {
+    await loadNpmPlugin(pkg);
   }
 
   if (loadedPlugins.size > 0) {
@@ -260,8 +316,13 @@ export async function executePluginTool(name: string, input: any, deliveryCtx?: 
       isAdmin: () => agentId ? isAgentAdmin(agentId) : false,
       createReminder: (params) => createReminder(params),
     };
-    const result = await loaded.module.handleTool(name, input, ctx);
-    if (result !== null) return result;
+    try {
+      const result = await loaded.module.handleTool(name, input, ctx);
+      if (result !== null) return result;
+    } catch (err: any) {
+      log.warn(`Plugin [${loaded.module.name}] handleTool error: ${err.message}`);
+      return JSON.stringify({ error: `Plugin [${loaded.module.name}]: ${err.message}` });
+    }
   }
   return null;
 }

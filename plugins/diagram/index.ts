@@ -86,6 +86,7 @@ async function handleRenderDiagram(input: RenderDiagramInput): Promise<string> {
 const plugin: PluginModule = {
   name: 'diagram',
   description: '使用 Mermaid 语法渲染架构图、流程图、时序图等，输出 PNG 图片',
+  scope: 'universal',
 
   toolDefinitions: [
     {

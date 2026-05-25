@@ -3,19 +3,19 @@ import type { ToolDefinition } from '@samata-platform/plugin-sdk';
 export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'query_clients',
-    description: '查询客户列表。重要：当用户询问特定类型/特征的客户时（如"极速客户"、"VIP客户"、"常速客户"、"某某公司"），必须提取关键词并使用keyword参数进行筛选，不要返回全量数据。支持按状态(state)和关键词(keyword)筛选。',
+    description: '查询客户列表，支持按状态和关键词筛选。关键词搜索规范详见「客户管理操作指南」skill。',
     input_schema: {
       type: 'object' as const,
       properties: {
         state: { type: 'string', description: '客户状态: initial_contact, requirement_discussion, solution_design, uat, prod' },
-        keyword: { type: 'string', description: '关键词模糊搜索（匹配客户名称、企微群名、标签）。示例：用户问"极速客户"→传入"极速"；问"VIP客户"→传入"VIP"；问"常速客户"→传入"常速"；问"某某公司"→传入"某某"。重要：除非用户明确要求"所有客户"或"全部客户"，否则必须提取并传入关键词，不要留空。' },
+        keyword: { type: 'string', description: '关键词模糊搜索（匹配名称、企微群名、标签）' },
       },
       required: [],
     },
   },
   {
     name: 'view_client',
-    description: '查看某个客户的详细信息，包含客户报价条款字段：commission、commission_cost、net_comm、long_financing_spread、short_financing、index_hedging、is_ft，以及 pricing_range（同一管理人下多产品报价的 min/max 范围与来源产品列表）。当用户问"某客户的报价/commission/点差/financing/费率/返佣"时使用本工具，不要用 query_pricing_quote（后者是产品利率矩阵）。',
+    description: '查看某客户详细信息（含报价条款）。查客户报价/commission/点差/financing 用本工具，不要用 query_pricing_quote。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -91,7 +91,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'delete_client',
-    description: '删除客户（仅管理员）。必须二次确认：第一次调用 dry_run=true（默认），返回即将删除的客户摘要给用户审阅；用户明确确认后再以 dry_run=false 调用实际删除。严禁在未与用户确认的情况下直接传 dry_run=false。',
+    description: '删除客户（仅管理员）。默认 dry_run=true 预览，用户确认后设为 false 执行。',
     input_schema: {
       type: 'object' as const,
       properties: {
