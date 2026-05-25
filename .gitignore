@@ -1,4 +1,5 @@
 node_modules/
+plugins.local/
 plugins/*/node_modules/
 packages/*/node_modules/
 venv/
@@ -23,9 +24,6 @@ data/samata.db-wal
 # Local config (machine-specific, contains secrets/business data)
 config/mcp-servers.json
 config/monitor.json
-plugins/wiki-sync/config/config.yaml
-plugins/client-manager/config/customers.json
-plugins/trade-query/config/customers.json
 
 # Temp test scripts
 scripts/test_*.mjs

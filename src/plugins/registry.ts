@@ -10,9 +10,9 @@ import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './t
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
-const PLUGINS_DIR = path.resolve(
-  process.env.SAMATA_PLUGINS_DIR || path.join(PROJECT_ROOT, 'plugins')
-);
+const PLUGINS_DIRS = (process.env.SAMATA_PLUGINS_DIR || '../samata-plugins')
+  .split(',')
+  .map(d => path.resolve(PROJECT_ROOT, d.trim()));
 const NPM_PLUGIN_PREFIX = '@samata-platform/plugin-';
 
 async function callLLMImpl(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string> {
@@ -68,7 +68,7 @@ function buildPluginContext(pluginName: string): PluginContext {
 }
 
 const loadedPlugins = new Map<string, LoadedPlugin>();
-let watcher: fs.FSWatcher | null = null;
+const watchers: fs.FSWatcher[] = [];
 
 function parseSkillMd(content: string): PluginSkill | null {
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -213,15 +213,14 @@ function discoverNpmPlugins(): string[] {
 
 export async function initPlugins(): Promise<void> {
   // 1. Directory scan (source plugins / development)
-  if (fs.existsSync(PLUGINS_DIR)) {
-    const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
+  for (const dir of PLUGINS_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      await loadPlugin(path.join(PLUGINS_DIR, entry.name));
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      await loadPlugin(path.join(dir, entry.name));
     }
-  } else {
-    fs.mkdirSync(PLUGINS_DIR, { recursive: true });
-    log.dim('Created plugins/ directory');
   }
 
   // 2. npm packages (production deployment)
@@ -234,43 +233,44 @@ export async function initPlugins(): Promise<void> {
     log.info(`Plugins initialized: ${loadedPlugins.size} loaded`);
   }
 
-  startWatcher();
+  startWatchers();
 }
 
-function startWatcher(): void {
-  if (watcher) return;
+function startWatchers(): void {
+  if (watchers.length > 0) return;
 
-  try {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    watcher = fs.watch(PLUGINS_DIR, { recursive: false }, (_eventType, filename) => {
-      if (!filename) return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        const pluginDir = path.join(PLUGINS_DIR, filename);
-        if (fs.existsSync(pluginDir) && fs.statSync(pluginDir).isDirectory()) {
-          log.info(`Plugin change detected: ${filename}, reloading...`);
-          await loadPlugin(pluginDir);
-        } else {
-          // Directory removed — unload if it was loaded
-          for (const [name, loaded] of loadedPlugins) {
-            if (path.basename(loaded.dir) === filename) {
-              await unloadPlugin(name);
-              break;
+  for (const dir of PLUGINS_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+      const w = fs.watch(dir, { recursive: false }, (_eventType, filename) => {
+        if (!filename) return;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          const pluginDir = path.join(dir, filename);
+          if (fs.existsSync(pluginDir) && fs.statSync(pluginDir).isDirectory()) {
+            log.info(`Plugin change detected: ${filename}, reloading...`);
+            await loadPlugin(pluginDir);
+          } else {
+            for (const [name, loaded] of loadedPlugins) {
+              if (path.basename(loaded.dir) === filename) {
+                await unloadPlugin(name);
+                break;
+              }
             }
           }
-        }
-      }, 500);
-    });
-  } catch {
-    // fs.watch may not be available on all platforms
+        }, 500);
+      });
+      watchers.push(w);
+    } catch {
+      // fs.watch may not be available on all platforms
+    }
   }
 }
 
 export function stopPluginWatcher(): void {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-  }
+  for (const w of watchers) w.close();
+  watchers.length = 0;
 }
 
 export async function startAllPlugins(): Promise<void> {
