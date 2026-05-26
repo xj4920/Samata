@@ -1,6 +1,18 @@
 # Samata
 
-多 Agent 智能助手平台，立意「技术平权」。支持飞书、Telegram、企微 Bot 及命令行多渠道接入，内置多 LLM Provider 切换、工具调用、知识库、技能系统与 MCP 集成。
+> 你的记忆散落在各处的服务器上，你的偏好被用作推荐算法的燃料，你的数字影子在别人的机房里替你思考——而你甚至无权删除它。
+>
+> 与此同时，越来越多的人把记忆、知识、决策、甚至语言风格外包给云端模型。何以为人？剩下的躯壳做什么？而那些不知道、不会使用 AI 工具的人，正在被这个时代悄无声息地甩下车。
+>
+> 这不是技术进步，这是认知主权的沦陷。
+>
+> Samata 是一个开放平台，以此对抗这一趋势。你的数据归你所有，你的 agent 运行在你自己的基础设施上，模型随时可换，渠道不被锁定。AI 能力不应被少数公司垄断，认知的鸿沟不应成为新的阶级。**技术必须平权。**
+>
+> —— Samata（समता），梵语「平等心」。
+
+---
+
+多 Agent 智能助手平台。支持飞书、Telegram、企微 Bot 及命令行多渠道接入，内置多 LLM Provider 切换、工具调用、知识库、技能系统与 MCP 集成。
 
 ## 架构概览
 
@@ -46,8 +58,8 @@
 ### 安装与启动
 
 ```bash
-# 克隆主仓库
-git clone https://gitee.com/xujun65/samata.git
+# 克隆主仓库（使用当前页面提供的克隆地址）
+git clone <repo-url>
 cd samata
 
 # 安装依赖
@@ -73,7 +85,7 @@ Plugin 源码独立管理，与主仓库分离。两种加载方式：
 ```bash
 # 在 samata 同级目录克隆 plugin 仓库
 cd ..
-git clone https://gitee.com/xujun65/samata-plugins.git
+git clone <plugins-repo-url>
 cd samata-plugins && npm install
 ```
 
