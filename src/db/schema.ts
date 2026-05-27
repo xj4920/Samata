@@ -2134,4 +2134,33 @@ export function initSchema(): void {
   runOnce('agents-add-custom-prompt', () => {
     try { db.exec("ALTER TABLE agents ADD COLUMN custom_prompt TEXT"); } catch {}
   });
+
+  runOnce('otcclaw-ticlaw-add-etf-monitor-tools', () => {
+    const newTools = ['calc_etf_trades', 'query_etf_summary'];
+    const writeTools = ['calc_etf_trades'];
+
+    for (const agentName of ['otcclaw', 'ticlaw']) {
+      const row = db.prepare(
+        "SELECT tools_list, user_tools_list FROM agents WHERE name = ?"
+      ).get(agentName) as { tools_list: string | null; user_tools_list: string | null } | undefined;
+      if (!row) continue;
+
+      const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+      let changed = false;
+
+      for (const t of newTools) {
+        if (!list.includes(t)) { list.push(t); changed = true; }
+      }
+      for (const t of writeTools) {
+        if (!userList.includes(t)) { userList.push(t); changed = true; }
+      }
+
+      if (changed) {
+        db.prepare(
+          "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
+        ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null, agentName);
+      }
+    }
+  });
 }
