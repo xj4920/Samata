@@ -26,9 +26,15 @@ export function sanitizeArtifactFilename(filename: string): string {
   return sanitized;
 }
 
-export function saveUploadedFile(buffer: Buffer, filename: string): string {
-  const uploadDir = path.join(getArtifactRoot(), 'uploads');
-  fs.mkdirSync(uploadDir, { recursive: true });
+export function getUploadDir(agentName?: string): string {
+  const sub = agentName || '_shared';
+  const dir = path.join(getArtifactRoot(), 'uploads', sub);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function saveUploadedFile(buffer: Buffer, filename: string, agentName?: string): string {
+  const uploadDir = getUploadDir(agentName);
   const safeName = `${randomUUID().slice(0, 8)}_${sanitizeArtifactFilename(filename)}`;
   const filePath = path.join(uploadDir, safeName);
   fs.writeFileSync(filePath, buffer);

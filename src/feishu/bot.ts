@@ -966,6 +966,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
   // 解析消息内容
   // WSClient 可能传入已解析的对象，Webhook 传入 JSON 字符串，统一处理
+  const agentName = resolveAgent('feishu', instance.appId)?.name;
   let text = '';
   let images: ImageInput[] | undefined;
   try {
@@ -1007,7 +1008,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
             const mtype = detectImageMediaType(buf);
             images.push({ data: buf.toString('base64'), mediaType: mtype });
             const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
-            const sp = saveUploadedFile(buf, `image${ext}`);
+            const sp = saveUploadedFile(buf, `image${ext}`, agentName);
             savedPaths.push(sp);
             log.dim(`[飞书:${instance.appName}] 下载 post 图片成功: ${key} (${buf.length} bytes) -> ${sp}`);
           } catch (err: any) {
@@ -1029,7 +1030,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
           const mtype = detectImageMediaType(buf);
           images = [{ data: buf.toString('base64'), mediaType: mtype }];
           const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
-          const savedPath = saveUploadedFile(buf, `image${ext}`);
+          const savedPath = saveUploadedFile(buf, `image${ext}`, agentName);
           text = `用户发送了图片，已保存至 ${savedPath}`;
           log.dim(`[飞书:${instance.appName}] 下载图片成功: ${imageKey} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {
@@ -1043,7 +1044,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       if (fileKey) {
         try {
           const buf = await instance.api.downloadMessageResource(messageId, fileKey, 'file');
-          const savedPath = saveUploadedFile(buf, fileName);
+          const savedPath = saveUploadedFile(buf, fileName, agentName);
           if (isImageFile(fileName)) {
             const mtype = detectImageMediaType(buf);
             images = [{ data: buf.toString('base64'), mediaType: mtype }];

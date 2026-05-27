@@ -375,7 +375,8 @@ function handleFileMessageForInstance(instance: WeworkBotInstance, frame: WsFram
     try {
       const { buffer, filename: dlFilename } = await instance.wsClient.downloadFile(body.file.url, body.file.aeskey);
       const filename = dlFilename || '未知文件';
-      const savedPath = saveUploadedFile(buffer, filename);
+      const agentName = resolveAgent('wework', instance.botId)?.name;
+      const savedPath = saveUploadedFile(buffer, filename, agentName);
 
       log.dim(`${logTag} 下载文件成功: ${filename} (${buffer.length} bytes) -> ${savedPath}`);
 

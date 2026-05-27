@@ -3,6 +3,7 @@ import type { ToolContext } from '../llm/agents/config.js';
 import { isSystemAdmin, isAgentAdmin } from '../auth/rbac.js';
 import { getCurrentAgent } from '../llm/agents/config.js';
 import { markReloadIfSource } from '../llm/reload.js';
+import { getUploadDir } from '../commands/artifact.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -56,13 +57,22 @@ function authorizeRead(inputPath: string): { filePath: string; relative: string 
   if (!path.isAbsolute(filePath)) filePath = path.resolve(PROJECT_ROOT, filePath);
   filePath = path.normalize(filePath);
 
+  const agent = getCurrentAgent();
+  const agentName = agent?.name;
+
+  // Agent can always read files from its own upload directory
+  if (agentName) {
+    const ownUploadDir = getUploadDir(agentName) + '/';
+    if (filePath.startsWith(ownUploadDir)) {
+      return { filePath, relative: filePath };
+    }
+  }
+
   if (!filePath.startsWith(PROJECT_ROOT)) {
     return { error: `read_file 拒绝：路径不在项目目录内 (${inputPath})` };
   }
   const relative = filePath.slice(PROJECT_ROOT.length);
 
-  const agent = getCurrentAgent();
-  const agentName = agent?.name;
   const allowlist = agentName ? loadAgentFileAllowlist(agentName) : null;
 
   if (allowlist !== null) {
