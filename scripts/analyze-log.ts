@@ -1048,18 +1048,11 @@ async function writeToPostgres(
   agentNameMap: Map<string, string>,
   userNameMap: Map<string, string>,
 ): Promise<void> {
-  const configPath = join(process.cwd(), '..', 'dataSync', 'config', 'config.json');
-  if (!existsSync(configPath)) {
-    console.warn('[pg] DataSync config.json 不存在，跳过 PostgreSQL 写入');
-    return;
-  }
-
-  const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  const pgHost = config.LOG_PG_HOST || '10.8.0.1';
-  const pgPort = config.LOG_PG_PORT || 5432;
-  const pgUser = config.LOG_PG_USER || 'wind_sync';
-  const pgPass = config.LOG_PG_PASS || 'wind_sync';
-  const pgDb = config.LOG_PG_DB || 'samata';
+  const pgHost = process.env.LOG_PG_HOST || '127.0.0.1';
+  const pgPort = Number(process.env.LOG_PG_PORT) || 5432;
+  const pgUser = process.env.LOG_PG_USER || 'wind_sync';
+  const pgPass = process.env.LOG_PG_PASS || 'wind_sync';
+  const pgDb = process.env.LOG_PG_DB || 'samata';
 
   // Dynamic require via createRequire for ESM compat
   const { Client } = nodeRequire('pg');
