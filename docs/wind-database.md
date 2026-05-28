@@ -7,8 +7,8 @@
 
 | 参数       | 值                 |
 | -------- | ----------------- |
-| Host     | 127.0.0.1         |
-| Port     | 5432              |
+| Host     |  175.178.64.67         |
+| Port     | 3395              |
 | Database | wind_sync         |
 | 用户       | wind_sync（只读查询即可） |
 | Python 库 | psycopg2          |
@@ -18,8 +18,8 @@
 import psycopg2
 
 conn = psycopg2.connect(
-    host="127.0.0.1",
-    port=5432,
+    host="175.178.64.67",
+    port=3395,
     dbname="wind_sync",
     user="wind_sync",
     password="wind_sync"
