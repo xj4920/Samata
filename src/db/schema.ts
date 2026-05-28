@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { createHash } from 'node:crypto';
 import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
+import Database from 'better-sqlite3';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
@@ -2201,5 +2202,46 @@ export function initSchema(): void {
         ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null, agentName);
       }
     }
+  });
+
+  runOnce('migrate-health-records-to-plugin', () => {
+    const rows = db.prepare('SELECT * FROM health_records').all() as {
+      id: string; user_id: string; agent_id: string; record_type: string;
+      value: string; unit: string | null; measured_at: string; notes: string | null; created_at: string;
+    }[];
+    if (rows.length === 0) return;
+
+    const pluginDbPath = resolve(process.cwd(), 'data/plugins/health-tracker/health-tracker.db');
+    fs.mkdirSync(resolve(process.cwd(), 'data/plugins/health-tracker'), { recursive: true });
+
+    const pluginDb = new Database(pluginDbPath);
+    pluginDb.pragma('journal_mode = WAL');
+    pluginDb.exec(`
+      CREATE TABLE IF NOT EXISTS health_records (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        agent_id    TEXT NOT NULL,
+        record_type TEXT NOT NULL,
+        value       TEXT NOT NULL,
+        unit        TEXT,
+        measured_at TEXT NOT NULL DEFAULT (datetime('now')),
+        notes       TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    const ins = pluginDb.prepare(
+      'INSERT OR IGNORE INTO health_records (id, user_id, agent_id, record_type, value, unit, measured_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const tx = pluginDb.transaction(() => {
+      for (const r of rows) {
+        ins.run(r.id, r.user_id, r.agent_id, r.record_type, r.value, r.unit, r.measured_at, r.notes, r.created_at);
+      }
+    });
+    tx();
+
+    const migrated = (pluginDb.prepare('SELECT COUNT(*) as c FROM health_records').get() as { c: number }).c;
+    pluginDb.close();
+    console.log(`[migrate-health-records-to-plugin] migrated ${rows.length} rows → plugin DB (${migrated} total)`);
   });
 }
