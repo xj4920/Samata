@@ -3,10 +3,6 @@
  * 复用 Telegram formatter（纯文本/Markdown）
  */
 export {
-  formatClientList,
-  formatClientDetail,
-  formatClientHistory,
-  formatTrades,
   formatKnowledge,
   formatSkillList,
   formatSuccess,

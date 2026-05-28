@@ -12,7 +12,6 @@ import { handleSkill } from './skill.js';
 import { handleAgent, getAgentSubcommands } from './agent.js';
 import { handleMemory } from './memory-cmd.js';
 import { handleUser } from './user.js';
-import { handleWrongQuestion } from './wrong-question.js';
 import { startTelegramBot, stopTelegramBot, isTelegramBotRunning } from '../telegram/bot.js';
 import { startAllFeishuBots, stopAllFeishuBots, isFeishuBotRunning, type FeishuBotMode } from '../feishu/bot.js';
 
@@ -52,13 +51,6 @@ const commands: Record<string, Command> = {
   skill:   { description: 'Skill', usage: '/skill <list|save|run|del> [名称]', handler: handleSkill, subcommands: ['list', 'save', 'run', 'del'] },
   agent:   { description: 'Agent', usage: '/agent <list|switch|info|...> [参数]', handler: handleAgent, subcommands: ['list', 'switch', 'info'] },
   memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
-  wrongq:  {
-    description: 'Tutor 错题集',
-    usage: '/wrongq <list|show|mastered|report> [参数]',
-    visibleWhen: () => getCurrentAgent()?.name === 'tutor',
-    handler: handleWrongQuestion,
-    subcommands: ['list', 'show', 'mastered', 'report'],
-  },
   model:   { description: '切换模型', usage: '/model <list|<provider>|<provider>/<model>|reset>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'reset', 'anthropic', 'minimax', 'gemini', 'openrouter', 'gf'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
   user:    { description: '系统用户', usage: '/user <list|add|update|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
