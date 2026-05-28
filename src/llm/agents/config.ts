@@ -1,3 +1,5 @@
+import fs from 'fs';
+import { resolve, join } from 'path';
 import { getDb } from '../../db/connection.js';
 import { getCurrentUser, isSystemAdmin, isAgentAdmin } from '../../auth/rbac.js';
 import { recordEvent } from '../../models/event.js';
@@ -91,9 +93,9 @@ export interface AgentConfig {
 /** Code-level fallback when DB has no agents */
 const DEFAULT_AGENT: AgentConfig = {
   id: 'default',
-  name: 'otcclaw',
-  displayName: '衍语',
-  description: 'OTC 业务专家',
+  name: 'admin',
+  displayName: '系统管理员',
+  description: 'CLI 系统管理',
   toolsMode: 'standard',
   toolsList: [],
   blockTools: [],
@@ -161,7 +163,7 @@ export function getAllAgents(): AgentConfig[] {
 }
 
 export function getDefaultAgent(): AgentConfig {
-  const name = process.env.DEFAULT_AGENT || 'otcclaw';
+  const name = process.env.DEFAULT_AGENT || 'admin';
   const agent = getAgent(name);
   return agent;
 }
@@ -235,7 +237,6 @@ export function saveAgent(input: SaveAgentInput): { success: true; action: 'crea
 }
 
 export function deleteAgent(name: string): { success: true; name: string } | { success: false; error: string } {
-  if (name === 'otcclaw') return { success: false, error: '不能删除默认 agent: otcclaw' };
   const db = getDb();
   const row = db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as AgentRow | undefined;
   if (!row) return { success: false, error: `未找到 agent: ${name}` };
@@ -244,7 +245,36 @@ export function deleteAgent(name: string): { success: true; name: string } | { s
       return { success: false, error: `权限不足：需要 Agent (${name}) 的管理员权限或系统管理员权限` };
   }
 
-  db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
+  // --- Filesystem cleanup (before DB delete, needs agent info) ---
+  const rmDir = (dir: string) => {
+    try { if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  };
+  rmDir(resolve('data/documents', name));
+  rmDir(resolve('data/workspaces', name));
+  rmDir(resolve('data/wrong-questions', row.id));
+  rmDir(join('/tmp/samata/sandboxes', name));
+
+  // --- DB cleanup (transaction) ---
+  const tx = db.transaction(() => {
+    // Non-FK tables that reference agent_id
+    db.prepare('DELETE FROM documents WHERE agent_id = ?').run(row.id);
+    db.prepare('DELETE FROM reminders WHERE agent_id = ?').run(row.id);
+    db.prepare('DELETE FROM scheduled_tasks WHERE agent_id = ?').run(row.id);
+    db.prepare('DELETE FROM health_records WHERE agent_id = ?').run(row.id);
+    db.prepare('DELETE FROM health_files WHERE agent_id = ?').run(row.id);
+    db.prepare('DELETE FROM pricing_quotes WHERE agent_id = ?').run(row.id);
+    // Delete bot_apps bound to this agent (before CASCADE deletes agent_assignments)
+    const boundApps = db.prepare(
+      'SELECT app_id FROM agent_assignments WHERE agent_id = ? AND app_id IS NOT NULL'
+    ).all(row.id) as { app_id: string }[];
+    for (const { app_id } of boundApps) {
+      db.prepare('DELETE FROM bot_apps WHERE id = ?').run(app_id);
+    }
+    // CASCADE handles: agent_assignments, agent_members, memory, knowledge_agents, todos, wrong_questions
+    db.prepare('DELETE FROM agents WHERE id = ?').run(row.id);
+  });
+  tx();
+
   recordEvent('agent', row.id, 'delete', { name });
   return { success: true, name };
 }

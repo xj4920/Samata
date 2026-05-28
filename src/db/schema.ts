@@ -2135,6 +2135,45 @@ export function initSchema(): void {
     try { db.exec("ALTER TABLE agents ADD COLUMN custom_prompt TEXT"); } catch {}
   });
 
+  runOnce('fix-documents-agent-fk-cascade', () => {
+    const cols = db.prepare("PRAGMA table_info('documents')").all() as { name: string; type: string; notnull: number; dflt_value: string | null; pk: number }[];
+    const colNames = cols.map(c => c.name);
+    if (!colNames.includes('id')) return; // table doesn't exist yet
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE documents_new (
+          id                TEXT PRIMARY KEY,
+          title             TEXT NOT NULL,
+          source_path       TEXT NOT NULL,
+          file_type         TEXT NOT NULL,
+          chunk_count       INTEGER NOT NULL DEFAULT 0,
+          agent_id          TEXT REFERENCES agents(id) ON DELETE CASCADE,
+          created_by        TEXT NOT NULL REFERENCES users(id),
+          created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+          stored_path       TEXT,
+          size_bytes        INTEGER,
+          content_hash      TEXT,
+          doc_date          TEXT,
+          wiki_compiled_hash TEXT
+        );
+      `);
+
+      const srcCols = colNames.filter(c =>
+        ['id','title','source_path','file_type','chunk_count','agent_id',
+         'created_by','created_at','stored_path','size_bytes','content_hash',
+         'doc_date','wiki_compiled_hash'].includes(c)
+      ).join(', ');
+
+      db.exec(`INSERT INTO documents_new (${srcCols}) SELECT ${srcCols} FROM documents;`);
+      db.exec('DROP TABLE documents;');
+      db.exec('ALTER TABLE documents_new RENAME TO documents;');
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  });
+
   runOnce('otcclaw-ticlaw-add-etf-monitor-tools', () => {
     const newTools = ['calc_etf_trades', 'query_etf_summary'];
     const writeTools = ['calc_etf_trades'];
