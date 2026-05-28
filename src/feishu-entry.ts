@@ -16,7 +16,7 @@ import { initSchema } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
-import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, watchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
+import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, watchFeishuApps, stopWatchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
 
 const MODE = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
@@ -52,6 +52,7 @@ async function main() {
     // 优雅退出
     const shutdown = () => {
       log.info('\n正在关闭...');
+      stopWatchFeishuApps();
       if (APP_ID) {
         stopFeishuBot(APP_ID);
       } else {
@@ -121,6 +122,7 @@ async function main() {
     // 优雅退出
     const shutdown = () => {
       log.info('\n正在关闭...');
+      stopWatchFeishuApps();
       if (APP_ID) {
         stopFeishuBot(APP_ID);
       } else {

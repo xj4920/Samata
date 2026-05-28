@@ -15,7 +15,7 @@ import { initSchema } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
-import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
+import { startAllWeworkBots, stopAllWeworkBots, watchWeworkApps, stopWatchWeworkApps } from './wework/bot.js';
 import { log } from './utils/logger.js';
 
 const PORT = parseInt(process.env.WEWORK_PORT || '3002', 10);
@@ -36,6 +36,7 @@ async function main() {
   setCurrentUser({ id: 'admin-001', username: 'admin', role: 'admin' });
 
   await startAllWeworkBots();
+  watchWeworkApps();
 
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -50,6 +51,7 @@ async function main() {
 
   const shutdown = () => {
     log.info('\n正在关闭...');
+    stopWatchWeworkApps();
     stopAllWeworkBots();
     server.close(() => {
       closeDb();

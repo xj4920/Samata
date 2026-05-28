@@ -708,3 +708,21 @@ export function syncWeworkBots(): void {
     }
   }
 }
+
+let weworkWatchTimer: ReturnType<typeof setInterval> | null = null;
+
+export function watchWeworkApps(): void {
+  if (weworkWatchTimer) return;
+  log.info('[企微] 启动数据库同步监控 (每 10s)...');
+  weworkWatchTimer = setInterval(() => {
+    try {
+      syncWeworkBots();
+    } catch (err: any) {
+      log.error(`[企微] 同步数据库状态出错: ${err.message}`);
+    }
+  }, 10000);
+}
+
+export function stopWatchWeworkApps(): void {
+  if (weworkWatchTimer) { clearInterval(weworkWatchTimer); weworkWatchTimer = null; }
+}

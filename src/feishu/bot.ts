@@ -210,6 +210,10 @@ export function watchFeishuApps(options?: { mode?: FeishuBotMode; httpPort?: num
   }, 10000);
 }
 
+export function stopWatchFeishuApps(): void {
+  if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+}
+
 /**
  * 获取或创建会话（实例级）
  * 首次创建时通过飞书联系人 API 查询真实姓名

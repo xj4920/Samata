@@ -11,8 +11,8 @@ import { startReminderScheduler, stopReminderScheduler } from './services/remind
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
 import { initPlugins, startAllPlugins, stopAllPlugins, stopPluginWatcher } from './plugins/registry.js';
-import { startAllFeishuBots, stopAllFeishuBots, type FeishuBotMode } from './feishu/bot.js';
-import { startAllWeworkBots, stopAllWeworkBots } from './wework/bot.js';
+import { startAllFeishuBots, stopAllFeishuBots, watchFeishuApps, stopWatchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
+import { startAllWeworkBots, stopAllWeworkBots, watchWeworkApps, stopWatchWeworkApps } from './wework/bot.js';
 import { log } from './utils/logger.js';
 import { getCurrentAgent } from './llm/agent.js';
 import { getDefaultAgent } from './llm/agents/config.js';
@@ -30,6 +30,8 @@ export function gracefulShutdown(): void {
   stopPluginWatcher();
   stopReminderScheduler();
   stopTaskScheduler();
+  stopWatchFeishuApps();
+  stopWatchWeworkApps();
   stopAllFeishuBots();
   stopAllWeworkBots();
   stopMcpServers();
@@ -395,6 +397,7 @@ async function main(): Promise<void> {
 
   // 启动企微机器人（长连接模式，多实例）
   await startAllWeworkBots();
+  watchWeworkApps();
 
   // 启动 plugin 后台服务（phase 2: start — monitors 等，依赖 bot 已就绪）
   await startAllPlugins();
@@ -406,6 +409,7 @@ async function main(): Promise<void> {
     mode: feishuMode,
     httpPort: feishuMode === 'webhook' ? feishuPort : undefined,
   });
+  watchFeishuApps({ mode: feishuMode, httpPort: feishuMode === 'webhook' ? feishuPort : undefined });
 
   const isServer = process.argv.includes('--server') || !process.stdin.isTTY;
 
