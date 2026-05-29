@@ -38,6 +38,8 @@ describe('getAgentTools', () => {
       expect(names).toContain('query_trades');
       expect(names).toContain('trade_summary');
       expect(names).toContain('sandbox_exec');
+      expect(names).toContain('sync_sbl_data');
+      expect(names).toContain('analyze_sbl_usage');
     });
 
     it('respects blockTools', async () => {
@@ -69,6 +71,7 @@ describe('getAgentTools', () => {
       const names = await getToolNames('doctor');
       expect(names).not.toContain('query_clients');
       expect(names).not.toContain('query_trades');
+      expect(names).not.toContain('analyze_sbl_usage');
     });
   });
 
@@ -125,6 +128,9 @@ describe('getAgentTools', () => {
 
       expect(adminNames).toContain('add_client');
       expect(memberNames).not.toContain('add_client');
+      expect(adminNames).toContain('sync_sbl_data');
+      expect(memberNames).toContain('sync_sbl_data');
+      expect(memberNames).toContain('analyze_sbl_usage');
     });
   });
 });

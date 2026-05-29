@@ -2221,6 +2221,46 @@ export function initSchema(): void {
     }
   });
 
+  runOnce('otcclaw-add-sbl-data-tools', () => {
+    const newTools = ['sync_sbl_data', 'analyze_sbl_usage'];
+
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    for (const t of newTools) {
+      if (!list.includes(t)) { list.push(t); changed = true; }
+    }
+    const syncBlockIdx = userList.indexOf('sync_sbl_data');
+    if (syncBlockIdx !== -1) { userList.splice(syncBlockIdx, 1); changed = true; }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
+    }
+  });
+
+  runOnce('otcclaw-unblock-sync-sbl-data', () => {
+    const row = db.prepare(
+      "SELECT user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { user_tools_list: string | null } | undefined;
+    if (!row?.user_tools_list) return;
+
+    const userList: string[] = JSON.parse(row.user_tools_list);
+    const filtered = userList.filter(t => t !== 'sync_sbl_data');
+    if (filtered.length !== userList.length) {
+      db.prepare(
+        "UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+      ).run(filtered.length > 0 ? JSON.stringify(filtered) : null);
+    }
+  });
+
   runOnce('migrate-health-records-to-plugin', () => {
     const rows = db.prepare('SELECT * FROM health_records').all() as {
       id: string; user_id: string; agent_id: string; record_type: string;

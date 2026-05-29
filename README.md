@@ -82,7 +82,7 @@ cd samata-plugins && npm install
 在 `.env` 中配置（支持逗号分隔多目录）：
 
 ```env
-SAMATA_PLUGINS_DIR=../samata-plugins,../samata-plugin-work,../samata-plugin-private
+SAMATA_PLUGINS_DIR=../samata-plugins,../samata-plugin-work
 ```
 
 **方式二：npm install（生产部署）**

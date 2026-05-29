@@ -28,6 +28,7 @@ vi.mock('../../src/plugins/registry.js', () => {
     'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
     'export_trades_csv', 'export_north_info_csv',
     'query_hedge_short',
+    'sync_sbl_data', 'analyze_sbl_usage',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
 
   return {
