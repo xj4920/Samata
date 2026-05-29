@@ -13,6 +13,9 @@
     "wework": "npx tsx src/wework-entry.ts",
     "check-readme": "npx tsx scripts/check-readme.ts",
     "analyze-log": "npx tsx scripts/analyze-log.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "test": "bash scripts/test.sh",
     "test:unit": "bash scripts/test.sh",
     "test:e2e": "bash scripts/test.sh --config vitest.e2e.config.ts",
@@ -57,6 +60,7 @@
     "pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "vitepress": "^1.6.4",
     "vitest": "^4.1.7",
     "yaml": "^2.8.2"
   }
