@@ -32,7 +32,7 @@ export interface LLMProvider {
   describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }
 
-export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'gf' | 'deepseek';
+export type ProviderName = 'anthropic' | 'minimax' | 'gemini' | 'openrouter' | 'custom' | 'deepseek';
 
 const providers = new Map<ProviderName, LLMProvider>();
 let currentName: ProviderName = 'anthropic';
@@ -178,7 +178,7 @@ export async function initProviders(): Promise<boolean> {
   const { createMinimaxProvider } = await import('./minimax.js');
   const { createGeminiProvider } = await import('./gemini.js');
   const { createOpenRouterProvider } = await import('./openrouter.js');
-  const { createGfProvider } = await import('./gf.js');
+  const { createCustomProvider } = await import('./custom.js');
   const { createDeepseekProvider } = await import('./deepseek.js');
   // 尝试初始化 Anthropic
   const anthropic = createAnthropicProvider();
@@ -208,11 +208,11 @@ export async function initProviders(): Promise<boolean> {
     log.dim('  OpenRouter provider 已注册');
   }
 
-  // 尝试初始化 GF（广发内部 LLM 网关）
-  const gf = createGfProvider();
-  if (gf) {
-    registerProvider('gf', gf);
-    log.dim('  GF provider 已注册');
+  // 尝试初始化自定义 OpenAI-compatible 网关
+  const custom = createCustomProvider();
+  if (custom) {
+    registerProvider('custom', custom);
+    log.dim('  Custom provider 已注册');
   }
 
   // 尝试初始化 DeepSeek

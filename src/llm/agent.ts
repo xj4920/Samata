@@ -59,12 +59,12 @@ export async function describeImageWithFallback(
     }
   };
   add(primary);
-  add(getProviderByName('gf'));
+  add(getProviderByName('custom'));
   add(getProviderByName('minimax'));
   add(getProviderByName('anthropic'));
 
   if (chain.length === 0) {
-    throw new Error('无可用的图片描述 provider（需启用 gf/minimax/anthropic 之一）');
+    throw new Error('无可用的图片描述 provider（需启用 custom/minimax/anthropic 之一）');
   }
 
   let lastErr: unknown;

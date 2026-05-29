@@ -1708,8 +1708,25 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('agents-rename-glm-to-gf', () => {
-    db.prepare("UPDATE agents SET provider = 'gf', updated_at = datetime('now') WHERE provider = 'glm'").run();
+  runOnce('agents-rename-glm-gf-to-custom', () => {
+    db.prepare("UPDATE agents SET provider = 'custom', updated_at = datetime('now') WHERE provider IN ('glm', 'gf')").run();
+  });
+
+  runOnce('bot-apps-rename-glm-gf-to-custom', () => {
+    const rows = db.prepare('SELECT id, config FROM bot_apps').all() as Array<{ id: string; config: string }>;
+    const update = db.prepare('UPDATE bot_apps SET config = ? WHERE id = ?');
+    for (const row of rows) {
+      let cfg: any;
+      try {
+        cfg = row.config ? JSON.parse(row.config) : {};
+      } catch {
+        continue;
+      }
+      if (cfg?.llm?.provider === 'glm' || cfg?.llm?.provider === 'gf') {
+        cfg.llm.provider = 'custom';
+        update.run(JSON.stringify(cfg), row.id);
+      }
+    }
   });
 
   runOnce('add-telemetry-turn-table', () => {

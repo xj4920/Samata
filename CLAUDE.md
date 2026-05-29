@@ -270,13 +270,13 @@ Agent 实例管理人 (isAgentAdmin(agentId))
 
 ### LLM Provider / Model 绑定
 
-**全局默认** 通过 `.env` 的 `LLM_PROVIDER` 与每个 provider 的 `*_MODEL` 决定；支持的 provider：`anthropic`、`minimax`、`gemini`、`openrouter`、`gf`（广发内部 LLM 网关）。GF provider 的可选模型白名单在 `src/llm/gf.ts` 的 `GF_AVAILABLE_MODELS`，新加模型只需补这个数组。
+**全局默认** 通过 `.env` 的 `LLM_PROVIDER` 与每个 provider 的 `*_MODEL` 决定；支持的 provider：`anthropic`、`minimax`、`gemini`、`openrouter`、`custom`、`deepseek`。Custom provider 走 OpenAI-compatible chat/completions 协议，通过 `CUSTOM_API_KEY`、`CUSTOM_BASE_URL`、`CUSTOM_MODEL` 配置；如需让 `/model list` 展示白名单，可设置逗号分隔的 `CUSTOM_MODELS`。
 
 **Agent 级覆盖**：`agents.provider / agents.model` 列若非空，则该 agent 的对话走自己的 provider/model（`src/llm/agent.ts` 里已由 `runAgenticChat` 自动处理）。
 
 **Bot 实例级覆盖**（企微 / 飞书 / Telegram）：
 
-- 存储：`bot_apps.config` JSON 的 `llm` 子对象，格式 `{"llm":{"provider":"gf","model":"external-kimi-k2.6"}}`，不加 schema migration
+- 存储：`bot_apps.config` JSON 的 `llm` 子对象，格式 `{"llm":{"provider":"custom","model":"custom-model"}}`，不加 schema migration
 - 读写：`getBotAppLLM(app|id)` 与 `setBotAppLLM(id, patch)`（`src/llm/agents/config.ts`）
 - 注入：每个 bot 的 `handleAIChat` 在调用 `runAgenticChat` 前，把 bot 级绑定 shallow merge 到 `agentConfig`（provider/model 字段），优先级高于 agent 默认
 

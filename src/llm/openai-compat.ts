@@ -23,11 +23,10 @@ export interface OAIMessage {
   tool_call_id?: string;
   /**
    * Reasoning-model output (GLM/DeepSeek thinking mode etc.).
-   * The GF gateway in thinking mode validates every historical assistant
-   * message and returns 400 ("reasoning_content must be passed back") when
-   * this field is missing — even if the previous turn produced no thoughts.
-   * Therefore convertMessages always sets this field on assistant turns
-   * (empty string is acceptable).
+   * Some thinking-mode OpenAI-compatible gateways validate every historical
+   * assistant message and return 400 when reasoning_content is missing, even
+   * if the previous turn produced no thoughts. Therefore convertMessages
+   * always sets this field on assistant turns (empty string is acceptable).
    */
   reasoning_content?: string;
 }
@@ -127,8 +126,8 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
         content: textParts.join('\n') || null,
       };
       if (toolCalls.length > 0) am.tool_calls = toolCalls;
-      // GF thinking-mode 网关校验历史 assistant 消息必须带 reasoning_content
-      // 字段（空串可接受）；其他 provider 对该字段宽容，多带也无副作用
+      // Thinking-mode gateways may require assistant messages to carry
+      // reasoning_content; other providers usually ignore the extra field.
       am.reasoning_content = reasoning;
       // 部分 provider（如 DeepSeek）要求 assistant 消息必须有 content 或 tool_calls
       if (!am.content && !(am.tool_calls && am.tool_calls.length > 0)) {

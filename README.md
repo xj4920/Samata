@@ -121,15 +121,17 @@ npm run stop         # 停止 screen 守护进程
 
 | 变量 | 说明 |
 |------|------|
-| `LLM_PROVIDER` | LLM provider（`anthropic` \| `gf` \| `deepseek` \| `minimax` \| `gemini` \| `openrouter`） |
+| `LLM_PROVIDER` | LLM provider（`anthropic` \| `custom` \| `deepseek` \| `minimax` \| `gemini` \| `openrouter`） |
 
-至少配置对应 provider 的 API Key，例如 `ANTHROPIC_API_KEY`、`GF_API_KEY`、`DEEPSEEK_API_KEY` 等。
+至少配置对应 provider 的 API Key，例如 `ANTHROPIC_API_KEY`、`CUSTOM_API_KEY`、`DEEPSEEK_API_KEY` 等。
 
 ### 可选
 
 | 变量 | 说明 |
 |------|------|
 | `LLM_MODEL` | 覆盖默认模型名 |
+| `CUSTOM_VISION_MODEL` | Custom provider 图片描述模型，默认沿用 `CUSTOM_MODEL` |
+| `CUSTOM_MODELS` | Custom provider 模型白名单，逗号分隔；用于 `/model list` 展示与模型名匹配 |
 | `SHOW_THINKING` | 显示 AI 思考过程和工具调用日志，默认 `true` |
 | `MAX_TOOL_ROUNDS` | 单次对话 agentic loop 工具调用轮次上限，默认 `30` |
 | `SAMATA_PLUGINS_DIR` | Plugin 目录（逗号分隔多路径），默认 `../samata-plugins` |
@@ -140,7 +142,7 @@ npm run stop         # 停止 screen 守护进程
 | Provider | Key 变量 | Base URL 变量 | Model 变量 |
 |----------|---------|--------------|-----------|
 | Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL` |
-| GF（广发内网） | `GF_API_KEY` | `GF_BASE_URL` | `GF_MODEL` |
+| Custom（OpenAI-compatible） | `CUSTOM_API_KEY` | `CUSTOM_BASE_URL` | `CUSTOM_MODEL` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` | `DEEPSEEK_MODEL` |
 | MiniMax | `MINIMAX_API_KEY` | `MINIMAX_BASE_URL` | `MINIMAX_MODEL` |
 | Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
@@ -221,7 +223,7 @@ samata/
 
 - TypeScript + Node.js（ESM）
 - SQLite（better-sqlite3，WAL 模式）
-- 多 LLM Provider：Anthropic Claude、DeepSeek、Gemini、MiniMax、OpenRouter、GF 网关
+- 多 LLM Provider：Anthropic Claude、DeepSeek、Gemini、MiniMax、OpenRouter、Custom OpenAI-compatible 网关
 - Bot SDK：@larksuiteoapi/node-sdk（飞书）
 - MCP：@modelcontextprotocol/sdk
 - Plugin 系统：独立 repo + `@samata-platform/plugin-sdk`
@@ -235,7 +237,7 @@ samata/
 
 ```
 /model list                           # 查看可用 provider 和模型
-/model gf/external-deepseek-v4-pro    # 切换到 DeepSeek V4 Pro
+/model custom/custom-model            # 切换到自定义模型
 /model reset                          # 恢复全局默认
 ```
 
