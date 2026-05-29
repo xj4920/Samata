@@ -545,13 +545,17 @@ function snapshotFiles(root: string): Map<string, number> {
   return snapshot;
 }
 
+function toSandboxRelativePath(root: string, filePath: string): string {
+  return path.relative(root, filePath).split(path.sep).join('/');
+}
+
 function diffFiles(before: Map<string, number>, root: string): string[] {
   const after = snapshotFiles(root);
   const generated: string[] = [];
   for (const [filePath, mtime] of after) {
     const prev = before.get(filePath);
     if (prev === undefined || mtime > prev) {
-      generated.push(filePath);
+      generated.push(toSandboxRelativePath(root, filePath));
     }
   }
   return generated;

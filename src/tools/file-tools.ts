@@ -69,6 +69,11 @@ function authorizeRead(inputPath: string): { filePath: string; relative: string 
   }
 
   if (!filePath.startsWith(PROJECT_ROOT)) {
+    if (filePath.startsWith('/tmp/samata/')) {
+      return {
+        error: `read_file 拒绝：${inputPath} 是沙箱/临时目录路径。请改用 sandbox_read_file，并传入 sandbox_exec 返回的沙箱相对路径（不要传 /tmp 绝对路径）。`,
+      };
+    }
     return { error: `read_file 拒绝：路径不在项目目录内 (${inputPath})` };
   }
   const relative = filePath.slice(PROJECT_ROOT.length);
