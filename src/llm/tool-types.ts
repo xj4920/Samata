@@ -196,7 +196,7 @@ export type GenerateVideoInput = {
 export type CreateScheduledTaskInput = {
   name: string;
   cron_expr: string;
-  task_type: 'remind' | 'sandbox_exec';
+  task_type: 'remind' | 'sandbox_exec' | 'tool_call';
   payload: string;
   timezone?: string;
 };

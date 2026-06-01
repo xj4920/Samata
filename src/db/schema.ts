@@ -4,6 +4,7 @@ import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
 import Database from 'better-sqlite3';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
+import { CronExpressionParser } from 'cron-parser';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 /** System tools beyond COMMON_SET granted to TIClaw agent */
@@ -204,7 +205,7 @@ export function initSchema(): void {
       agent_id    TEXT NOT NULL,
       name        TEXT NOT NULL,
       cron_expr   TEXT NOT NULL,
-      task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec')),
+      task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call')),
       payload     TEXT NOT NULL,
       channel     TEXT NOT NULL,
       target_id   TEXT,
@@ -284,6 +285,48 @@ export function initSchema(): void {
       // migration failure should not block startup
     }
   };
+
+  runOnce('scheduled-tasks-allow-tool-call', () => {
+    const row = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'",
+    ).get() as { sql: string } | undefined;
+    if (!row || row.sql.includes("'tool_call'")) return;
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE scheduled_tasks_new (
+          id          TEXT PRIMARY KEY,
+          agent_id    TEXT NOT NULL,
+          name        TEXT NOT NULL,
+          cron_expr   TEXT NOT NULL,
+          task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call')),
+          payload     TEXT NOT NULL,
+          channel     TEXT NOT NULL,
+          target_id   TEXT,
+          app_id      TEXT,
+          enabled     INTEGER NOT NULL DEFAULT 1,
+          next_run_at INTEGER,
+          last_run_at INTEGER,
+          last_result TEXT,
+          created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+          created_by  TEXT
+        );
+        INSERT INTO scheduled_tasks_new (
+          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
+          enabled, next_run_at, last_run_at, last_result, created_at, created_by
+        )
+        SELECT
+          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
+          enabled, next_run_at, last_run_at, last_result, created_at, created_by
+        FROM scheduled_tasks;
+        DROP TABLE scheduled_tasks;
+        ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  });
 
   runOnce('add-knowledge-columns', () => {
     try { db.exec("ALTER TABLE knowledge ADD COLUMN related_users TEXT"); } catch (e) {}
@@ -2217,6 +2260,44 @@ export function initSchema(): void {
         db.prepare(
           "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
         ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null, agentName);
+      }
+    }
+  });
+
+  runOnce('seed-etf-trades-precompute-scheduled-tasks-v1', () => {
+    const cronExpr = '0 18 * * 1-5';
+    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false });
+    const tasks = [
+      { id: 'etf-ticlaw-precalc', agentName: 'ticlaw', name: 'ETF 成交预计算（TIClaw）' },
+      { id: 'etf-otcclaw-precalc', agentName: 'otcclaw', name: 'ETF 成交预计算（衍语）' },
+    ];
+
+    for (const task of tasks) {
+      const agent = db.prepare("SELECT id FROM agents WHERE name = ?").get(task.agentName) as { id: string } | undefined;
+      if (!agent) continue;
+
+      const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
+      const existing = db.prepare(
+        'SELECT id, cron_expr, next_run_at FROM scheduled_tasks WHERE id = ?',
+      ).get(task.id) as { id: string; cron_expr: string; next_run_at: number | null } | undefined;
+
+      if (existing) {
+        const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
+        db.prepare(`
+          UPDATE scheduled_tasks
+          SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
+              channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
+              next_run_at = ?, created_by = ?
+          WHERE id = ?
+        `).run(agent.id, task.name, cronExpr, 'tool_call', payload, 'system', nextRunAt, 'system', task.id);
+      } else {
+        db.prepare(`
+          INSERT INTO scheduled_tasks (
+            id, agent_id, name, cron_expr, task_type, payload, channel,
+            target_id, app_id, next_run_at, created_by
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        `).run(task.id, agent.id, task.name, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
       }
     }
   });

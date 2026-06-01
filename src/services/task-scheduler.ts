@@ -1,11 +1,17 @@
 import { getDueScheduledTasks, markTaskExecuted, computeNextRun, type ScheduledTask } from '../commands/scheduled-task.js';
 import { sandboxExecAsync } from '../commands/sandbox.js';
+import { getAgentById, getAgentTools } from '../llm/agents/config.js';
+import { runWithExecutionContext } from '../runtime/execution-context.js';
+import { getAllNativeTools } from '../tools/index.js';
+import { getPluginTools, executePluginTool } from '../plugins/registry.js';
+import { getMcpTools } from './mcp-manager.js';
 import { deliverMessage } from './deliver.js';
 import { log } from '../utils/logger.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const TAG = '[task-scheduler]';
+const SYSTEM_USER = { id: 'system', username: 'system', role: 'admin' as const };
 
 async function executeRemind(task: ScheduledTask): Promise<string | null> {
   const payload = JSON.parse(task.payload) as { message: string };
@@ -40,7 +46,31 @@ async function executeSandbox(task: ScheduledTask): Promise<string | null> {
   return summary;
 }
 
-async function checkAndExecute(): Promise<void> {
+async function executeToolCall(task: ScheduledTask): Promise<string | null> {
+  const payload = JSON.parse(task.payload) as {
+    tool_name: string;
+    input: Record<string, unknown>;
+    notify: false;
+  };
+  const agent = getAgentById(task.agent_id);
+  if (!agent) throw new Error(`Agent not found: ${task.agent_id}`);
+
+  const globalTools = [...getAllNativeTools(), ...getPluginTools(), ...getMcpTools()];
+  const allowedTools = getAgentTools(agent, globalTools, true).map(t => t.name);
+  if (!allowedTools.includes(payload.tool_name)) {
+    throw new Error(`Tool not available for agent ${agent.name}: ${payload.tool_name}`);
+  }
+
+  const result = await runWithExecutionContext(
+    { channel: 'system', user: SYSTEM_USER, agent },
+    () => executePluginTool(payload.tool_name, payload.input),
+  );
+  if (result === null) throw new Error(`Plugin tool not found: ${payload.tool_name}`);
+
+  return result.slice(0, 4000);
+}
+
+export async function checkAndExecute(): Promise<void> {
   let tasks: ScheduledTask[];
   try {
     tasks = getDueScheduledTasks();
@@ -57,6 +87,10 @@ async function checkAndExecute(): Promise<void> {
         result = await executeRemind(task);
       } else if (task.task_type === 'sandbox_exec') {
         result = await executeSandbox(task);
+      } else if (task.task_type === 'tool_call') {
+        result = await executeToolCall(task);
+      } else {
+        throw new Error(`Unsupported task type: ${task.task_type}`);
       }
 
       const nextRun = computeNextRun(task.cron_expr);

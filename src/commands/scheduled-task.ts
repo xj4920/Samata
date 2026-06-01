@@ -7,7 +7,7 @@ export interface ScheduledTask {
   agent_id: string;
   name: string;
   cron_expr: string;
-  task_type: 'remind' | 'sandbox_exec';
+  task_type: ScheduledTaskType;
   payload: string;
   channel: string;
   target_id: string | null;
@@ -20,18 +20,54 @@ export interface ScheduledTask {
   created_by: string | null;
 }
 
+export type ScheduledTaskType = 'remind' | 'sandbox_exec' | 'tool_call';
+
 const MAX_TASKS_PER_AGENT = 50;
+const TASK_TYPES = new Set<ScheduledTaskType>(['remind', 'sandbox_exec', 'tool_call']);
 
 export function computeNextRun(cronExpr: string, tz = 'Asia/Shanghai'): number {
   const expr = CronExpressionParser.parse(cronExpr, { tz });
   return expr.next().getTime();
 }
 
+function validatePayload(taskType: ScheduledTaskType, payload: string): { ok: true } | { ok: false; error: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return { ok: false, error: 'payload 必须是合法的 JSON 字符串' };
+  }
+
+  if (taskType !== 'tool_call') return { ok: true };
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'tool_call payload 必须是 JSON 对象' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const expectedKeys = ['input', 'notify', 'tool_name'];
+  if (keys.length !== expectedKeys.length || keys.some((k, i) => k !== expectedKeys[i])) {
+    return { ok: false, error: 'tool_call payload 必须为 {"tool_name":"calc_etf_trades","input":{},"notify":false}' };
+  }
+  if (obj.tool_name !== 'calc_etf_trades') {
+    return { ok: false, error: 'tool_call 仅支持 calc_etf_trades' };
+  }
+  if (!obj.input || typeof obj.input !== 'object' || Array.isArray(obj.input) || Object.keys(obj.input as Record<string, unknown>).length !== 0) {
+    return { ok: false, error: 'tool_call input 必须为空对象 {}' };
+  }
+  if (obj.notify !== false) {
+    return { ok: false, error: 'tool_call notify 必须为 false' };
+  }
+
+  return { ok: true };
+}
+
 export function createScheduledTask(input: {
   agentId: string;
   name: string;
   cronExpr: string;
-  taskType: 'remind' | 'sandbox_exec';
+  taskType: ScheduledTaskType;
   payload: string;
   channel: string;
   targetId?: string;
@@ -40,6 +76,10 @@ export function createScheduledTask(input: {
   timezone?: string;
 }): { success: true; id: string; next_run_at: number } | { success: false; error: string } {
   const db = getDb();
+
+  if (!TASK_TYPES.has(input.taskType)) {
+    return { success: false, error: `无效的任务类型: ${input.taskType}` };
+  }
 
   // Validate cron expression
   try {
@@ -56,12 +96,8 @@ export function createScheduledTask(input: {
     return { success: false, error: `已达上限（${MAX_TASKS_PER_AGENT} 条），请先删除不需要的任务` };
   }
 
-  // Validate payload JSON
-  try {
-    JSON.parse(input.payload);
-  } catch {
-    return { success: false, error: 'payload 必须是合法的 JSON 字符串' };
-  }
+  const payloadValidation = validatePayload(input.taskType, input.payload);
+  if (!payloadValidation.ok) return { success: false, error: payloadValidation.error };
 
   const id = uuid();
   const nextRun = computeNextRun(input.cronExpr, input.timezone);
@@ -91,8 +127,8 @@ export function updateScheduledTask(
 ): { success: boolean; error?: string } {
   const db = getDb();
   const row = db.prepare(
-    'SELECT id, cron_expr FROM scheduled_tasks WHERE id LIKE ? AND agent_id = ?'
-  ).get(idPrefix + '%', agentId) as { id: string; cron_expr: string } | undefined;
+    'SELECT id, cron_expr, task_type FROM scheduled_tasks WHERE id LIKE ? AND agent_id = ?'
+  ).get(idPrefix + '%', agentId) as Pick<ScheduledTask, 'id' | 'cron_expr' | 'task_type'> | undefined;
 
   if (!row) return { success: false, error: `未找到任务: ${idPrefix}` };
 
@@ -104,7 +140,8 @@ export function updateScheduledTask(
     vals.push(patch.name);
   }
   if (patch.payload !== undefined) {
-    try { JSON.parse(patch.payload); } catch { return { success: false, error: 'payload 必须是合法的 JSON' }; }
+    const payloadValidation = validatePayload(row.task_type, patch.payload);
+    if (!payloadValidation.ok) return { success: false, error: payloadValidation.error };
     sets.push('payload = ?');
     vals.push(patch.payload);
   }
@@ -142,7 +179,7 @@ export function deleteScheduledTask(idPrefix: string, agentId: string): { succes
   const db = getDb();
   const row = db.prepare(
     'SELECT id FROM scheduled_tasks WHERE id LIKE ? AND agent_id = ?'
-  ).get(idPrefix + '%', agentId) as { id: string } | undefined;
+  ).get(idPrefix + '%', agentId) as Pick<ScheduledTask, 'id'> | undefined;
 
   if (!row) return { success: false, error: `未找到任务: ${idPrefix}` };
 

@@ -81,6 +81,43 @@ describe('schema integrity', () => {
       const after = ctx.db.prepare('SELECT COUNT(*) as c FROM agents').get() as { c: number };
       expect(after.c).toBe(before.c);
     });
+
+    it('seeds ETF precompute scheduled tasks idempotently', async () => {
+      const rows = ctx.db.prepare(`
+        SELECT st.id, a.name AS agent_name, st.cron_expr, st.task_type, st.payload, st.channel, st.created_by
+        FROM scheduled_tasks st
+        JOIN agents a ON a.id = st.agent_id
+        WHERE st.id IN ('etf-ticlaw-precalc', 'etf-otcclaw-precalc')
+        ORDER BY a.name
+      `).all() as Array<{
+        id: string;
+        agent_name: string;
+        cron_expr: string;
+        task_type: string;
+        payload: string;
+        channel: string;
+        created_by: string;
+      }>;
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map(r => r.agent_name)).toEqual(['otcclaw', 'ticlaw']);
+      for (const row of rows) {
+        expect(row.cron_expr).toBe('0 18 * * 1-5');
+        expect(row.task_type).toBe('tool_call');
+        expect(row.channel).toBe('system');
+        expect(row.created_by).toBe('system');
+        expect(JSON.parse(row.payload)).toEqual({ tool_name: 'calc_etf_trades', input: {}, notify: false });
+      }
+
+      const { initSchema } = await import('../../../src/db/schema.js');
+      initSchema();
+      const after = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM scheduled_tasks
+        WHERE id IN ('etf-ticlaw-precalc', 'etf-otcclaw-precalc')
+      `).get() as { c: number };
+      expect(after.c).toBe(2);
+    });
   });
 
   describe('default users', () => {

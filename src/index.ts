@@ -386,14 +386,14 @@ async function main(): Promise<void> {
   // 启动提醒调度器
   startReminderScheduler();
 
-  // 启动定时任务调度器
-  startTaskScheduler();
-
   // 连接 MCP 服务器（SSE 模式下服务器需提前手动启动，连接失败不影响主程序）
   initMcpServers().catch(() => {});
 
   // 加载 plugins/ 目录下的插件（phase 1: init — schema migration, DB connection）
   await initPlugins();
+
+  // 启动定时任务调度器（依赖插件工具已加载）
+  startTaskScheduler();
 
   // 启动企微机器人（长连接模式，多实例）
   await startAllWeworkBots();

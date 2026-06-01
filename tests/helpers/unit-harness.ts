@@ -27,6 +27,7 @@ vi.mock('../../src/plugins/registry.js', () => {
     'import_pricing_quote', 'query_pricing_quote', 'list_pricing_quote_dates',
     'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
     'export_trades_csv', 'export_north_info_csv',
+    'calc_etf_trades', 'query_etf_summary',
     'query_hedge_short',
     'sync_sbl_data', 'analyze_sbl_usage',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
@@ -34,7 +35,18 @@ vi.mock('../../src/plugins/registry.js', () => {
   return {
     getPluginTools: () => pluginTools,
     getUniversalPluginTools: () => [],
-    executePluginTool: async () => null,
+    executePluginTool: async (name: string, input: any) => {
+      if (name === 'calc_etf_trades') {
+        const { getContextAgent, getExecutionChannel } = await import('../../src/runtime/execution-context.js');
+        return JSON.stringify({
+          ok: true,
+          agentId: getContextAgent()?.id,
+          channel: getExecutionChannel(),
+          input,
+        });
+      }
+      return null;
+    },
     getPluginSkills: () => [],
     getPluginSkillByName: () => null,
     getLoadedPlugins: () => [],

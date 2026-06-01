@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type {
   CreateScheduledTaskInput,
   UpdateScheduledTaskInput,
@@ -8,7 +8,7 @@ import type {
   RemoveCrontabInput,
 } from '../llm/tool-types.js';
 import { getCurrentAgent, type ToolContext, type DeliveryContext } from '../llm/agents/config.js';
-import { isAgentAdmin } from '../auth/rbac.js';
+import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import {
   createScheduledTask,
   listScheduledTasks,
@@ -21,14 +21,14 @@ import {
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'create_scheduled_task',
-    description: '创建周期性定时任务。支持两种类型：(1) remind — 按 cron 周期推送提醒消息；(2) sandbox_exec — 按 cron 周期在沙箱中执行脚本。cron_expr 为标准 5 字段格式（分 时 日 月 周），如 "0 9 * * 1-5" 表示工作日每天 9 点。',
+    description: '创建周期性定时任务。支持三种类型：(1) remind — 按 cron 周期推送提醒消息；(2) sandbox_exec — 按 cron 周期在沙箱中执行脚本；(3) tool_call — 按 cron 周期调用允许的系统工具。cron_expr 为标准 5 字段格式（分 时 日 月 周），如 "0 9 * * 1-5" 表示工作日每天 9 点。',
     input_schema: {
       type: 'object' as const,
       properties: {
         name: { type: 'string', description: '任务名称（方便识别）' },
         cron_expr: { type: 'string', description: '标准 5 字段 cron 表达式，如 "30 8 * * *"（每天 8:30）、"0 */2 * * *"（每 2 小时）' },
-        task_type: { type: 'string', enum: ['remind', 'sandbox_exec'], description: 'remind=周期提醒，sandbox_exec=周期执行脚本' },
-        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}' },
+        task_type: { type: 'string', enum: ['remind', 'sandbox_exec', 'tool_call'], description: 'remind=周期提醒，sandbox_exec=周期执行脚本，tool_call=周期调用系统工具' },
+        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}, tool_call: {"tool_name":"calc_etf_trades","input":{},"notify":false}' },
         timezone: { type: 'string', description: '时区，默认 Asia/Shanghai' },
       },
       required: ['name', 'cron_expr', 'task_type', 'payload'],
@@ -71,12 +71,12 @@ export const toolDefinitions: Anthropic.Tool[] = [
 
   {
     name: 'list_crontab',
-    description: '列出系统 crontab 条目（需要 agent admin 权限）',
+    description: '列出当前 agent 通过 add_crontab 创建的 crontab 条目（需要 agent admin 权限）',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
     name: 'add_crontab',
-    description: '添加一条系统 crontab 条目（需要 agent admin 权限）。会自动在条目前添加注释行以便后续管理。',
+    description: '添加一条当前 agent 拥有的 crontab 条目（需要 agent admin 权限）。会自动写入 agent 归属元数据以便后续隔离管理。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -89,7 +89,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'remove_crontab',
-    description: '按注释标记或命令内容匹配删除系统 crontab 条目（需要 agent admin 权限）',
+    description: '按注释标记或命令内容匹配删除当前 agent 自己创建的 crontab 条目（需要 agent admin 权限）',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -107,6 +107,8 @@ function handleCreateScheduledTask(input: CreateScheduledTaskInput, deliveryCtx?
     return JSON.stringify({ error: '无法创建定时任务：缺少投递上下文。请通过飞书、Telegram 或企微渠道使用此功能。' });
   }
   const agentId = getCurrentAgent()?.id ?? 'default';
+  let createdBy: string | undefined;
+  try { createdBy = getCurrentUser().id; } catch { /* user context may be unavailable in tests */ }
   const result = createScheduledTask({
     agentId,
     name: input.name,
@@ -116,6 +118,7 @@ function handleCreateScheduledTask(input: CreateScheduledTaskInput, deliveryCtx?
     channel: deliveryCtx.channel,
     targetId: deliveryCtx.targetId,
     appId: deliveryCtx.appId,
+    createdBy,
     timezone: input.timezone,
   });
   if (!result.success) return JSON.stringify(result);
@@ -156,12 +159,186 @@ function handleDeleteScheduledTask(input: DeleteScheduledTaskInput): string {
   return JSON.stringify(deleteScheduledTask(input.id, agentId));
 }
 
-// ─── Handlers: system crontab ───────────────────────────────
+// ─── Handlers: agent-owned crontab ──────────────────────────
+
+export interface AgentCrontabEntry {
+  comment?: string;
+  schedule?: string;
+  command?: string;
+  raw: string;
+}
+
+interface ParsedCrontabEntry extends AgentCrontabEntry {
+  ownerAgentId?: string;
+  ownerAgentName?: string;
+  startLine: number;
+  endLine: number;
+}
+
+interface CrontabOwnerMeta {
+  agentId: string;
+  agentName?: string;
+  comment?: string;
+}
+
+const CRONTAB_OWNER_PREFIX = 'samata-agent-crontab';
+const CRON_LINE_RE = /^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/;
+
+function encodeMetadataValue(value: string): string {
+  return Buffer.from(value, 'utf-8').toString('base64url');
+}
+
+function decodeMetadataValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return Buffer.from(value, 'base64url').toString('utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+export function formatAgentCrontabMarker(agent: { id: string; name: string }, comment: string): string {
+  return [
+    `# ${CRONTAB_OWNER_PREFIX}`,
+    `agent_id=${encodeMetadataValue(agent.id)}`,
+    `agent_name=${encodeMetadataValue(agent.name)}`,
+    `comment=${encodeMetadataValue(comment)}`,
+  ].join(' ');
+}
+
+function parseOwnerMarker(line: string): CrontabOwnerMeta | null {
+  const text = line.trim().replace(/^#\s*/, '');
+  if (!text.startsWith(CRONTAB_OWNER_PREFIX)) return null;
+
+  const fields = new Map<string, string>();
+  for (const part of text.slice(CRONTAB_OWNER_PREFIX.length).trim().split(/\s+/)) {
+    const [key, value] = part.split('=');
+    if (key && value) fields.set(key, value);
+  }
+
+  const agentId = decodeMetadataValue(fields.get('agent_id'));
+  if (!agentId) return null;
+
+  return {
+    agentId,
+    agentName: decodeMetadataValue(fields.get('agent_name')),
+    comment: decodeMetadataValue(fields.get('comment')),
+  };
+}
+
+function parseCrontabEntries(raw: string): ParsedCrontabEntry[] {
+  const lines = raw.split(/\r?\n/);
+  const entries: ParsedCrontabEntry[] = [];
+  let pendingCommentLines: number[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      pendingCommentLines = [];
+      continue;
+    }
+
+    if (trimmed.startsWith('#')) {
+      pendingCommentLines.push(i);
+      continue;
+    }
+
+    const match = line.match(CRON_LINE_RE);
+    if (!match) {
+      pendingCommentLines = [];
+      continue;
+    }
+
+    let owner: CrontabOwnerMeta | null = null;
+    let markerLine = -1;
+    const plainComments: string[] = [];
+    for (const commentLine of pendingCommentLines) {
+      const marker = parseOwnerMarker(lines[commentLine]);
+      if (marker) {
+        owner = marker;
+        markerLine = commentLine;
+      } else {
+        plainComments.push(lines[commentLine].trim().replace(/^#\s*/, ''));
+      }
+    }
+
+    entries.push({
+      comment: owner?.comment ?? plainComments.at(-1),
+      schedule: match[1],
+      command: match[2],
+      raw: line,
+      ownerAgentId: owner?.agentId,
+      ownerAgentName: owner?.agentName,
+      startLine: markerLine >= 0 ? markerLine : i,
+      endLine: i,
+    });
+    pendingCommentLines = [];
+  }
+
+  return entries;
+}
+
+export function listOwnedCrontabEntries(raw: string, agentId: string): AgentCrontabEntry[] {
+  return parseCrontabEntries(raw)
+    .filter(entry => entry.ownerAgentId === agentId)
+    .map(({ comment, schedule, command, raw }) => ({ comment, schedule, command, raw }));
+}
+
+export function removeOwnedCrontabEntries(raw: string, agentId: string, pattern: string): { updated: string; removed: number } {
+  const needle = pattern.trim();
+  if (!needle) return { updated: raw, removed: 0 };
+
+  const lines = raw.split(/\r?\n/);
+  const removeLines = new Set<number>();
+  let removed = 0;
+
+  for (const entry of parseCrontabEntries(raw)) {
+    if (entry.ownerAgentId !== agentId) continue;
+    const haystack = [entry.comment, entry.schedule, entry.command, entry.raw]
+      .filter((value): value is string => !!value);
+    if (!haystack.some(value => value.includes(needle))) continue;
+
+    for (let i = entry.startLine; i <= entry.endLine; i++) {
+      removeLines.add(i);
+    }
+    removed++;
+  }
+
+  if (removed === 0) return { updated: raw, removed };
+
+  const updated = lines
+    .filter((_, index) => !removeLines.has(index))
+    .join('\n')
+    .trimEnd();
+  return { updated: updated ? `${updated}\n` : '', removed };
+}
+
+function readCrontab(): string {
+  return execFileSync('crontab', ['-l'], {
+    encoding: 'utf-8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
+
+function writeCrontab(content: string): void {
+  execFileSync('crontab', ['-'], {
+    input: content,
+    encoding: 'utf-8',
+    timeout: 5000,
+  });
+}
+
+function rejectMultiline(field: string, value: string | undefined): string | null {
+  if (value && /[\r\n]/.test(value)) return `${field} 不能包含换行`;
+  return null;
+}
 
 function requireAgentAdmin(): string | null {
   const agent = getCurrentAgent();
   if (!agent) return JSON.stringify({ error: '无法确定当前 agent' });
-  if (!isAgentAdmin(agent.id)) return JSON.stringify({ error: '需要 agent admin 权限才能管理系统 crontab' });
+  if (!isAgentAdmin(agent.id)) return JSON.stringify({ error: '需要 agent admin 权限才能管理当前 agent 的 crontab' });
   return null;
 }
 
@@ -169,26 +346,11 @@ function handleListCrontab(): string {
   const denied = requireAgentAdmin();
   if (denied) return denied;
 
-  try {
-    const raw = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
-    const lines = raw.split('\n').filter(l => l.trim());
-    const entries: { comment?: string; schedule?: string; command?: string; raw: string }[] = [];
-    let pendingComment: string | undefined;
+  const agent = getCurrentAgent();
+  if (!agent) return JSON.stringify({ error: '无法确定当前 agent' });
 
-    for (const line of lines) {
-      if (line.startsWith('#')) {
-        pendingComment = line.replace(/^#\s*/, '');
-      } else {
-        const match = line.match(/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/);
-        entries.push({
-          comment: pendingComment,
-          schedule: match?.[1],
-          command: match?.[2],
-          raw: line,
-        });
-        pendingComment = undefined;
-      }
-    }
+  try {
+    const entries = listOwnedCrontabEntries(readCrontab(), agent.id);
     return JSON.stringify({ count: entries.length, entries });
   } catch {
     return JSON.stringify({ count: 0, entries: [], message: 'crontab 为空或不可访问' });
@@ -199,15 +361,28 @@ function handleAddCrontab(input: AddCrontabInput): string {
   const denied = requireAgentAdmin();
   if (denied) return denied;
 
-  const comment = input.comment ?? `samata-${Date.now()}`;
+  const agent = getCurrentAgent();
+  if (!agent) return JSON.stringify({ success: false, error: '无法确定当前 agent' });
+
+  for (const [field, value] of Object.entries({
+    cron_expr: input.cron_expr,
+    command: input.command,
+    comment: input.comment,
+  })) {
+    const error = rejectMultiline(field, value);
+    if (error) return JSON.stringify({ success: false, error });
+  }
+
+  const comment = input.comment?.trim() || `samata-${Date.now()}`;
   const newLine = `${input.cron_expr} ${input.command}`;
 
   try {
     let existing = '';
-    try { existing = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8' }); } catch { /* empty crontab */ }
+    try { existing = readCrontab(); } catch { /* empty crontab */ }
 
-    const updated = existing.trimEnd() + `\n# ${comment}\n${newLine}\n`;
-    execSync(`echo ${JSON.stringify(updated)} | crontab -`, { encoding: 'utf-8', timeout: 5000 });
+    const current = existing.trimEnd();
+    const updated = `${current ? `${current}\n` : ''}${formatAgentCrontabMarker(agent, comment)}\n${newLine}\n`;
+    writeCrontab(updated);
     return JSON.stringify({ success: true, comment, entry: newLine });
   } catch (err: any) {
     return JSON.stringify({ success: false, error: err.message });
@@ -218,39 +393,20 @@ function handleRemoveCrontab(input: RemoveCrontabInput): string {
   const denied = requireAgentAdmin();
   if (denied) return denied;
 
+  const agent = getCurrentAgent();
+  if (!agent) return JSON.stringify({ success: false, error: '无法确定当前 agent' });
+  if (!input.pattern?.trim()) return JSON.stringify({ success: false, error: 'pattern 不能为空' });
+
   try {
     let existing = '';
-    try { existing = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8' }); } catch {
+    try { existing = readCrontab(); } catch {
       return JSON.stringify({ success: false, error: 'crontab 为空' });
     }
 
-    const lines = existing.split('\n');
-    const filtered: string[] = [];
-    let removed = 0;
-    let skipNext = false;
+    const { updated, removed } = removeOwnedCrontabEntries(existing, agent.id, input.pattern);
+    if (removed === 0) return JSON.stringify({ success: false, error: `未找到当前 agent 创建且匹配 "${input.pattern}" 的条目` });
 
-    for (const line of lines) {
-      if (line.startsWith('#') && line.includes(input.pattern)) {
-        skipNext = true;
-        removed++;
-        continue;
-      }
-      if (skipNext) {
-        skipNext = false;
-        removed++;
-        continue;
-      }
-      if (line.includes(input.pattern)) {
-        removed++;
-        continue;
-      }
-      filtered.push(line);
-    }
-
-    if (removed === 0) return JSON.stringify({ success: false, error: `未找到匹配 "${input.pattern}" 的条目` });
-
-    const updated = filtered.join('\n');
-    execSync(`echo ${JSON.stringify(updated)} | crontab -`, { encoding: 'utf-8', timeout: 5000 });
+    writeCrontab(updated);
     return JSON.stringify({ success: true, removed });
   } catch (err: any) {
     return JSON.stringify({ success: false, error: err.message });
