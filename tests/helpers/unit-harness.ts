@@ -32,7 +32,7 @@ vi.mock('../../src/plugins/registry.js', () => {
     'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
     'export_trades_csv', 'export_north_info_csv',
     'calc_etf_trades', 'query_etf_summary',
-    'query_hedge_short', 'query_qfii_latest_valuation_report',
+    'query_hedge_short', 'query_qfii_latest_valuation_report', 'migrate_hedge_ratio_influx_history',
     'sync_sbl_data', 'analyze_sbl_usage',
     'titans_code_sync', 'titans_code_grep', 'titans_code_read', 'titans_code_list',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));

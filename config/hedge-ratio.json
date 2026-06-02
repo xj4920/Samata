@@ -5,25 +5,70 @@
   },
   "wework_chat_id": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog",
   "weworkChatId": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog",
+  "postgres": {
+    "enabled": true,
+    "tables": {
+      "valuation_reports": "samata_hedge_valuation_reports",
+      "holdings": "samata_hedge_holdings",
+      "ratios": "samata_hedge_ratios"
+    }
+  },
   "email": {
-    "address": "",
-    "password": "",
+    "address": "titans@gf.com.cn",
+    "password": "efx2rFwAZMPsQ828",
     "imap_server": "mail.gf.com.cn",
     "imap_port": 993,
-    "only_unread": false,
-    "mark_as_read": false,
+    "only_unread": true,
+    "mark_as_read": true,
     "max_search_count": 100
   },
-  "subjects": [],
-  "component_stocks": {},
+  "subjects": [
+    {
+      "subject": "资产估值表自动发送",
+      "product_name": "04-RQFIIR23200",
+      "product_id": "04-RQFIIR23200",
+      "folder": "04-RQFIIR23200"
+    },
+    {
+      "subject": "【订阅_估值表】估值表_广发资产管理（香港）有限公司-绝对收益组合-028（RQFII）",
+      "product_name": "028-RQFII(8368990)",
+      "product_id": "028-RQFII",
+      "folder": "028-RQFII"
+    },
+    {
+      "subject": "【订阅_估值表】估值表_广发资产管理（香港）有限公司-绝对收益组合-028（QFII）",
+      "product_name": "028-QFII(8368383)",
+      "product_id": "028-QFII",
+      "folder": "028-QFII"
+    },
+    {
+      "subject": "【产品估值表】-199323_25QF16_承壹投资管理有限公司-和光2号专户（RQFII）",
+      "product_name": "和光2号专户（RQFII)",
+      "product_id": "和光2号专户（RQFII）",
+      "folder": "和光2号专户（RQFII）"
+    },
+    {
+      "subject": "【产品估值表】-199070_25QF15_承壹投资管理有限公司-和光1号专户（RQFII）",
+      "product_name": "和光1号专户（RQFII）",
+      "product_id": "和光1号专户（RQFII）",
+      "folder": "和光1号专户（RQFII）"
+    }
+  ],
+  "component_stocks": {
+    "files": [
+      "data/1800/中证1000(000852.SH)-最新成分股-成分股列表-20250425.xlsx",
+      "data/1800/沪深300(000300.SH)-最新成分股-成分股列表-20250425.xlsx",
+      "data/1800/中证500(000905.SH)-最新成分股-成分股列表-20250425.xlsx"
+    ]
+  },
   "exempt_products": [],
   "sftp": {
-    "enabled": false,
-    "host": "",
+    "enabled": true,
+    "host": "10.68.15.21",
     "port": 22,
-    "username": "",
-    "password": "",
-    "remote_base_path": "/data/QFII"
+    "username": "EQDHK_internal",
+    "password": "U#k1H:2$iwh4LJ92BzH)",
+    "remote_base_path": "/EQDHK_internal/data/QFII/"
   },
   "influxdb": {
     "HOST": "127.0.0.1",
@@ -32,10 +77,563 @@
     "DATABASE": "otchk",
     "TIMEOUT": 60
   },
-  "valuation_parsing_rules": {},
+  "valuation_parsing_rules": {
+    "【产品估值表】-199070_25QF15_承壹投资管理有限公司-和光1号专户（RQFII）": {
+      "product_name": "承壹投资管理有限公司-和光1号专户（RQFII）",
+      "excel_parsing": {
+        "skip_rows": 3,
+        "required_columns": [
+          "科目号",
+          "科目名称",
+          "数量",
+          "单位成本",
+          "收市价",
+          "本币市值",
+          "市值占净值比(%)"
+        ],
+        "asset_data_rules": {
+          "net_value": {
+            "column_filter": "科目号",
+            "filter_value": "今日单位净值",
+            "extract_column": "科目名称",
+            "row_index": 1
+          },
+          "asset": {
+            "column_filter": "科目号",
+            "filter_value": "资产净值",
+            "extract_column": "本币市值"
+          },
+          "return_rate": {
+            "column_filter": "科目号",
+            "filter_value": "净值日增长率(%)",
+            "extract_column": "科目名称"
+          }
+        },
+        "holdings_rules": {
+          "futures": {
+            "filter_codes": [
+              "31020101.JYSC06.YSGJ_QH_GZQH.JYSX10.01.",
+              "3102-01-03-01-01-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "31020101.JYSC06.YSGJ_QH_GZQH.JYSX10.01.",
+                "3102-01-03-01-01-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "衍生工具_初始合约价值.中金所.衍生工具_股指期货.套保_空头."
+              ]
+            }
+          },
+          "stocks": {
+            "filter_codes": [
+              "110201.JYSC01.GP_KCB.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC01.GP_PT.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC01.GP_XG_KCB.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01.",
+              "110201.JYSC02.GP_CYB.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC02.GP_XG_CYB.FXFS03.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC02.GP_XG_PT.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01."
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "110201.JYSC01.GP_KCB.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC01.GP_PT.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC01.GP_XG_KCB.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01.",
+                "110201.JYSC02.GP_CYB.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC02.GP_XG_CYB.FXFS03.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC02.GP_XG_PT.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01."
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "交易性股票投资_境内_成本.上海交易所.股票_科创板.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.上海交易所.股票.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.上海交易所.新股_科创板.新股.普通账户.新股_网下锁定.",
+                "交易性股票投资_境内_成本.深圳交易所.股票_创业板.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.深圳交易所.新股_创业板.新股.普通账户.普通.",
+                "交易性股票投资_境内_成本.深圳交易所.新股_普通.新股.普通账户.新股_网下锁定."
+              ]
+            }
+          },
+          "funds": {
+            "filter_codes": [
+              "1102-01-02-04-",
+              "1102-01-02-05-",
+              "1105-01-01-56-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-02-04-",
+                "1102-01-02-05-",
+                "1105-01-01-56-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "cdr": {
+            "filter_codes": [
+              "1102-01-01-1001501-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-01-1001501-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "【产品估值表】-199323_25QF16_承壹投资管理有限公司-和光2号专户（RQFII）": {
+      "product_name": "承壹投资管理有限公司-和光2号专户（RQFII）",
+      "excel_parsing": {
+        "skip_rows": 3,
+        "required_columns": [
+          "科目号",
+          "科目名称",
+          "数量",
+          "单位成本",
+          "收市价",
+          "本币市值",
+          "市值占净值比(%)"
+        ],
+        "asset_data_rules": {
+          "net_value": {
+            "column_filter": "科目号",
+            "filter_value": "今日单位净值",
+            "extract_column": "科目名称",
+            "row_index": 1
+          },
+          "asset": {
+            "column_filter": "科目号",
+            "filter_value": "资产净值",
+            "extract_column": "本币市值"
+          },
+          "return_rate": {
+            "column_filter": "科目号",
+            "filter_value": "净值日增长率(%)",
+            "extract_column": "科目名称"
+          }
+        },
+        "holdings_rules": {
+          "futures": {
+            "filter_codes": [
+              "3102-01-03-01-02-01-",
+              "3102-01-03-01-01-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "3102-01-03-01-02-01-",
+                "3102-01-03-01-01-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "stocks": {
+            "filter_codes": [
+              "110201.JYSC01.GP_KCB.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC01.GP_PT.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC01.GP_XG_KCB.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01.",
+              "110201.JYSC02.GP_CYB.FXFS01.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC02.GP_XG_CYB.FXFS03.ZQZHLX01.JYSX01.01.",
+              "110201.JYSC02.GP_XG_PT.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01."
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "110201.JYSC01.GP_KCB.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC01.GP_PT.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC01.GP_XG_KCB.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01.",
+                "110201.JYSC02.GP_CYB.FXFS01.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC02.GP_XG_CYB.FXFS03.ZQZHLX01.JYSX01.01.",
+                "110201.JYSC02.GP_XG_PT.FXFS03.ZQZHLX01.JYSX_LTSX_XG_WXSD.01."
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "交易性股票投资_境内_成本.上海交易所.股票_科创板.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.上海交易所.股票.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.上海交易所.新股_科创板.新股.普通账户.新股_网下锁定.",
+                "交易性股票投资_境内_成本.深圳交易所.股票_创业板.已上市.普通账户.普通.",
+                "交易性股票投资_境内_成本.深圳交易所.新股_创业板.新股.普通账户.普通.",
+                "交易性股票投资_境内_成本.深圳交易所.新股_普通.新股.普通账户.新股_网下锁定."
+              ]
+            }
+          },
+          "funds": {
+            "filter_codes": [
+              "1102-01-02-04-",
+              "1102-01-02-05-",
+              "1105-01-01-56-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-02-04-",
+                "1102-01-02-05-",
+                "1105-01-01-56-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "cdr": {
+            "filter_codes": [
+              "1102-01-01-1001501-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-01-1001501-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "资产估值表自动发送": {
+      "product_name": "广发资产管理（香港）有限公司-绝对收益组合-04-RQFIIR23200",
+      "excel_parsing": {
+        "skip_rows": 3,
+        "required_columns": [
+          "科目格式代码",
+          "科目格式名称",
+          "数量",
+          "单位成本",
+          "行情价格",
+          "市值",
+          "市值占净值市值比例(%)"
+        ],
+        "asset_data_rules": {
+          "net_value": {
+            "column_filter": "科目格式代码",
+            "filter_value": "今日单位净值",
+            "extract_column": "科目格式名称"
+          },
+          "asset": {
+            "column_filter": "科目格式代码",
+            "filter_value": "资产类合计",
+            "extract_column": "成本"
+          },
+          "return_rate": {
+            "column_filter": "科目格式代码",
+            "filter_value": "净值日增长率",
+            "extract_column": "科目格式名称"
+          }
+        },
+        "holdings_rules": {
+          "futures": {
+            "filter_codes": [
+              "3102-01-03-01-02-01-",
+              "3102-01-03-01-01-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "3102-01-03-01-02-01-",
+                "3102-01-03-01-01-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "stocks": {
+            "filter_codes": [
+              "1102-01-01-100010106-02-01-",
+              "1102-01-01-01-02-01-",
+              "1102-02-01-01-02-01-",
+              "1102-02-01-02-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-01-100010106-02-01-",
+                "1102-01-01-01-02-01-",
+                "1102-02-01-01-02-01-",
+                "1102-02-01-02-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "funds": {
+            "filter_codes": [
+              "1102-01-02-04-",
+              "1102-01-02-05-",
+              "1105-01-01-56-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-02-04-",
+                "1102-01-02-05-",
+                "1105-01-01-56-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "cdr": {
+            "filter_codes": [
+              "1102-01-01-1001501-02-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102-01-01-1001501-02-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "【订阅_估值表】估值表_广发资产管理（香港）有限公司-绝对收益组合-028（RQFII）": {
+      "product_name": "广发资产管理（香港）有限公司-绝对收益组合-028-RQFII",
+      "excel_parsing": {
+        "skip_rows": 3,
+        "required_columns": [
+          "科目代码",
+          "科目名称",
+          "数量",
+          "单位成本",
+          "市价",
+          "市值",
+          "市值占净值%"
+        ],
+        "asset_data_rules": {
+          "net_value": {
+            "column_filter": "科目代码",
+            "filter_value": "基金单位净值：",
+            "extract_column": "科目名称"
+          },
+          "asset": {
+            "column_filter": "科目代码",
+            "filter_value": "基金资产净值:",
+            "extract_column": "成本"
+          },
+          "return_rate": {
+            "column_filter": "科目代码",
+            "filter_value": "净值日增长率(%):",
+            "extract_column": "科目名称"
+          }
+        },
+        "holdings_rules": {
+          "futures": {
+            "filter_codes": [
+              "32010201",
+              "3102-01-03-01-01-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "32010201",
+                "3102-01-03-01-01-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "stocks": {
+            "filter_codes": [
+              "11020101",
+              "11023101",
+              "11024101",
+              "1102C101"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "11020101",
+                "11023101",
+                "11024101",
+                "1102C101"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "funds": {
+            "filter_codes": [
+              "11050301"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "11050301"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "cdr": {
+            "filter_codes": [
+              "1102A101"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102A101"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "【订阅_估值表】估值表_广发资产管理（香港）有限公司-绝对收益组合-028（QFII）": {
+      "product_name": "广发资产管理（香港）有限公司-绝对收益组合-028（QFII）",
+      "excel_parsing": {
+        "skip_rows": 3,
+        "required_columns": [
+          "科目代码",
+          "科目名称",
+          "数量",
+          "单位成本",
+          "市价",
+          "市值",
+          "市值占净值%"
+        ],
+        "asset_data_rules": {
+          "net_value": {
+            "column_filter": "科目代码",
+            "filter_value": "基金单位净值：",
+            "extract_column": "科目名称"
+          },
+          "asset": {
+            "column_filter": "科目代码",
+            "filter_value": "基金资产净值:",
+            "extract_column": "成本"
+          },
+          "return_rate": {
+            "column_filter": "科目代码",
+            "filter_value": "净值日增长率(%):",
+            "extract_column": "科目名称"
+          }
+        },
+        "holdings_rules": {
+          "futures": {
+            "filter_codes": [
+              "32010201",
+              "3102-01-03-01-01-01-"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "32010201",
+                "3102-01-03-01-01-01-"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "stocks": {
+            "filter_codes": [
+              "11020101",
+              "11023101",
+              "11024101",
+              "1102C101"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "11020101",
+                "11023101",
+                "11024101",
+                "1102C101"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "funds": {
+            "filter_codes": [
+              "11050301"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "11050301"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          },
+          "cdr": {
+            "filter_codes": [
+              "1102A101"
+            ],
+            "code_cleanup": {
+              "remove_prefixes": [
+                "1102A101"
+              ]
+            },
+            "name_cleanup": {
+              "lstrip_chars": [
+                "-"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
   "hedgeRatio": {
-    "enabled": true,
+    "enabled": false,
     "pollingIntervalSec": 60,
     "weworkChatId": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog"
-  }
+  },
+  "product_id_map": {
+    "04-RQFIIR23200": "04-RQFIIR23200",
+    "028-RQFII": "028-RQFII",
+    "028-QFII": "028-QFII",
+    "和光2号专户（RQFII）": "和光2号专户（RQFII）",
+    "和光1号专户（RQFII）": "和光1号专户（RQFII）"
+  },
+  "include_ticker": [
+    "689009.SH"
+  ]
 }
