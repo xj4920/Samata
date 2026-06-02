@@ -8,6 +8,10 @@ import Database from 'better-sqlite3';
 // ─── Module mocks ───
 
 let memoryDb: Database.Database;
+const mockMcpState = vi.hoisted(() => ({
+  allTools: [] as any[],
+  byAgent: new Map<string, any[]>(),
+}));
 
 vi.mock('../../src/db/connection.js', () => ({
   getDb: () => memoryDb,
@@ -30,6 +34,7 @@ vi.mock('../../src/plugins/registry.js', () => {
     'calc_etf_trades', 'query_etf_summary',
     'query_hedge_short',
     'sync_sbl_data', 'analyze_sbl_usage',
+    'titans_code_sync', 'titans_code_grep', 'titans_code_read', 'titans_code_list',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
 
   return {
@@ -58,7 +63,14 @@ vi.mock('../../src/plugins/registry.js', () => {
 });
 
 vi.mock('../../src/services/mcp-manager.js', () => ({
-  getMcpTools: () => [],
+  getMcpTools: (agentName?: string) => {
+    if (!agentName) return mockMcpState.allTools;
+    return mockMcpState.byAgent.get(agentName) ?? [];
+  },
+  isMcpToolAllowedForAgent: (toolName: string, agentName?: string) => {
+    if (!agentName) return true;
+    return (mockMcpState.byAgent.get(agentName) ?? []).some((tool: any) => tool.name === toolName);
+  },
   callMcpTool: async () => JSON.stringify({ error: 'MCP not available in test' }),
   initMcpServers: async () => {},
 }));
@@ -84,6 +96,7 @@ const FS_MIGRATIONS = [
   'migrate-documents-v2-cleanup',
   'migrate-documents-use-agent-name',
   'backfill-documents-content-hash',
+  'migrate-health-records-to-plugin',
 ];
 
 function prefillFsMigrations(db: Database.Database) {
@@ -101,11 +114,17 @@ export interface UnitTestContext {
   db: Database.Database;
 }
 
+export function setMockMcpTools(allTools: any[], byAgent: Record<string, any[]> = {}) {
+  mockMcpState.allTools = allTools;
+  mockMcpState.byAgent = new Map(Object.entries(byAgent));
+}
+
 /**
  * Initialize a fresh in-memory DB with full schema and seed agents.
  * Also inserts a default test user and sets it as current user.
  */
 export async function setupUnitDb(): Promise<UnitTestContext> {
+  setMockMcpTools([]);
   memoryDb = new Database(':memory:');
   memoryDb.pragma('journal_mode = WAL');
   memoryDb.pragma('foreign_keys = ON');

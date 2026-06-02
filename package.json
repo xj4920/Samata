@@ -31,8 +31,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@inquirer/prompts": "^8.3.0",
+    "@langfuse/otel": "^5.4.1",
+    "@langfuse/tracing": "^5.4.1",
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@opentelemetry/sdk-node": "^0.218.0",
     "@types/turndown": "^5.0.6",
     "@wecom/aibot-node-sdk": "^1.0.6",
     "better-sqlite3": "^12.9.0",

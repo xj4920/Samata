@@ -5,6 +5,7 @@ import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
 import { startTelegramBot, stopTelegramBot } from './telegram/bot.js';
 import { log } from './utils/logger.js';
+import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 
 async function main() {
   initSchema();
@@ -20,10 +21,11 @@ async function main() {
   await startTelegramBot();
 
   // 独立进程模式：保持运行，优雅退出
-  const shutdown = () => {
+  const shutdown = async () => {
     log.info('\n正在关闭...');
     stopTelegramBot();
     closeDb();
+    await shutdownLangfuseTelemetry();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

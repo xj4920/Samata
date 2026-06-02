@@ -136,6 +136,36 @@ npm run stop         # 停止 screen 守护进程
 | `MAX_TOOL_ROUNDS` | 单次对话 agentic loop 工具调用轮次上限，默认 `30` |
 | `SAMATA_PLUGINS_DIR` | Plugin 目录（逗号分隔多路径），默认 `../samata-plugins` |
 | `CLI_API_PORT` | CLI API server 监听端口，默认 `3457` |
+| `LANGFUSE_ENABLED` | 开启 agentchat 只读观测，默认 `false` |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 项目凭证与实例地址 |
+| `LANGFUSE_TRACING_ENVIRONMENT` | Langfuse 环境名，如 `production` / `staging` |
+| `LANGFUSE_CAPTURE_CONTENT` | 是否上传对话和工具正文，默认 `false`，仅上传结构化元数据/token/耗时 |
+| `LANGFUSE_CAPTURE_SYSTEM_PROMPT` | 是否上传 system prompt，默认 `false`，且仅在 `LANGFUSE_CAPTURE_CONTENT=true` 时生效 |
+| `LANGFUSE_EXPORT_MODE` | Langfuse span 导出模式：`batched` / `immediate`，默认 `batched` |
+
+### 本地 Langfuse
+
+`docker-compose.langfuse.yml` 提供本地 Langfuse self-host 部署，默认只监听 `127.0.0.1`：
+
+```bash
+cp .env.langfuse.example .env.langfuse
+# 修改 .env.langfuse 中的 change-me，或使用本仓库的本地初始化脚本/命令生成
+docker compose --env-file .env.langfuse -f docker-compose.langfuse.yml up -d
+```
+
+启动后打开 `http://127.0.0.1:3001`。Samata 只需要配置本地地址和项目 key：
+
+如需远程访问，设置 `.env.langfuse` 中的 `LANGFUSE_BIND_ADDRESS=0.0.0.0`，并把 `NEXTAUTH_URL` 改为远程机器可访问的地址，例如 `http://10.49.9.185:3001`。
+
+```env
+LANGFUSE_ENABLED=true
+LANGFUSE_BASE_URL=http://127.0.0.1:3001
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_CAPTURE_CONTENT=false
+```
+
+Samata 不需要 Dockerfile 改动；Langfuse 只是外部观测端点。默认不会上传对话正文、工具输入输出正文或 system prompt。
 
 ### LLM Provider 配置
 

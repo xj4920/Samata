@@ -18,6 +18,7 @@ import { getCurrentAgent } from './llm/agent.js';
 import { getDefaultAgent } from './llm/agents/config.js';
 import { getAllSkills } from './commands/skill.js';
 import { startCliApiServer } from './server/cli-api.js';
+import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 import type { Server } from 'node:http';
 import { runWithExecutionContext } from './runtime/execution-context.js';
 
@@ -417,9 +418,10 @@ async function main(): Promise<void> {
     cliApiServer = startCliApiServer();
     log.print('以服务器模式运行 (无交互 REPL)');
     // 监听信号以优雅关闭
-    const handleSignal = () => {
+    const handleSignal = async () => {
       log.print('\n正在关闭服务...');
       gracefulShutdown();
+      await shutdownLangfuseTelemetry();
       process.exit(0);
     };
     process.on('SIGINT', handleSignal);
@@ -430,6 +432,7 @@ async function main(): Promise<void> {
   } else {
     await repl();
     gracefulShutdown();
+    await shutdownLangfuseTelemetry();
     process.exit(0);
   }
 }

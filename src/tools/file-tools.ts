@@ -8,8 +8,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-const PROJECT_ROOT = process.cwd() + '/';
+const PROJECT_ROOT = path.resolve(process.cwd());
 const FORBIDDEN_PATTERNS = ['.env', 'node_modules/', 'data/*.db', '.git/'];
+const HIDDEN_DIRECTORY_NAMES = new Set(['.git', '.hg', '.svn', 'node_modules']);
 
 const ALLOWLIST_DIR = path.join(process.cwd(), 'config', 'agents');
 const allowlistCache = new Map<string, { mtimeMs: number; list: string[] | null }>();
@@ -50,6 +51,17 @@ function loadAgentFileAllowlist(agentName: string): string[] | null {
  * Decide whether the current agent may read `inputPath` via `read_file`.
  * Returns the absolute path on success, or `{error}` describing why it was rejected.
  */
+function isAllowlisted(relative: string, allowlist: string[]): boolean {
+  const normalizedRelative = relative.replace(/\/+$/, '');
+  return allowlist.some(entry => {
+    const normalizedEntry = entry.replace(/^\/+/, '').replace(/\/+$/, '');
+    if (entry.endsWith('/')) {
+      return normalizedRelative === normalizedEntry || normalizedRelative.startsWith(normalizedEntry + '/');
+    }
+    return normalizedRelative === normalizedEntry;
+  });
+}
+
 function authorizeRead(inputPath: string): { filePath: string; relative: string } | { error: string } {
   let filePath = inputPath.startsWith('~')
     ? inputPath.replace('~', process.env.HOME || '')
@@ -62,13 +74,13 @@ function authorizeRead(inputPath: string): { filePath: string; relative: string 
 
   // Agent can always read files from its own upload directory
   if (agentName) {
-    const ownUploadDir = getUploadDir(agentName) + '/';
-    if (filePath.startsWith(ownUploadDir)) {
+    const ownUploadDir = path.normalize(getUploadDir(agentName));
+    if (filePath === ownUploadDir || filePath.startsWith(ownUploadDir + path.sep)) {
       return { filePath, relative: filePath };
     }
   }
 
-  if (!filePath.startsWith(PROJECT_ROOT)) {
+  if (filePath !== PROJECT_ROOT && !filePath.startsWith(PROJECT_ROOT + path.sep)) {
     if (filePath.startsWith('/tmp/samata/')) {
       return {
         error: `read_file 拒绝：${inputPath} 是沙箱/临时目录路径。请改用 sandbox_read_file，并传入 sandbox_exec 返回的沙箱相对路径（不要传 /tmp 绝对路径）。`,
@@ -76,12 +88,12 @@ function authorizeRead(inputPath: string): { filePath: string; relative: string 
     }
     return { error: `read_file 拒绝：路径不在项目目录内 (${inputPath})` };
   }
-  const relative = filePath.slice(PROJECT_ROOT.length);
+  const relative = filePath === PROJECT_ROOT ? '' : filePath.slice(PROJECT_ROOT.length + 1);
 
   const allowlist = agentName ? loadAgentFileAllowlist(agentName) : null;
 
   if (allowlist !== null) {
-    if (!allowlist.some(entry => entry.endsWith('/') ? relative.startsWith(entry) : relative === entry)) {
+    if (!isAllowlisted(relative, allowlist)) {
       return {
         error: `read_file 拒绝：${relative} 不在 ${agentName} 的可读白名单内。可读列表：${JSON.stringify(allowlist)}（如需新增，请管理员编辑 config/agents/${agentName}.files.json）`,
       };
@@ -168,12 +180,6 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
 ];
 
-function resolvePath(inputPath: string): string {
-  return inputPath.startsWith('~')
-    ? inputPath.replace('~', process.env.HOME || '')
-    : inputPath;
-}
-
 function checkProjectPath(inputPath: string): { filePath: string; relative: string } | { error: string } {
   let filePath = inputPath;
   if (!path.isAbsolute(filePath)) {
@@ -181,11 +187,11 @@ function checkProjectPath(inputPath: string): { filePath: string; relative: stri
   }
   filePath = path.normalize(filePath);
 
-  if (!filePath.startsWith(PROJECT_ROOT)) {
+  if (filePath !== PROJECT_ROOT && !filePath.startsWith(PROJECT_ROOT + path.sep)) {
     return { error: `路径不在项目目录内: ${filePath}` };
   }
 
-  const relative = filePath.slice(PROJECT_ROOT.length);
+  const relative = filePath === PROJECT_ROOT ? '' : filePath.slice(PROJECT_ROOT.length + 1);
   for (const pattern of FORBIDDEN_PATTERNS) {
     if (pattern.endsWith('/')) {
       if (relative.startsWith(pattern) || relative.includes('/' + pattern)) {
@@ -207,13 +213,23 @@ function checkProjectPath(inputPath: string): { filePath: string; relative: stri
 }
 
 function handleListDirectory(input: { path: string }): string {
-  const dirPath = resolvePath(input.path);
+  const auth = authorizeRead(input.path);
+  if ('error' in auth) {
+    return JSON.stringify({ error: auth.error.replace(/^read_file 拒绝/, 'list_directory 拒绝') });
+  }
+
   try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    return JSON.stringify(entries.map(e => ({
-      name: e.name,
-      type: e.isDirectory() ? 'directory' : 'file',
-    })));
+    const stat = fs.statSync(auth.filePath);
+    if (!stat.isDirectory()) {
+      return JSON.stringify({ error: `不是目录: ${auth.relative}` });
+    }
+    const entries = fs.readdirSync(auth.filePath, { withFileTypes: true })
+      .filter(e => !(e.isDirectory() && HIDDEN_DIRECTORY_NAMES.has(e.name)))
+      .map(e => ({
+        name: e.name,
+        type: e.isDirectory() ? 'directory' : 'file',
+      }));
+    return JSON.stringify(entries);
   } catch (err: any) {
     return JSON.stringify({ error: `无法读取目录: ${err.message}` });
   }

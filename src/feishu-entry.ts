@@ -18,6 +18,7 @@ import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
 import { startFeishuBot, startAllFeishuBots, stopFeishuBot, stopAllFeishuBots, handleWebhookRequest, watchFeishuApps, stopWatchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
 import { log } from './utils/logger.js';
+import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 
 const MODE = (process.env.FEISHU_MODE || 'ws') as FeishuBotMode;
 const APP_ID = process.env.FEISHU_APP_ID;
@@ -50,7 +51,7 @@ async function main() {
     }
 
     // 优雅退出
-    const shutdown = () => {
+    const shutdown = async () => {
       log.info('\n正在关闭...');
       stopWatchFeishuApps();
       if (APP_ID) {
@@ -59,6 +60,7 @@ async function main() {
         stopAllFeishuBots();
       }
       closeDb();
+      await shutdownLangfuseTelemetry();
       process.exit(0);
     };
     process.on('SIGINT', shutdown);
@@ -128,8 +130,9 @@ async function main() {
       } else {
         stopAllFeishuBots();
       }
-      server.close(() => {
+      server.close(async () => {
         closeDb();
+        await shutdownLangfuseTelemetry();
         process.exit(0);
       });
     };

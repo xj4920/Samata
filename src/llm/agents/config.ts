@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { log } from '../../utils/logger.js';
 import { getExecutionChannel, getContextAgent } from '../../runtime/execution-context.js';
 import { getPluginTools, getUniversalPluginTools } from '../../plugins/registry.js';
-import { getMcpTools } from '../../services/mcp-manager.js';
+import { getMcpTools, isMcpToolAllowedForAgent } from '../../services/mcp-manager.js';
 
 /**
  * Base tool set shared by all agents in 'standard' mode.
@@ -410,7 +410,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else if (agent.toolsMode === 'standard') {
     const universalPluginToolNames = getUniversalPluginTools().map(t => t.name);
-    const mcpToolNames = getMcpTools().map(t => t.name);
+    const mcpToolNames = getMcpTools(agent.name).map(t => t.name);
     effectiveNames = new Set([...COMMON_SET, ...agent.toolsList, ...universalPluginToolNames, ...mcpToolNames]);
     for (const b of agent.blockTools) effectiveNames.delete(b);
   } else {
@@ -438,6 +438,12 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
       for (const b of agent.userToolsList) effectiveNames.delete(b);
     }
     // 'inherit': no extra filtering
+  }
+
+  for (const name of [...effectiveNames]) {
+    if (name.startsWith('mcp_') && !isMcpToolAllowedForAgent(name, agent.name)) {
+      effectiveNames.delete(name);
+    }
   }
 
   // Step 3: universal tools always available + channel restrictions

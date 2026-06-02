@@ -16,6 +16,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getExecutionChannel } from '../runtime/execution-context.js';
 import { startTurn, recordLLM, recordTool, endTurn } from '../telemetry/emitter.js';
+import {
+  failLangfuseGeneration,
+  finishLangfuseGeneration,
+  finishLangfuseTool,
+  startLangfuseGeneration,
+  startLangfuseTool,
+  shutdownLangfuseTelemetry,
+  withLangfuseAgentChat,
+} from '../telemetry/langfuse.js';
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
@@ -648,6 +657,17 @@ export type ProgressEvent =
   | { type: 'thinking'; text: string; round: number }
   | { type: 'tool_progress'; message: string };
 
+export interface RunAgenticChatOptions {
+  streamEnabled?: boolean;
+  logPrefix?: string;
+  showThinking?: boolean;
+  agentConfig?: AgentConfig;
+  images?: ImageInput[];
+  onProgress?: (event: ProgressEvent) => void;
+  onTextChunk?: (chunk: string) => void;
+  deliveryContext?: DeliveryContext;
+}
+
 /**
  * 通用的 agentic chat 函数，支持 CLI 和飞书bot复用
  * @param history 消息历史数组（会被修改）
@@ -660,16 +680,34 @@ export async function runAgenticChat(
   history: Anthropic.MessageParam[],
   userInput: string,
   user: User,
-  options: {
-    streamEnabled?: boolean;
-    logPrefix?: string;
-    showThinking?: boolean;
-    agentConfig?: AgentConfig;
-    images?: ImageInput[];
-    onProgress?: (event: ProgressEvent) => void;
-    onTextChunk?: (chunk: string) => void;
-    deliveryContext?: DeliveryContext;
-  } = {}
+  options: RunAgenticChatOptions = {}
+): Promise<string> {
+  const agent = options.agentConfig;
+  const agentProviderOverride = agent?.provider
+    ? getProviderByName(agent.provider as ProviderName) ?? undefined
+    : undefined;
+  const allTools = getGlobalTools();
+  const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
+  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const model = agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName());
+
+  return withLangfuseAgentChat({
+    userInput,
+    user,
+    agent,
+    channel: getExecutionChannel(),
+    streamEnabled: options.streamEnabled ?? false,
+    imageCount: options.images?.length ?? 0,
+    activeToolCount: activeTools.length,
+    model,
+  }, () => runAgenticChatInner(history, userInput, user, options));
+}
+
+async function runAgenticChatInner(
+  history: Anthropic.MessageParam[],
+  userInput: string,
+  user: User,
+  options: RunAgenticChatOptions = {}
 ): Promise<string> {
   const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
 
@@ -702,14 +740,24 @@ export async function runAgenticChat(
     onProg?: (event: ProgressEvent) => void,
   ): Promise<{ result: CreateMessageResult; streamed: boolean }> {
     const llmStart = Date.now();
-    const r = await callLLM(makeParams(), stream, showTh, provOverride, onChunk, onProg);
+    const params = makeParams();
+    const langfuseGeneration = startLangfuseGeneration(round, params);
+    let r: { result: CreateMessageResult; streamed: boolean };
+    try {
+      r = await callLLM(params, stream, showTh, provOverride, onChunk, onProg);
+    } catch (err) {
+      failLangfuseGeneration(langfuseGeneration, err);
+      throw err;
+    }
+    const durationMs = Date.now() - llmStart;
+    finishLangfuseGeneration(langfuseGeneration, r.result, durationMs);
     recordLLM(telemetrySessionId, {
       round,
       model: provOverride?.defaultModel ?? getModelName(),
       input_tokens: r.result.usage?.input_tokens ?? 0,
       output_tokens: r.result.usage?.output_tokens ?? 0,
       stop_reason: r.result.stop_reason,
-      duration_ms: Date.now() - llmStart,
+      duration_ms: durationMs,
     });
     return r;
   }
@@ -813,8 +861,13 @@ export async function runAgenticChat(
       messages: history,
     };
 
+    let synthGeneration: ReturnType<typeof startLangfuseGeneration> = null;
     try {
+      const synthStartedAt = Date.now();
+      synthGeneration = startLangfuseGeneration(round + 1, synthParams);
       const { result: synthResponse } = await callLLM(synthParams, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress);
+      finishLangfuseGeneration(synthGeneration, synthResponse, Date.now() - synthStartedAt);
+      synthGeneration = null;
       recordLLM(telemetrySessionId, {
         round: round + 1,
         model: agentProviderOverride?.defaultModel ?? getModelName(),
@@ -851,6 +904,7 @@ export async function runAgenticChat(
 
       return { ...synthResponse, content: newContent, stop_reason: 'end_turn' };
     } catch (err: any) {
+      failLangfuseGeneration(synthGeneration, err);
       log.warn(`${logPrefix}最终总结 LLM 调用失败 (${err.message})，回退到静态摘要`);
       const fallbackText = buildInterruptedSummary({
         kind: 'max_rounds',
@@ -947,6 +1001,7 @@ export async function runAgenticChat(
         onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
         throwIfAborted();
         const toolStartedAt = Date.now();
+        const langfuseTool = startLangfuseTool(block.name, round, block.input);
         let result: string;
         let toolError: string | undefined;
         if (!activeToolNames.has(block.name)) {
@@ -969,6 +1024,11 @@ export async function runAgenticChat(
           result = result.slice(0, MAX_TOOL_RESULT_LENGTH) + `\n...(truncated, ${result.length} chars total)`;
         }
         const toolDuration = Date.now() - toolStartedAt;
+        finishLangfuseTool(langfuseTool, result, {
+          success: !toolError,
+          durationMs: toolDuration,
+          error: toolError,
+        });
         recordTool(telemetrySessionId, {
           name: block.name,
           round,
@@ -1149,7 +1209,24 @@ export async function runAgenticChat(
             if (block.name === 'file_to_wiki') {
               log.info(`${logPrefix}[wiki-nudge] 执行 file_to_wiki`);
               onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
-              const wikiResult = await executeTool(block.name, block.input, deliveryContext, onProgress);
+              const wikiStartedAt = Date.now();
+              const wikiLangfuseTool = startLangfuseTool(block.name, round, block.input);
+              let wikiResult: string;
+              try {
+                wikiResult = await executeTool(block.name, block.input, deliveryContext, onProgress);
+                finishLangfuseTool(wikiLangfuseTool, wikiResult, {
+                  success: true,
+                  durationMs: Date.now() - wikiStartedAt,
+                });
+              } catch (err: any) {
+                wikiResult = JSON.stringify({ error: `工具执行异常: ${err.message}` });
+                finishLangfuseTool(wikiLangfuseTool, wikiResult, {
+                  success: false,
+                  durationMs: Date.now() - wikiStartedAt,
+                  error: err.message,
+                });
+                throw err;
+              }
               onProgress?.({ type: 'tool_end', name: block.name, result: wikiResult, round, durationMs: 0 });
               nudgeToolResults.push({ type: 'tool_result', tool_use_id: block.id, content: wikiResult });
             } else {
@@ -1226,6 +1303,7 @@ export async function runAgenticChat(
     setTimeout(async () => {
       const { gracefulShutdown } = await import('../index.js');
       gracefulShutdown();
+      await shutdownLangfuseTelemetry();
       process.exit(120);
     }, 500);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { setupUnitDb, teardownDb, withContext, type UnitTestContext } from '../../helpers/unit-harness.js';
+import { setupUnitDb, setMockMcpTools, teardownDb, withContext, type UnitTestContext } from '../../helpers/unit-harness.js';
 
 describe('getAgentTools', () => {
   let ctx: UnitTestContext;
@@ -100,6 +100,35 @@ describe('getAgentTools', () => {
     });
   });
 
+  describe('MCP agent scope', () => {
+    const devtoolsTool = { name: 'mcp_devtools_navigate_page', description: 'devtools', input_schema: { type: 'object', properties: {} } };
+    const logyiTool = { name: 'mcp_logyi_search_logs', description: 'logyi', input_schema: { type: 'object', properties: {} } };
+
+    it('exposes scoped MCP tools only to the configured agent in standard mode', async () => {
+      setMockMcpTools([devtoolsTool, logyiTool], {
+        ticlaw: [devtoolsTool, logyiTool],
+        otcclaw: [devtoolsTool],
+      });
+
+      const ticlawNames = await getToolNames('ticlaw');
+      const otcclawNames = await getToolNames('otcclaw');
+
+      expect(ticlawNames).toContain('mcp_logyi_search_logs');
+      expect(otcclawNames).not.toContain('mcp_logyi_search_logs');
+    });
+
+    it('toolsMode=all does not bypass MCP agent scope', async () => {
+      setMockMcpTools([devtoolsTool, logyiTool], {
+        'alter-ego': [devtoolsTool],
+      });
+
+      const names = await getToolNames('alter-ego');
+
+      expect(names).toContain('mcp_devtools_navigate_page');
+      expect(names).not.toContain('mcp_logyi_search_logs');
+    });
+  });
+
   describe('channel filtering', () => {
     it('alter-ego (all mode) on CLI includes agent management tools', async () => {
       const names = await getToolNames('alter-ego', true, 'cli');
@@ -131,6 +160,24 @@ describe('getAgentTools', () => {
       expect(adminNames).toContain('sync_sbl_data');
       expect(memberNames).toContain('sync_sbl_data');
       expect(memberNames).toContain('analyze_sbl_usage');
+    });
+
+    it('ticlaw member keeps titans/logyi tools but not high-risk native tools', async () => {
+      const logyiTool = { name: 'mcp_logyi_search_logs', description: 'logyi', input_schema: { type: 'object', properties: {} } };
+      setMockMcpTools([logyiTool], { ticlaw: [logyiTool] });
+
+      const names = await getToolNames('ticlaw', false);
+
+      expect(names).toContain('titans_code_sync');
+      expect(names).toContain('titans_code_grep');
+      expect(names).toContain('titans_code_read');
+      expect(names).toContain('titans_code_list');
+      expect(names).toContain('mcp_logyi_search_logs');
+      expect(names).not.toContain('exec_cmd');
+      expect(names).not.toContain('list_directory');
+      expect(names).not.toContain('write_file');
+      expect(names).not.toContain('edit_file');
+      expect(names).not.toContain('reload_app');
     });
   });
 });

@@ -30,6 +30,7 @@ vi.mock('../../src/plugins/registry.js', () => ({
 
 vi.mock('../../src/services/mcp-manager.js', () => ({
   getMcpTools: () => [],
+  isMcpToolAllowedForAgent: () => true,
   callMcpTool: async () => JSON.stringify({ error: 'MCP not available in test' }),
   initMcpServers: async () => {},
 }));
@@ -71,6 +72,7 @@ const FS_MIGRATIONS = [
   'migrate-documents-v2-cleanup',
   'migrate-documents-use-agent-name',
   'backfill-documents-content-hash',
+  'migrate-health-records-to-plugin',
 ];
 
 function extractToolExecutions(history: Anthropic.MessageParam[]): ToolExecution[] {

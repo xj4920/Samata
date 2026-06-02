@@ -4,6 +4,8 @@ plugins/*/node_modules/
 packages/*/node_modules/
 venv/
 .env
+.env.codegf
+.env.langfuse
 data/
 .claude/
 *.DS_Store

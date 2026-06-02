@@ -8,6 +8,13 @@ import { CronExpressionParser } from 'cron-parser';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 /** System tools beyond COMMON_SET granted to TIClaw agent */
+const TITANS_CODE_TOOLS = [
+  'titans_code_sync',
+  'titans_code_grep',
+  'titans_code_read',
+  'titans_code_list',
+];
+
 const TICLAW_EXTRA_TOOLS = [
   'read_file', 'write_file', 'edit_file', 'list_directory',
   'exec_cmd', 'reload_app',
@@ -17,6 +24,29 @@ const TICLAW_EXTRA_TOOLS = [
   'list_agent_members', 'manage_agent_member',
   'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
   'update_memory', 'markdown_to_image', 'http_request', 'list_tool_presets',
+  ...TITANS_CODE_TOOLS,
+];
+
+const TICLAW_MEMBER_BLOCKED_TOOLS = [
+  'exec_cmd',
+  'list_directory',
+  'write_file',
+  'edit_file',
+  'reload_app',
+  'sandbox_exec',
+  'sandbox_list',
+  'sandbox_read_file',
+  'sandbox_write_file',
+  'list_agents',
+  'get_agent',
+  'save_agent',
+  'delete_agent',
+  'switch_agent',
+  'assign_agent',
+  'unassign_agent',
+  'list_agent_assignments',
+  'list_agent_members',
+  'manage_agent_member',
 ];
 
 export function initSchema(): void {
@@ -2397,5 +2427,50 @@ export function initSchema(): void {
     const migrated = (pluginDb.prepare('SELECT COUNT(*) as c FROM health_records').get() as { c: number }).c;
     pluginDb.close();
     console.log(`[migrate-health-records-to-plugin] migrated ${rows.length} rows → plugin DB (${migrated} total)`);
+  });
+
+  runOnce('ticlaw-add-titans-code-search-and-harden-users-v1', () => {
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'ticlaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    let userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    for (const tool of TITANS_CODE_TOOLS) {
+      if (!toolsList.includes(tool)) {
+        toolsList.push(tool);
+        changed = true;
+      }
+    }
+
+    for (const tool of TICLAW_MEMBER_BLOCKED_TOOLS) {
+      if (!userToolsList.includes(tool)) {
+        userToolsList.push(tool);
+        changed = true;
+      }
+    }
+
+    const allowedPrefixes = ['mcp_logyi_'];
+    const allowedExact = new Set(TITANS_CODE_TOOLS);
+    const filteredUserToolsList = userToolsList.filter(tool =>
+      !allowedExact.has(tool) && !allowedPrefixes.some(prefix => tool.startsWith(prefix)),
+    );
+    if (filteredUserToolsList.length !== userToolsList.length) {
+      userToolsList = filteredUserToolsList;
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare(
+        "UPDATE agents SET tools_mode = 'standard', tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'ticlaw'",
+      ).run(JSON.stringify(toolsList), userToolsList.length > 0 ? JSON.stringify(userToolsList) : null);
+    } else {
+      db.prepare(
+        "UPDATE agents SET tools_mode = 'standard', user_tools_mode = 'blocklist', updated_at = datetime('now') WHERE name = 'ticlaw'",
+      ).run();
+    }
   });
 }

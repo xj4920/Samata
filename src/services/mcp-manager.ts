@@ -6,21 +6,25 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
+import { getContextAgent } from '../runtime/execution-context.js';
 
-interface McpServerStdio {
+interface McpServerBase {
+  description?: string;
+  tools?: string[];
+  /** Agent names this MCP server is exposed to. Omitted means globally available. */
+  agents?: string[];
+}
+
+interface McpServerStdio extends McpServerBase {
   transport?: 'stdio';
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  description?: string;
-  tools?: string[];
 }
 
-interface McpServerSse {
+interface McpServerSse extends McpServerBase {
   transport: 'sse';
   url: string;
-  description?: string;
-  tools?: string[];
 }
 
 type McpServerConfig = McpServerStdio | McpServerSse;
@@ -96,11 +100,14 @@ function loadConfig(): McpServersConfig {
     }
   }
 
-  // Expand $ENV_VAR references in args and url
+  // Expand $ENV_VAR references in args, url and explicit env values.
   const expand = (s: string) => s.replace(/\$(\w+)/g, (m, k) => process.env[k] ?? m);
   for (const srv of Object.values(servers)) {
     if ('args' in srv && srv.args) srv.args = srv.args.map(expand);
     if ('url' in srv) srv.url = expand(srv.url);
+    if ('env' in srv && srv.env) {
+      srv.env = Object.fromEntries(Object.entries(srv.env).map(([k, v]) => [k, expand(v)]));
+    }
   }
 
   return { servers };
@@ -153,8 +160,25 @@ export async function initMcpServers(): Promise<void> {
   retryTimer.unref?.();
 }
 
-export function getMcpTools(): Anthropic.Tool[] {
-  return [...sessions.values()].flatMap(s => s.tools);
+function isServerAllowedForAgent(srv: McpServerConfig | undefined, agentName?: string): boolean {
+  if (!srv?.agents) return true;
+  if (!agentName) return true;
+  return srv.agents.includes(agentName);
+}
+
+export function getMcpTools(agentName?: string): Anthropic.Tool[] {
+  return [...sessions.entries()]
+    .filter(([name]) => isServerAllowedForAgent(serverConfigs.get(name), agentName))
+    .flatMap(([, session]) => session.tools);
+}
+
+export function isMcpToolAllowedForAgent(toolName: string, agentName?: string): boolean {
+  const match = toolName.match(/^mcp_([^_]+)_(.+)$/);
+  if (!match) return true;
+  const serverName = match[1];
+  const srv = serverConfigs.get(serverName);
+  if (!srv) return false;
+  return isServerAllowedForAgent(srv, agentName);
 }
 
 function buildMcpToolDescription(serverName: string, toolName: string, description: string): string {
@@ -285,6 +309,10 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
   if (!match) return JSON.stringify({ error: `无效的 MCP 工具名: ${toolName}` });
 
   const [, serverName, originalName] = match;
+  const agentName = getContextAgent()?.name;
+  if (agentName && !isMcpToolAllowedForAgent(toolName, agentName)) {
+    return JSON.stringify({ error: `MCP 工具 ${toolName} 未授权给当前 agent: ${agentName}` });
+  }
 
   if (!sessions.has(serverName)) {
     const ok = await ensureConnected(serverName);

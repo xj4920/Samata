@@ -202,7 +202,9 @@ export async function route(input: string): Promise<void> {
   if (cmd.toLowerCase() === 'reload') {
     log.print('正在重载...');
     const { gracefulShutdown } = await import('../index.js');
+    const { shutdownLangfuseTelemetry } = await import('../telemetry/langfuse.js');
     gracefulShutdown();
+    await shutdownLangfuseTelemetry();
     process.exit(120);
   }
 
