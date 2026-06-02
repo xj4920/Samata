@@ -2580,4 +2580,15 @@ export function initSchema(): void {
       ).run();
     }
   });
+
+  runOnce('otcclaw-add-qfii-latest-valuation-report-query-v1', () => {
+    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    if (current.includes('query_qfii_latest_valuation_report')) return;
+    current.push('query_qfii_latest_valuation_report');
+    db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
+      .run(JSON.stringify(current));
+  });
 }

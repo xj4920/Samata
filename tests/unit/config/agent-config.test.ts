@@ -40,6 +40,7 @@ describe('getAgentTools', () => {
       expect(names).toContain('sandbox_exec');
       expect(names).toContain('sync_sbl_data');
       expect(names).toContain('analyze_sbl_usage');
+      expect(names).toContain('query_qfii_latest_valuation_report');
     });
 
     it('respects blockTools', async () => {
@@ -160,6 +161,7 @@ describe('getAgentTools', () => {
       expect(adminNames).toContain('sync_sbl_data');
       expect(memberNames).toContain('sync_sbl_data');
       expect(memberNames).toContain('analyze_sbl_usage');
+      expect(memberNames).toContain('query_qfii_latest_valuation_report');
     });
 
     it('ticlaw member keeps titans/logyi tools but not high-risk native tools', async () => {
