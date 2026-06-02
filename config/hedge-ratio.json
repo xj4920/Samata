@@ -1,6 +1,6 @@
 {
   "email_monitor": {
-    "enabled": false,
+    "enabled": true,
     "polling_interval_sec": 300
   },
   "wework_chat_id": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog",
@@ -613,7 +613,7 @@
     }
   },
   "hedgeRatio": {
-    "enabled": false,
+    "enabled": true,
     "pollingIntervalSec": 60,
     "weworkChatId": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog"
   },
