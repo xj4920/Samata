@@ -1,0 +1,41 @@
+{
+  "email_monitor": {
+    "enabled": false,
+    "polling_interval_sec": 300
+  },
+  "wework_chat_id": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog",
+  "weworkChatId": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog",
+  "email": {
+    "address": "",
+    "password": "",
+    "imap_server": "mail.gf.com.cn",
+    "imap_port": 993,
+    "only_unread": false,
+    "mark_as_read": false,
+    "max_search_count": 100
+  },
+  "subjects": [],
+  "component_stocks": {},
+  "exempt_products": [],
+  "sftp": {
+    "enabled": false,
+    "host": "",
+    "port": 22,
+    "username": "",
+    "password": "",
+    "remote_base_path": "/data/QFII"
+  },
+  "influxdb": {
+    "HOST": "127.0.0.1",
+    "PORT": 8181,
+    "TOKEN": "",
+    "DATABASE": "otchk",
+    "TIMEOUT": 60
+  },
+  "valuation_parsing_rules": {},
+  "hedgeRatio": {
+    "enabled": true,
+    "pollingIntervalSec": 60,
+    "weworkChatId": "wrfvtgBgAAt_64NZWtFudVGNhzSqNxog"
+  }
+}
