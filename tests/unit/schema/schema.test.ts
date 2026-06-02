@@ -61,6 +61,11 @@ describe('schema integrity', () => {
   });
 
   describe('runOnce idempotency', () => {
+    it('scheduled_tasks has a locked_until column', () => {
+      const columns = ctx.db.prepare('PRAGMA table_info(scheduled_tasks)').all() as { name: string }[];
+      expect(columns.map(c => c.name)).toContain('locked_until');
+    });
+
     it('migrations table has entries', () => {
       const count = ctx.db.prepare('SELECT COUNT(*) as c FROM migrations').get() as { c: number };
       expect(count.c).toBeGreaterThan(0);
@@ -106,7 +111,7 @@ describe('schema integrity', () => {
         expect(row.task_type).toBe('tool_call');
         expect(row.channel).toBe('system');
         expect(row.created_by).toBe('system');
-        expect(JSON.parse(row.payload)).toEqual({ tool_name: 'calc_etf_trades', input: {}, notify: false });
+        expect(JSON.parse(row.payload)).toEqual({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false });
       }
 
       const { initSchema } = await import('../../../src/db/schema.js');

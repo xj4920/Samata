@@ -28,7 +28,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
         name: { type: 'string', description: '任务名称（方便识别）' },
         cron_expr: { type: 'string', description: '标准 5 字段 cron 表达式，如 "30 8 * * *"（每天 8:30）、"0 */2 * * *"（每 2 小时）' },
         task_type: { type: 'string', enum: ['remind', 'sandbox_exec', 'tool_call'], description: 'remind=周期提醒，sandbox_exec=周期执行脚本，tool_call=周期调用系统工具' },
-        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}, tool_call: {"tool_name":"calc_etf_trades","input":{},"notify":false}' },
+        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}, tool_call: {"tool_name":"calc_etf_trades","input":{"force":true},"notify":false}' },
         timezone: { type: 'string', description: '时区，默认 Asia/Shanghai' },
       },
       required: ['name', 'cron_expr', 'task_type', 'payload'],

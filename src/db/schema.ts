@@ -212,6 +212,7 @@ export function initSchema(): void {
       app_id      TEXT,
       enabled     INTEGER NOT NULL DEFAULT 1,
       next_run_at INTEGER,
+      locked_until INTEGER,
       last_run_at INTEGER,
       last_result TEXT,
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
@@ -307,6 +308,7 @@ export function initSchema(): void {
           app_id      TEXT,
           enabled     INTEGER NOT NULL DEFAULT 1,
           next_run_at INTEGER,
+          locked_until INTEGER,
           last_run_at INTEGER,
           last_result TEXT,
           created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
@@ -326,6 +328,10 @@ export function initSchema(): void {
     } finally {
       db.pragma('foreign_keys = ON');
     }
+  });
+
+  runOnce('scheduled-tasks-add-locked-until-v1', () => {
+    try { db.exec('ALTER TABLE scheduled_tasks ADD COLUMN locked_until INTEGER'); } catch (e) {}
   });
 
   runOnce('add-knowledge-columns', () => {
@@ -2266,7 +2272,7 @@ export function initSchema(): void {
 
   runOnce('seed-etf-trades-precompute-scheduled-tasks-v1', () => {
     const cronExpr = '0 18 * * 1-5';
-    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false });
+    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false });
     const tasks = [
       { id: 'etf-ticlaw-precalc', agentName: 'ticlaw', name: 'ETF 成交预计算（TIClaw）' },
       { id: 'etf-otcclaw-precalc', agentName: 'otcclaw', name: 'ETF 成交预计算（衍语）' },
@@ -2300,6 +2306,16 @@ export function initSchema(): void {
         `).run(task.id, agent.id, task.name, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
       }
     }
+  });
+
+  runOnce('etf-precompute-scheduled-tasks-force-v1', () => {
+    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false });
+    db.prepare(`
+      UPDATE scheduled_tasks
+      SET payload = ?, locked_until = NULL
+      WHERE id IN ('etf-ticlaw-precalc', 'etf-otcclaw-precalc')
+        AND task_type = 'tool_call'
+    `).run(payload);
   });
 
   runOnce('otcclaw-add-sbl-data-tools', () => {

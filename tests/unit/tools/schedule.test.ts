@@ -40,7 +40,7 @@ describe('schedule tools', () => {
         name: 'ETF 预计算',
         cronExpr: '0 18 * * 1-5',
         taskType: 'tool_call',
-        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false }),
+        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false }),
         channel: 'system',
         createdBy: 'system',
       });
@@ -48,6 +48,33 @@ describe('schedule tools', () => {
       expect(result.success).toBe(true);
       const tasks = listScheduledTasks(agentId);
       expect(tasks.some(t => t.name === 'ETF 预计算' && t.task_type === 'tool_call')).toBe(true);
+    });
+
+    it('accepts empty or force-only ETF tool_call input', async () => {
+      const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const agentId = await getAgentId('otcclaw');
+
+      const emptyInput = createScheduledTask({
+        agentId,
+        name: 'ETF 预计算 empty input',
+        cronExpr: '0 18 * * 1-5',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(emptyInput.success).toBe(true);
+
+      const forceInput = createScheduledTask({
+        agentId,
+        name: 'ETF 预计算 force input',
+        cronExpr: '0 18 * * 1-5',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(forceInput.success).toBe(true);
     });
 
     it('rejects invalid tool_call payload', async () => {
@@ -144,6 +171,65 @@ describe('schedule tools', () => {
       expect(listScheduledTasks(agentId2).length).toBe(0);
     });
 
+    it('claims a due task only once until the lock expires', async () => {
+      const { createScheduledTask, claimDueScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const agentId = await getAgentId('alter-ego');
+
+      const created = createScheduledTask({
+        agentId,
+        name: 'claim once',
+        cronExpr: '0 9 * * *',
+        taskType: 'remind',
+        payload: JSON.stringify({ message: 'test' }),
+        channel: 'cli',
+      });
+      expect(created.success).toBe(true);
+
+      const idPrefix = (created as any).id;
+      const task = unit.db.prepare('SELECT id FROM scheduled_tasks WHERE id LIKE ?').get(`${idPrefix}%`) as { id: string };
+      const now = Date.now();
+      unit.db.prepare('UPDATE scheduled_tasks SET next_run_at = ?, locked_until = NULL WHERE id = ?').run(now - 1000, task.id);
+
+      const first = claimDueScheduledTask(task.id, 1000, now);
+      expect(first?.id).toBe(task.id);
+      expect(first?.locked_until).toBe(now + 1000);
+      expect(claimDueScheduledTask(task.id, 1000, now + 1)).toBeNull();
+
+      unit.db.prepare('UPDATE scheduled_tasks SET locked_until = ? WHERE id = ?').run(now - 1, task.id);
+      const afterExpiry = claimDueScheduledTask(task.id, 1000, now);
+      expect(afterExpiry?.id).toBe(task.id);
+    });
+
+    it('markTaskExecuted clears the lock and advances next_run_at', async () => {
+      const { createScheduledTask, markTaskExecuted } = await import('../../../src/commands/scheduled-task.js');
+      const agentId = await getAgentId('alter-ego');
+
+      const created = createScheduledTask({
+        agentId,
+        name: 'clear lock',
+        cronExpr: '0 9 * * *',
+        taskType: 'remind',
+        payload: JSON.stringify({ message: 'test' }),
+        channel: 'cli',
+      });
+      expect(created.success).toBe(true);
+
+      const idPrefix = (created as any).id;
+      const task = unit.db.prepare('SELECT id FROM scheduled_tasks WHERE id LIKE ?').get(`${idPrefix}%`) as { id: string };
+      const nextRunAt = Date.now() + 60_000;
+      unit.db.prepare('UPDATE scheduled_tasks SET locked_until = ? WHERE id = ?').run(Date.now() + 60_000, task.id);
+
+      markTaskExecuted(task.id, 'ok', nextRunAt);
+
+      const row = unit.db.prepare(
+        'SELECT last_run_at, last_result, next_run_at, locked_until FROM scheduled_tasks WHERE id = ?',
+      ).get(task.id) as { last_run_at: number | null; last_result: string | null; next_run_at: number | null; locked_until: number | null };
+      expect(row.last_run_at).toBeGreaterThan(0);
+      expect(row.last_result).toBe('ok');
+      expect(row.next_run_at).toBe(nextRunAt);
+      expect(row.locked_until).toBeNull();
+    });
+
     it('executes due tool_call tasks in the scheduled agent context', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
@@ -154,7 +240,7 @@ describe('schedule tools', () => {
         name: 'due ETF 预计算',
         cronExpr: '0 18 * * 1-5',
         taskType: 'tool_call',
-        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false }),
+        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false }),
         channel: 'system',
         createdBy: 'system',
       });
@@ -172,7 +258,7 @@ describe('schedule tools', () => {
       expect(row.last_run_at).toBeGreaterThan(0);
       expect(row.next_run_at).toBeGreaterThan(Date.now());
       const parsed = JSON.parse(row.last_result!);
-      expect(parsed).toEqual({ ok: true, agentId, channel: 'system', input: {} });
+      expect(parsed).toEqual({ ok: true, agentId, channel: 'system', input: { force: true } });
     });
   });
 
@@ -202,7 +288,7 @@ describe('schedule tools', () => {
         name: 'system-visible',
         cronExpr: '0 18 * * 1-5',
         taskType: 'tool_call',
-        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false }),
+        payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false }),
         channel: 'system',
         createdBy: 'system',
       });

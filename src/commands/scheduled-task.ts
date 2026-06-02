@@ -14,6 +14,7 @@ export interface ScheduledTask {
   app_id: string | null;
   enabled: number;
   next_run_at: number | null;
+  locked_until: number | null;
   last_run_at: number | null;
   last_result: string | null;
   created_at: number;
@@ -48,13 +49,21 @@ function validatePayload(taskType: ScheduledTaskType, payload: string): { ok: tr
   const keys = Object.keys(obj).sort();
   const expectedKeys = ['input', 'notify', 'tool_name'];
   if (keys.length !== expectedKeys.length || keys.some((k, i) => k !== expectedKeys[i])) {
-    return { ok: false, error: 'tool_call payload 必须为 {"tool_name":"calc_etf_trades","input":{},"notify":false}' };
+    return { ok: false, error: 'tool_call payload 必须为 {"tool_name":"calc_etf_trades","input":{"force":true},"notify":false}' };
   }
   if (obj.tool_name !== 'calc_etf_trades') {
     return { ok: false, error: 'tool_call 仅支持 calc_etf_trades' };
   }
-  if (!obj.input || typeof obj.input !== 'object' || Array.isArray(obj.input) || Object.keys(obj.input as Record<string, unknown>).length !== 0) {
-    return { ok: false, error: 'tool_call input 必须为空对象 {}' };
+  if (!obj.input || typeof obj.input !== 'object' || Array.isArray(obj.input)) {
+    return { ok: false, error: 'tool_call input 必须是 JSON 对象' };
+  }
+  const input = obj.input as Record<string, unknown>;
+  const inputKeys = Object.keys(input);
+  if (inputKeys.length > 1 || (inputKeys.length === 1 && inputKeys[0] !== 'force')) {
+    return { ok: false, error: 'tool_call input 仅支持 {} 或 {"force":true}' };
+  }
+  if ('force' in input && typeof input.force !== 'boolean') {
+    return { ok: false, error: 'tool_call input.force 必须是 boolean' };
   }
   if (obj.notify !== false) {
     return { ok: false, error: 'tool_call notify 必须为 false' };
@@ -188,13 +197,32 @@ export function deleteScheduledTask(idPrefix: string, agentId: string): { succes
 }
 
 export function getDueScheduledTasks(): ScheduledTask[] {
+  const now = Date.now();
   return getDb().prepare(
-    'SELECT * FROM scheduled_tasks WHERE enabled = 1 AND next_run_at <= ?'
-  ).all(Date.now()) as ScheduledTask[];
+    `SELECT * FROM scheduled_tasks
+     WHERE enabled = 1
+       AND next_run_at <= ?
+       AND (locked_until IS NULL OR locked_until <= ?)`
+  ).all(now, now) as ScheduledTask[];
+}
+
+export function claimDueScheduledTask(id: string, lockMs: number, now = Date.now()): ScheduledTask | null {
+  const db = getDb();
+  const lockedUntil = now + Math.max(1, lockMs);
+  const result = db.prepare(
+    `UPDATE scheduled_tasks
+     SET locked_until = ?
+     WHERE id = ?
+       AND enabled = 1
+       AND next_run_at <= ?
+       AND (locked_until IS NULL OR locked_until <= ?)`
+  ).run(lockedUntil, id, now, now);
+  if (result.changes === 0) return null;
+  return db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as ScheduledTask;
 }
 
 export function markTaskExecuted(id: string, result: string | null, nextRunAt: number): void {
   getDb().prepare(
-    'UPDATE scheduled_tasks SET last_run_at = ?, last_result = ?, next_run_at = ? WHERE id = ?'
+    'UPDATE scheduled_tasks SET last_run_at = ?, last_result = ?, next_run_at = ?, locked_until = NULL WHERE id = ?'
   ).run(Date.now(), result, nextRunAt, id);
 }

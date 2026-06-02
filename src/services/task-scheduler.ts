@@ -1,4 +1,4 @@
-import { getDueScheduledTasks, markTaskExecuted, computeNextRun, type ScheduledTask } from '../commands/scheduled-task.js';
+import { getDueScheduledTasks, claimDueScheduledTask, markTaskExecuted, computeNextRun, type ScheduledTask } from '../commands/scheduled-task.js';
 import { sandboxExecAsync } from '../commands/sandbox.js';
 import { getAgentById, getAgentTools } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -12,6 +12,12 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 const TAG = '[task-scheduler]';
 const SYSTEM_USER = { id: 'system', username: 'system', role: 'admin' as const };
+const DEFAULT_TASK_LOCK_MS = 10 * 60 * 1000;
+const TOOL_CALL_TASK_LOCK_MS = 6 * 60 * 60 * 1000;
+
+function getLockMs(task: ScheduledTask): number {
+  return task.task_type === 'tool_call' ? TOOL_CALL_TASK_LOCK_MS : DEFAULT_TASK_LOCK_MS;
+}
 
 async function executeRemind(task: ScheduledTask): Promise<string | null> {
   const payload = JSON.parse(task.payload) as { message: string };
@@ -79,7 +85,10 @@ export async function checkAndExecute(): Promise<void> {
     return;
   }
 
-  for (const task of tasks) {
+  for (const candidate of tasks) {
+    const task = claimDueScheduledTask(candidate.id, getLockMs(candidate));
+    if (!task) continue;
+
     try {
       let result: string | null = null;
 
