@@ -2591,4 +2591,30 @@ export function initSchema(): void {
     db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
       .run(JSON.stringify(current));
   });
+
+  runOnce('otcclaw-add-hedge-ratio-influx-history-migration-v1', () => {
+    const tool = 'migrate_hedge_ratio_influx_history';
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    if (!toolsList.includes(tool)) {
+      toolsList.push(tool);
+      changed = true;
+    }
+    if (!userToolsList.includes(tool)) {
+      userToolsList.push(tool);
+      changed = true;
+    }
+    if (!changed) return;
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
 }
