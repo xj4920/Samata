@@ -1,0 +1,7 @@
+{
+  "notification": {
+    "enabled": true,
+    "wework_chat_id": "wrfvtgBgAA3jRQ3fIPi25gWWtAlPXTGQ",
+    "wework_channel": "wework:ticlaw-bot"
+  }
+}

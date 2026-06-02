@@ -40,10 +40,11 @@ async function sendNotificationImpl(channel: string, targetId: string, message: 
     const api = new FeishuAPI({ appId: row.id, appSecret: row.secret, verificationToken: '', encryptKey: '' });
     const idType = targetId.startsWith('oc_') ? 'chat_id' : targetId.startsWith('ou_') ? 'open_id' : 'user_id';
     await api.sendMessageTo(targetId, idType, 'text', { text: message });
-  } else if (channel === 'wework') {
-    const { getFirstConnectedWsClient } = await import('../wework/bot.js');
-    const ws = getFirstConnectedWsClient();
-    if (!ws) throw new Error('无可用企微连接');
+  } else if (channel === 'wework' || channel.startsWith('wework:')) {
+    const [, botIdOrName] = channel.split(':', 2);
+    const { getConnectedWsClient } = await import('../wework/bot.js');
+    const ws = getConnectedWsClient(botIdOrName);
+    if (!ws) throw new Error(botIdOrName ? `无可用企微连接: ${botIdOrName}` : '无可用企微连接');
     await ws.sendMessage(targetId, { msgtype: 'markdown', markdown: { content: message } });
   } else {
     throw new Error(`Unsupported notification channel: ${channel}`);

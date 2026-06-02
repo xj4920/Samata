@@ -692,6 +692,17 @@ export function getFirstConnectedWsClient(): WSClient | null {
   return null;
 }
 
+export function getConnectedWsClient(botIdOrName?: string): WSClient | null {
+  if (!botIdOrName) return getFirstConnectedWsClient();
+
+  for (const inst of botInstances.values()) {
+    if (!inst.wsClient.isConnected) continue;
+    if (inst.botId === botIdOrName || inst.botName === botIdOrName) return inst.wsClient;
+  }
+
+  return null;
+}
+
 export function syncWeworkBots(): void {
   const dbApps = getDb().prepare("SELECT id, auto_start FROM bot_apps WHERE channel = 'wework'").all() as { id: string; auto_start: number }[];
 
