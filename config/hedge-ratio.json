@@ -61,13 +61,6 @@
   "sftp": {
     "enabled": true
   },
-  "influxdb": {
-    "HOST": "127.0.0.1",
-    "PORT": 8181,
-    "TOKEN": "",
-    "DATABASE": "otchk",
-    "TIMEOUT": 60
-  },
   "valuation_parsing_rules": {
     "【产品估值表】-199070_25QF15_承壹投资管理有限公司-和光1号专户（RQFII）": {
       "product_name": "承壹投资管理有限公司-和光1号专户（RQFII）",

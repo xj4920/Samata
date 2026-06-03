@@ -74,7 +74,6 @@ const TOOL_LABELS: Record<string, string> = {
   import_pricing_quote: '导入报价', query_pricing_quote: '查询报价',
   list_pricing_quote_dates: '查看报价日期',
   query_hedge_short: '查询对冲', query_qfii_latest_valuation_report: '查估值邮件',
-  migrate_hedge_ratio_influx_history: '迁移套保历史',
   sync_sbl_data: '同步SBL数据', analyze_sbl_usage: '分析SBL使用率',
   record_wrong_question: '记录错题', list_wrong_questions: '查看错题',
   wrong_question_report: '错题报告', mark_wrong_question_mastered: '标记已掌握',

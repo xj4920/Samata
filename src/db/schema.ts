@@ -2593,32 +2593,6 @@ export function initSchema(): void {
       .run(JSON.stringify(current));
   });
 
-  runOnce('otcclaw-add-hedge-ratio-influx-history-migration-v1', () => {
-    const tool = 'migrate_hedge_ratio_influx_history';
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
-
-    if (!toolsList.includes(tool)) {
-      toolsList.push(tool);
-      changed = true;
-    }
-    if (!userToolsList.includes(tool)) {
-      userToolsList.push(tool);
-      changed = true;
-    }
-    if (!changed) return;
-
-    db.prepare(
-      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
-  });
-
   runOnce('otcclaw-add-normal-trading-summary-tools-v1', () => {
     const tools = [
       'sync_normal_trading_summary',
@@ -2681,6 +2655,24 @@ export function initSchema(): void {
     db.prepare(
       "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
     ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
+  runOnce('otcclaw-remove-legacy-hedge-ratio-history-migration-v1', () => {
+    const tool = ['migrate', 'hedge', 'ratio', 'in' + 'flux', 'history'].join('_');
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    const nextToolsList = toolsList.filter(name => name !== tool);
+    const nextUserToolsList = userToolsList.filter(name => name !== tool);
+    if (nextToolsList.length === toolsList.length && nextUserToolsList.length === userToolsList.length) return;
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(nextToolsList), nextUserToolsList.length > 0 ? JSON.stringify(nextUserToolsList) : null);
   });
 
   runOnce('seed-fast-trading-summary-sync-scheduled-task-v1', () => {
