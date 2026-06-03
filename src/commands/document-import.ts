@@ -536,6 +536,7 @@ async function describeImagesInMarkdown(
   }
   const { getProviderByName } = await import('../llm/provider.js');
   const anyDescriber = !!(provider.describeImage
+    || getProviderByName('custom')?.describeImage
     || getProviderByName('minimax')?.describeImage
     || getProviderByName('anthropic')?.describeImage);
   if (!anyDescriber) return content;

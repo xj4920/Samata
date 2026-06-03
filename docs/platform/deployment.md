@@ -85,6 +85,19 @@ npm run docs:dev -- --host 0.0.0.0
 
 通过 `LLM_PROVIDER` 选择 provider，并配置对应 API key、base URL 和模型名。Custom、DeepSeek、Gemini、MiniMax、OpenRouter、Anthropic provider 走统一接口。
 
+BigModel / GLM 图片识别使用 `custom` provider 的 OpenAI-compatible 接口：
+
+```bash
+LLM_PROVIDER=custom
+CUSTOM_API_KEY=your-bigmodel-key
+CUSTOM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+CUSTOM_MODEL=glm-5
+CUSTOM_VISION_MODEL=glm-5v-turbo
+CUSTOM_MODELS=glm-5,glm-5v-turbo
+```
+
+其中 `CUSTOM_VISION_MODEL` 用于图片消息、文档导入中的图片转录等识图场景。
+
 ## Agent 示例
 
 Moss 这类轻量 Agent 的部署流程包括：创建 prompt、创建 Agent、配置成员、绑定 Bot 渠道。原始实施记录见 [Moss Agent 部署演进记录](../plan/2026-05-25_moss-deployment-guide.md)。

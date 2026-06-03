@@ -51,7 +51,7 @@ export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
 }
 
 /**
- * 依次尝试 primary → minimax → anthropic 进行图片描述。
+ * 依次尝试 primary → custom → minimax → anthropic 进行图片描述。
  * 只要某一个成功就返回结果，全部失败才抛最后一个错误。
  * 供 runAgenticChat 及 document-import 等复用。
  */
@@ -771,6 +771,7 @@ async function runAgenticChatInner(
   if (images && images.length > 0) {
     const activeProvider = agentProviderOverride ?? getProvider();
     const hasAnyDescriber = !!(activeProvider.describeImage
+      || getProviderByName('custom')?.describeImage
       || getProviderByName('minimax')?.describeImage
       || getProviderByName('anthropic')?.describeImage);
 
