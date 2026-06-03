@@ -535,7 +535,9 @@ async function describeImagesInMarkdown(
     return content;
   }
   const { getProviderByName } = await import('../llm/provider.js');
-  const anyDescriber = !!(provider.describeImage
+  const { hasBigModelOcrDescriber } = await import('../llm/bigmodel-ocr.js');
+  const anyDescriber = !!(hasBigModelOcrDescriber()
+    || provider.describeImage
     || getProviderByName('custom')?.describeImage
     || getProviderByName('minimax')?.describeImage
     || getProviderByName('anthropic')?.describeImage);

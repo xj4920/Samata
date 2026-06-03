@@ -98,6 +98,17 @@ CUSTOM_MODELS=glm-5,glm-5v-turbo
 
 其中 `CUSTOM_VISION_MODEL` 用于图片消息、文档导入中的图片转录等识图场景。
 
+如果购买的是 GLM-OCR 资源包，需额外启用 BigModel OCR。Samata 会在图片预处理和文档图片转录时优先调用 `glm-ocr` 的 `layout_parsing` 接口，失败后再回退到其他 vision provider：
+
+```bash
+BIGMODEL_API_KEY=your-bigmodel-key
+BIGMODEL_OCR_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+BIGMODEL_OCR_MODEL=glm-ocr
+BIGMODEL_OCR_ENABLED=true
+```
+
+`CUSTOM_VISION_MODEL=glm-5v-turbo` 走的是通用多模态聊天接口，不等同于 GLM-OCR 资源包。
+
 ## Agent 示例
 
 Moss 这类轻量 Agent 的部署流程包括：创建 prompt、创建 Agent、配置成员、绑定 Bot 渠道。原始实施记录见 [Moss Agent 部署演进记录](../plan/2026-05-25_moss-deployment-guide.md)。

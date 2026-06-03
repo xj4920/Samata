@@ -12,6 +12,7 @@ import { isAgentAdmin, isSystemAdmin } from '../auth/rbac.js';
 import { log } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { renderMarkdown } from '../utils/markdown.js';
+import { getBigModelOcrDescriber, hasBigModelOcrDescriber, type ImageDescriber } from './bigmodel-ocr.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getExecutionChannel } from '../runtime/execution-context.js';
@@ -51,7 +52,7 @@ export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
 }
 
 /**
- * 依次尝试 primary → custom → minimax → anthropic 进行图片描述。
+ * 依次尝试 bigmodel-ocr → primary → custom → minimax → anthropic 进行图片描述。
  * 只要某一个成功就返回结果，全部失败才抛最后一个错误。
  * 供 runAgenticChat 及 document-import 等复用。
  */
@@ -61,21 +62,22 @@ export async function describeImageWithFallback(
   prompt: string,
   logPrefix = '',
 ): Promise<{ desc: string; providerName: string }> {
-  const chain: import('./provider.js').LLMProvider[] = [];
+  const chain: ImageDescriber[] = [];
   const seen = new Set<string>();
-  const add = (p: import('./provider.js').LLMProvider | undefined) => {
+  const add = (p: { name: string; describeImage?: ImageDescriber['describeImage'] } | undefined) => {
     if (p && p.describeImage && !seen.has(p.name)) {
-      chain.push(p);
+      chain.push({ name: p.name, describeImage: p.describeImage });
       seen.add(p.name);
     }
   };
+  add(getBigModelOcrDescriber());
   add(primary);
   add(getProviderByName('custom'));
   add(getProviderByName('minimax'));
   add(getProviderByName('anthropic'));
 
   if (chain.length === 0) {
-    throw new Error('无可用的图片描述 provider（需启用 custom/minimax/anthropic 之一）');
+    throw new Error('无可用的图片描述 provider（需启用 bigmodel-ocr/custom/minimax/anthropic 之一）');
   }
 
   let lastErr: unknown;
@@ -770,7 +772,8 @@ async function runAgenticChatInner(
 
   if (images && images.length > 0) {
     const activeProvider = agentProviderOverride ?? getProvider();
-    const hasAnyDescriber = !!(activeProvider.describeImage
+    const hasAnyDescriber = !!(hasBigModelOcrDescriber()
+      || activeProvider.describeImage
       || getProviderByName('custom')?.describeImage
       || getProviderByName('minimax')?.describeImage
       || getProviderByName('anthropic')?.describeImage);
