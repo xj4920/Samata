@@ -66,6 +66,7 @@ export function initSchema(): void {
     'trade_summary',
     'plot_trades',
     'list_customers',
+    'sync_fast_trading_summary',
     'add_health_record',
     'query_health_records',
     'health_summary',
@@ -2616,5 +2617,102 @@ export function initSchema(): void {
     db.prepare(
       "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
     ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
+  runOnce('otcclaw-add-normal-trading-summary-tools-v1', () => {
+    const tools = [
+      'sync_normal_trading_summary',
+      'query_normal_trading_summary',
+      'calc_normal_trading_annual_turnover',
+    ];
+    const writeTools = [
+      'sync_normal_trading_summary',
+      'calc_normal_trading_annual_turnover',
+    ];
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    for (const tool of tools) {
+      if (!toolsList.includes(tool)) {
+        toolsList.push(tool);
+        changed = true;
+      }
+    }
+    for (const tool of writeTools) {
+      if (!userToolsList.includes(tool)) {
+        userToolsList.push(tool);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
+  runOnce('otcclaw-add-fast-trading-summary-sync-tool-v1', () => {
+    const tool = 'sync_fast_trading_summary';
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    if (!toolsList.includes(tool)) {
+      toolsList.push(tool);
+      changed = true;
+    }
+    if (!userToolsList.includes(tool)) {
+      userToolsList.push(tool);
+      changed = true;
+    }
+    if (!changed) return;
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
+  runOnce('seed-fast-trading-summary-sync-scheduled-task-v1', () => {
+    const cronExpr = '30 18 * * *';
+    const payload = JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false });
+    const agent = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
+    if (!agent) return;
+
+    const taskId = 'fast-trading-summary-sync-otcclaw';
+    const taskName = '极速 summary 同步（衍语）';
+    const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
+    const existing = db.prepare(
+      'SELECT id, cron_expr, next_run_at FROM scheduled_tasks WHERE id = ?',
+    ).get(taskId) as { id: string; cron_expr: string; next_run_at: number | null } | undefined;
+
+    if (existing) {
+      const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
+      db.prepare(`
+        UPDATE scheduled_tasks
+        SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
+            channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
+            next_run_at = ?, created_by = ?, locked_until = NULL
+        WHERE id = ?
+      `).run(agent.id, taskName, cronExpr, 'tool_call', payload, 'system', nextRunAt, 'system', taskId);
+    } else {
+      db.prepare(`
+        INSERT INTO scheduled_tasks (
+          id, agent_id, name, cron_expr, task_type, payload, channel,
+          target_id, app_id, next_run_at, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+      `).run(taskId, agent.id, taskName, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
+    }
   });
 }

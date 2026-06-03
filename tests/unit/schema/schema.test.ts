@@ -129,6 +129,40 @@ describe('schema integrity', () => {
       `).get() as { c: number };
       expect(after.c).toBe(2);
     });
+
+    it('seeds FastTrading summary sync scheduled task idempotently', async () => {
+      const row = ctx.db.prepare(`
+        SELECT st.id, a.name AS agent_name, st.cron_expr, st.task_type, st.payload, st.channel, st.created_by
+        FROM scheduled_tasks st
+        JOIN agents a ON a.id = st.agent_id
+        WHERE st.id = 'fast-trading-summary-sync-otcclaw'
+      `).get() as {
+        id: string;
+        agent_name: string;
+        cron_expr: string;
+        task_type: string;
+        payload: string;
+        channel: string;
+        created_by: string;
+      } | undefined;
+
+      expect(row).toBeDefined();
+      expect(row?.agent_name).toBe('otcclaw');
+      expect(row?.cron_expr).toBe('30 18 * * *');
+      expect(row?.task_type).toBe('tool_call');
+      expect(row?.channel).toBe('system');
+      expect(row?.created_by).toBe('system');
+      expect(JSON.parse(row!.payload)).toEqual({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false });
+
+      const { initSchema } = await import('../../../src/db/schema.js');
+      initSchema();
+      const after = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM scheduled_tasks
+        WHERE id = 'fast-trading-summary-sync-otcclaw'
+      `).get() as { c: number };
+      expect(after.c).toBe(1);
+    });
   });
 
   describe('default users', () => {
