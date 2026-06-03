@@ -23,10 +23,15 @@ import type { Server } from 'node:http';
 import { runWithExecutionContext } from './runtime/execution-context.js';
 
 let cliApiServer: Server | null = null;
+let serverKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 
 export function gracefulShutdown(): void {
   cliApiServer?.close();
   cliApiServer = null;
+  if (serverKeepAliveTimer) {
+    clearInterval(serverKeepAliveTimer);
+    serverKeepAliveTimer = null;
+  }
   stopAllPlugins().catch(() => {});
   stopPluginWatcher();
   stopReminderScheduler();
@@ -374,6 +379,11 @@ async function main(): Promise<void> {
   log.print('  Samata — 平等，技术平权');
   log.print('='.repeat(40) + '\n');
 
+  const isServer = process.argv.includes('--server') || !process.stdin.isTTY;
+  if (isServer) {
+    serverKeepAliveTimer = setInterval(() => {}, 1000);
+  }
+
   initSchema();
 
   const llmReady = await initProviders();
@@ -412,8 +422,6 @@ async function main(): Promise<void> {
   });
   watchFeishuApps({ mode: feishuMode, httpPort: feishuMode === 'webhook' ? feishuPort : undefined });
 
-  const isServer = process.argv.includes('--server') || !process.stdin.isTTY;
-
   if (isServer) {
     cliApiServer = startCliApiServer();
     log.print('以服务器模式运行 (无交互 REPL)');
@@ -426,9 +434,6 @@ async function main(): Promise<void> {
     };
     process.on('SIGINT', handleSignal);
     process.on('SIGTERM', handleSignal);
-    
-    // 保持进程运行
-    setInterval(() => {}, 1000);
   } else {
     await repl();
     gracefulShutdown();
