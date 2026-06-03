@@ -36,6 +36,8 @@ const showThinking = () => process.env.SHOW_THINKING !== 'false';
 export interface ImageInput {
   data: string;  // base64 encoded image data (no data URI prefix)
   mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  /** Local saved path, when the channel downloaded the image to disk. */
+  path?: string;
 }
 
 /** 从 Buffer magic bytes 检测图片 MIME 类型 */
@@ -773,24 +775,36 @@ async function runAgenticChatInner(
       || getProviderByName('anthropic')?.describeImage);
 
     if (hasAnyDescriber) {
-      const descriptions: string[] = [];
-      const usedProviders: string[] = [];
-      for (const img of images) {
-        const dataUrl = `data:${img.mediaType};base64,${img.data}`;
-        const { desc, providerName } = await describeImageWithFallback(
-          activeProvider,
-          dataUrl,
-          userInput || '请描述这张图片的内容',
-          logPrefix,
-        );
-        descriptions.push(desc);
-        usedProviders.push(providerName);
+      try {
+        const descriptions: string[] = [];
+        const usedProviders: string[] = [];
+        for (const img of images) {
+          const dataUrl = `data:${img.mediaType};base64,${img.data}`;
+          const { desc, providerName } = await describeImageWithFallback(
+            activeProvider,
+            dataUrl,
+            userInput || '请描述这张图片的内容',
+            logPrefix,
+          );
+          descriptions.push(desc);
+          usedProviders.push(providerName);
+        }
+        const descText = descriptions.map((d, i) => `[图片${i + 1}]\n${d}`).join('\n\n');
+        processedInput = `${descText}\n\n${userInput}`.trim();
+        processedImages = undefined;
+        const uniq = [...new Set(usedProviders)].join('+');
+        log.dim(`${logPrefix}📷 图片已转为文字描述 (via ${uniq})`);
+      } catch (err: any) {
+        const fallbackInput = buildImageRecognitionFallbackInput(userInput, images, err?.message ?? String(err));
+        if (fallbackInput) {
+          processedInput = fallbackInput;
+          processedImages = undefined;
+          const paths = collectLocalImagePathsFromContext(userInput, images);
+          log.warn(`${logPrefix}图片自动描述失败，已保留本地路径供 Codex 识别工具处理: ${paths.join(', ')}`);
+        } else {
+          log.warn(`${logPrefix}图片自动描述失败，且没有可用本地路径；保留原始图片块继续请求模型: ${err?.message ?? String(err)}`);
+        }
       }
-      const descText = descriptions.map((d, i) => `[图片${i + 1}]\n${d}`).join('\n\n');
-      processedInput = `${descText}\n\n${userInput}`.trim();
-      processedImages = undefined;
-      const uniq = [...new Set(usedProviders)].join('+');
-      log.dim(`${logPrefix}📷 图片已转为文字描述 (via ${uniq})`);
     }
     // 若无任何 describer，保留原图进 chat（仅当前 provider 原生支持多模态时有效）
   }
@@ -1314,6 +1328,46 @@ async function runAgenticChatInner(
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp)$/i;
 const IMAGE_PATH_RE = /(?:^|\s)((?:\/|\.\/|~\/)\S+\.(?:png|jpe?g|gif|webp))\b/gi;
 
+function resolveLocalImagePath(filePath: string): string {
+  return filePath.startsWith('~/')
+    ? path.join(process.env.HOME || '', filePath.slice(2))
+    : path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(filePath);
+}
+
+export function collectLocalImagePathsFromContext(input: string, images?: ImageInput[]): string[] {
+  const paths: string[] = [];
+  for (const img of images ?? []) {
+    if (img.path) paths.push(resolveLocalImagePath(img.path));
+  }
+
+  let match: RegExpExecArray | null;
+  IMAGE_PATH_RE.lastIndex = 0;
+  while ((match = IMAGE_PATH_RE.exec(input)) !== null) {
+    paths.push(resolveLocalImagePath(match[1]));
+  }
+
+  return [...new Set(paths)].filter(p => IMAGE_EXTENSIONS.test(p));
+}
+
+export function buildImageRecognitionFallbackInput(
+  userInput: string,
+  images?: ImageInput[],
+  errorMessage?: string,
+): string | null {
+  const paths = collectLocalImagePathsFromContext(userInput, images);
+  if (paths.length === 0) return null;
+
+  return [
+    userInput.trim(),
+    '',
+    '[系统提示] 本轮包含用户发送的图片，但自动图片描述失败。',
+    errorMessage ? `自动描述失败原因：${errorMessage}` : undefined,
+    '图片已保存到以下本地路径：',
+    ...paths.map((p, i) => `- 图片${i + 1}: ${p}`),
+    '当用户要求识别、分析、转文字或描述图片时，请直接调用 recognize_image_codex，并使用上述路径作为 image_path 或 image_paths；不要向用户再次索要图片路径。',
+  ].filter((line): line is string => Boolean(line)).join('\n');
+}
+
 /**
  * 从用户输入中提取本地图片路径，返回 images 数组。
  * 保留原始路径在文本中（供 archive_health_file 等工具使用）。
@@ -1324,10 +1378,7 @@ function extractLocalImages(input: string): { text: string; images: ImageInput[]
   let match: RegExpExecArray | null;
   IMAGE_PATH_RE.lastIndex = 0;
   while ((match = IMAGE_PATH_RE.exec(input)) !== null) {
-    const filePath = match[1];
-    const resolved = filePath.startsWith('~/')
-      ? path.join(process.env.HOME || '', filePath.slice(1))
-      : path.resolve(filePath);
+    const resolved = resolveLocalImagePath(match[1]);
     try {
       if (!fs.existsSync(resolved)) continue;
       const buf = fs.readFileSync(resolved);
@@ -1337,7 +1388,7 @@ function extractLocalImages(input: string): { text: string; images: ImageInput[]
         : ext === '.gif' ? 'image/gif'
         : ext === '.webp' ? 'image/webp'
         : 'image/jpeg';
-      images.push({ data: buf.toString('base64'), mediaType });
+      images.push({ data: buf.toString('base64'), mediaType, path: resolved });
     } catch (e) {
       // skip unreadable files
     }

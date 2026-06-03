@@ -63,6 +63,7 @@ interface FeishuSession {
   agentName: string;
   pendingNameConfirm?: boolean;
   nameAsked?: boolean;
+  lastImagePaths?: string[];
 }
 
 interface FeishuBotInstance {
@@ -324,6 +325,7 @@ function resetSessionForInstance(instance: FeishuBotInstance, feishuUserId: stri
   const session = instance.sessions.get(feishuUserId);
   if (session) {
     session.history = [];
+    session.lastImagePaths = undefined;
     const agent = resolveAgent('feishu', instance.appId);
     if (agent) session.agentName = agent.name;
     return true;
@@ -346,6 +348,29 @@ function cleanupSessionsForInstance(instance: FeishuBotInstance, maxAgeMs = 2 * 
   return cleaned;
 }
 
+function collectImagePaths(images?: ImageInput[]): string[] {
+  return [...new Set((images ?? []).map(img => img.path).filter((p): p is string => Boolean(p)))];
+}
+
+function shouldAttachRecentImageContext(input: string): boolean {
+  return /(图片|图像|照片|截图|相片|这张图|上面.*图|上一张|前一张|刚刚|刚才|发你了|识别|转文字|ocr)/i.test(input);
+}
+
+function appendRecentImageContext(input: string, imagePaths?: string[]): string {
+  if (!imagePaths?.length) return input;
+  if (!shouldAttachRecentImageContext(input)) return input;
+  const alreadyContainsPath = imagePaths.some(p => input.includes(p));
+  if (alreadyContainsPath) return input;
+
+  return [
+    input,
+    '',
+    '[系统提示] 用户可能在引用最近发送的图片。最近图片本地路径如下：',
+    ...imagePaths.map((p, i) => `- 图片${i + 1}: ${p}`),
+    '如果用户要求识别、分析、转文字或描述图片，请直接调用 recognize_image_codex；不要向用户再次索要图片路径。',
+  ].join('\n');
+}
+
 /**
  * 处理 AI 对话（含 tool use 循环）
  */
@@ -365,6 +390,13 @@ async function handleAIChat(
   const agentConfig = (botLLM.provider || botLLM.model)
     ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
     : baseAgentConfig;
+  const currentImagePaths = collectImagePaths(images);
+  if (currentImagePaths.length > 0) {
+    session.lastImagePaths = currentImagePaths;
+  }
+  const effectiveUserInput = currentImagePaths.length > 0
+    ? userInput
+    : appendRecentImageContext(userInput, session.lastImagePaths);
 
   return runWithExecutionContext({ channel: 'feishu', user: session.user, appId: instance.appId, agent: agentConfig }, async () => {
   const showThinkingEnabled = instance.config.showThinking !== false;
@@ -410,6 +442,7 @@ async function handleAIChat(
     `agent=${agentConfig.displayName} (${agentConfig.name})`,
     `history=${session.history.length} 条`,
     `input=${compactTextForLog(userInput, 240)}`,
+    effectiveUserInput !== userInput ? `recent_images=${session.lastImagePaths?.join(', ')}` : undefined,
     images?.length ? `images=${images.length}` : undefined,
   ], 'info');
 
@@ -460,7 +493,7 @@ async function handleAIChat(
     }
   };
 
-  let textReply = await runAgenticChat(session.history, userInput, session.user, {
+  let textReply = await runAgenticChat(session.history, effectiveUserInput, session.user, {
     streamEnabled: false,
     logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
     showThinking: true,
@@ -1038,9 +1071,9 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
           try {
             const buf = await instance.api.downloadMessageResource(messageId, key);
             const mtype = detectImageMediaType(buf);
-            images.push({ data: buf.toString('base64'), mediaType: mtype });
             const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
             const sp = saveUploadedFile(buf, `image${ext}`, agentName);
+            images.push({ data: buf.toString('base64'), mediaType: mtype, path: sp });
             savedPaths.push(sp);
             log.dim(`[飞书:${instance.appName}] 下载 post 图片成功: ${key} (${buf.length} bytes) -> ${sp}`);
           } catch (err: any) {
@@ -1060,9 +1093,9 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
         try {
           const buf = await instance.api.downloadMessageResource(messageId, imageKey);
           const mtype = detectImageMediaType(buf);
-          images = [{ data: buf.toString('base64'), mediaType: mtype }];
           const ext = mtype === 'image/png' ? '.png' : mtype === 'image/webp' ? '.webp' : '.jpg';
           const savedPath = saveUploadedFile(buf, `image${ext}`, agentName);
+          images = [{ data: buf.toString('base64'), mediaType: mtype, path: savedPath }];
           text = `用户发送了图片，已保存至 ${savedPath}`;
           log.dim(`[飞书:${instance.appName}] 下载图片成功: ${imageKey} (${buf.length} bytes) -> ${savedPath}`);
         } catch (err: any) {
@@ -1079,7 +1112,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
           const savedPath = saveUploadedFile(buf, fileName, agentName);
           if (isImageFile(fileName)) {
             const mtype = detectImageMediaType(buf);
-            images = [{ data: buf.toString('base64'), mediaType: mtype }];
+            images = [{ data: buf.toString('base64'), mediaType: mtype, path: savedPath }];
           }
           text = buildFileHint(fileName, savedPath, buf.length);
           log.dim(`[飞书:${instance.appName}] 下载文件成功: ${fileName} (${buf.length} bytes) -> ${savedPath}`);
