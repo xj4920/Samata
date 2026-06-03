@@ -25,6 +25,7 @@ export type ScheduledTaskType = 'remind' | 'sandbox_exec' | 'tool_call';
 
 const MAX_TASKS_PER_AGENT = 50;
 const TASK_TYPES = new Set<ScheduledTaskType>(['remind', 'sandbox_exec', 'tool_call']);
+const TOOL_CALL_ALLOWLIST = new Set(['calc_etf_trades', 'sync_fast_trading_summary']);
 
 export function computeNextRun(cronExpr: string, tz = 'Asia/Shanghai'): number {
   const expr = CronExpressionParser.parse(cronExpr, { tz });
@@ -49,27 +50,54 @@ function validatePayload(taskType: ScheduledTaskType, payload: string): { ok: tr
   const keys = Object.keys(obj).sort();
   const expectedKeys = ['input', 'notify', 'tool_name'];
   if (keys.length !== expectedKeys.length || keys.some((k, i) => k !== expectedKeys[i])) {
-    return { ok: false, error: 'tool_call payload 必须为 {"tool_name":"calc_etf_trades","input":{"force":true},"notify":false}' };
+    return { ok: false, error: 'tool_call payload 必须为 {"tool_name":"<allowed>","input":{},"notify":false}' };
   }
-  if (obj.tool_name !== 'calc_etf_trades') {
-    return { ok: false, error: 'tool_call 仅支持 calc_etf_trades' };
+  if (typeof obj.tool_name !== 'string' || !TOOL_CALL_ALLOWLIST.has(obj.tool_name)) {
+    return { ok: false, error: `tool_call 仅支持: ${[...TOOL_CALL_ALLOWLIST].join(', ')}` };
   }
   if (!obj.input || typeof obj.input !== 'object' || Array.isArray(obj.input)) {
     return { ok: false, error: 'tool_call input 必须是 JSON 对象' };
   }
   const input = obj.input as Record<string, unknown>;
-  const inputKeys = Object.keys(input);
-  if (inputKeys.length > 1 || (inputKeys.length === 1 && inputKeys[0] !== 'force')) {
-    return { ok: false, error: 'tool_call input 仅支持 {} 或 {"force":true}' };
-  }
-  if ('force' in input && typeof input.force !== 'boolean') {
-    return { ok: false, error: 'tool_call input.force 必须是 boolean' };
-  }
   if (obj.notify !== false) {
     return { ok: false, error: 'tool_call notify 必须为 false' };
   }
 
-  return { ok: true };
+  return validateToolCallInput(obj.tool_name, input);
+}
+
+function validateToolCallInput(toolName: string, input: Record<string, unknown>): { ok: true } | { ok: false; error: string } {
+  if (toolName === 'calc_etf_trades') {
+    const inputKeys = Object.keys(input);
+    if (inputKeys.length > 1 || (inputKeys.length === 1 && inputKeys[0] !== 'force')) {
+      return { ok: false, error: 'calc_etf_trades input 仅支持 {} 或 {"force":true}' };
+    }
+    if ('force' in input && typeof input.force !== 'boolean') {
+      return { ok: false, error: 'calc_etf_trades input.force 必须是 boolean' };
+    }
+    return { ok: true };
+  }
+
+  if (toolName === 'sync_fast_trading_summary') {
+    const allowedKeys = new Set(['date_from', 'date_to', 'force', 'keep_raw']);
+    const invalidKeys = Object.keys(input).filter((key) => !allowedKeys.has(key));
+    if (invalidKeys.length > 0) {
+      return { ok: false, error: `sync_fast_trading_summary input 不支持字段: ${invalidKeys.join(', ')}` };
+    }
+    for (const key of ['date_from', 'date_to']) {
+      if (key in input && typeof input[key] !== 'string') {
+        return { ok: false, error: `sync_fast_trading_summary input.${key} 必须是 string` };
+      }
+    }
+    for (const key of ['force', 'keep_raw']) {
+      if (key in input && typeof input[key] !== 'boolean') {
+        return { ok: false, error: `sync_fast_trading_summary input.${key} 必须是 boolean` };
+      }
+    }
+    return { ok: true };
+  }
+
+  return { ok: false, error: `tool_call 仅支持: ${[...TOOL_CALL_ALLOWLIST].join(', ')}` };
 }
 
 export function createScheduledTask(input: {

@@ -42,6 +42,10 @@ describe('getAgentTools', () => {
       expect(names).toContain('analyze_sbl_usage');
       expect(names).toContain('query_qfii_latest_valuation_report');
       expect(names).toContain('migrate_hedge_ratio_influx_history');
+      expect(names).toContain('sync_normal_trading_summary');
+      expect(names).toContain('query_normal_trading_summary');
+      expect(names).toContain('calc_normal_trading_annual_turnover');
+      expect(names).toContain('sync_fast_trading_summary');
     });
 
     it('respects blockTools', async () => {
@@ -164,6 +168,13 @@ describe('getAgentTools', () => {
       expect(memberNames).toContain('analyze_sbl_usage');
       expect(memberNames).toContain('query_qfii_latest_valuation_report');
       expect(memberNames).not.toContain('migrate_hedge_ratio_influx_history');
+      expect(adminNames).toContain('sync_normal_trading_summary');
+      expect(adminNames).toContain('calc_normal_trading_annual_turnover');
+      expect(adminNames).toContain('sync_fast_trading_summary');
+      expect(memberNames).toContain('query_normal_trading_summary');
+      expect(memberNames).not.toContain('sync_normal_trading_summary');
+      expect(memberNames).not.toContain('calc_normal_trading_annual_turnover');
+      expect(memberNames).not.toContain('sync_fast_trading_summary');
     });
 
     it('ticlaw member keeps titans/logyi tools but not high-risk native tools', async () => {

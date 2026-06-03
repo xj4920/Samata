@@ -77,6 +77,37 @@ describe('schedule tools', () => {
       expect(forceInput.success).toBe(true);
     });
 
+    it('accepts FastTrading summary sync tool_call input', async () => {
+      const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const agentId = await getAgentId('otcclaw');
+
+      const emptyInput = createScheduledTask({
+        agentId,
+        name: '极速 summary 同步',
+        cronExpr: '30 18 * * *',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(emptyInput.success).toBe(true);
+
+      const rangedInput = createScheduledTask({
+        agentId,
+        name: '极速 summary 回填',
+        cronExpr: '30 18 * * *',
+        taskType: 'tool_call',
+        payload: JSON.stringify({
+          tool_name: 'sync_fast_trading_summary',
+          input: { date_from: '20260601', date_to: '20260602', force: true, keep_raw: false },
+          notify: false,
+        }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(rangedInput.success).toBe(true);
+    });
+
     it('rejects invalid tool_call payload', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const agentId = await getAgentId('otcclaw');
@@ -259,6 +290,37 @@ describe('schedule tools', () => {
       expect(row.next_run_at).toBeGreaterThan(Date.now());
       const parsed = JSON.parse(row.last_result!);
       expect(parsed).toEqual({ ok: true, agentId, channel: 'system', input: { force: true } });
+    });
+
+    it('executes due FastTrading sync tasks in the scheduled agent context', async () => {
+      const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
+      const agentId = await getAgentId('otcclaw');
+
+      const created = createScheduledTask({
+        agentId,
+        name: 'due 极速 summary 同步',
+        cronExpr: '30 18 * * *',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(created.success).toBe(true);
+
+      const idPrefix = (created as any).id;
+      const task = unit.db.prepare('SELECT id FROM scheduled_tasks WHERE id LIKE ?').get(`${idPrefix}%`) as { id: string };
+      unit.db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(Date.now() - 1000, task.id);
+
+      await checkAndExecute();
+
+      const row = unit.db.prepare(
+        'SELECT last_run_at, last_result, next_run_at FROM scheduled_tasks WHERE id = ?',
+      ).get(task.id) as { last_run_at: number | null; last_result: string | null; next_run_at: number | null };
+      expect(row.last_run_at).toBeGreaterThan(0);
+      expect(row.next_run_at).toBeGreaterThan(Date.now());
+      const parsed = JSON.parse(row.last_result!);
+      expect(parsed).toEqual({ ok: true, tool: 'sync_fast_trading_summary', agentId, channel: 'system', input: {} });
     });
   });
 

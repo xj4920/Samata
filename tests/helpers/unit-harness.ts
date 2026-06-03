@@ -31,9 +31,11 @@ vi.mock('../../src/plugins/registry.js', () => {
     'import_pricing_quote', 'query_pricing_quote', 'list_pricing_quote_dates',
     'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
     'export_trades_csv', 'export_north_info_csv',
+    'sync_fast_trading_summary',
     'calc_etf_trades', 'query_etf_summary',
     'query_hedge_short', 'query_qfii_latest_valuation_report', 'migrate_hedge_ratio_influx_history',
     'sync_sbl_data', 'analyze_sbl_usage',
+    'sync_normal_trading_summary', 'query_normal_trading_summary', 'calc_normal_trading_annual_turnover',
     'titans_code_sync', 'titans_code_grep', 'titans_code_read', 'titans_code_list',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
 
@@ -41,14 +43,16 @@ vi.mock('../../src/plugins/registry.js', () => {
     getPluginTools: () => pluginTools,
     getUniversalPluginTools: () => [],
     executePluginTool: async (name: string, input: any) => {
-      if (name === 'calc_etf_trades') {
+      if (name === 'calc_etf_trades' || name === 'sync_fast_trading_summary') {
         const { getContextAgent, getExecutionChannel } = await import('../../src/runtime/execution-context.js');
-        return JSON.stringify({
+        const result: Record<string, unknown> = {
           ok: true,
           agentId: getContextAgent()?.id,
           channel: getExecutionChannel(),
           input,
-        });
+        };
+        if (name === 'sync_fast_trading_summary') result.tool = name;
+        return JSON.stringify(result);
       }
       return null;
     },
