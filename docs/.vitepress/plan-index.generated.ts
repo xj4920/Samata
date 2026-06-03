@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "旧 InfluxDB 监控与 north_info 迁移脚本清理",
+      "link": "/plan/2026-06-03_legacy-influxdb-monitor-cleanup",
+      "sourcePath": "docs/plan/2026-06-03_legacy-influxdb-monitor-cleanup.md",
+      "sortKey": "2026-06-03_legacy-influxdb-monitor-cleanup.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/architecture",
+        "/external-data/pricing-and-trade"
+      ],
+      "topic": "插件生命周期与平台边界"
+    },
+    {
       "title": "Samata MVP 部署指南 — 以 Moss Agent 为例",
       "link": "/plan/2026-05-25_moss-deployment-guide",
       "sourcePath": "docs/plan/2026-05-25_moss-deployment-guide.md",
@@ -762,6 +775,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
     }
   ],
   "external-data": [
+    {
+      "title": "旧 InfluxDB 监控与 north_info 迁移脚本清理",
+      "link": "/plan/2026-06-03_legacy-influxdb-monitor-cleanup",
+      "sourcePath": "docs/plan/2026-06-03_legacy-influxdb-monitor-cleanup.md",
+      "sortKey": "2026-06-03_legacy-influxdb-monitor-cleanup.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/architecture",
+        "/external-data/pricing-and-trade"
+      ],
+      "topic": "交易数据源迁移"
+    },
     {
       "title": "Wiki Compile 性能优化",
       "link": "/plan/2026-05-19_wiki-compile-performance",
