@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: 报价与交易
+canonicalDocs:
+  - /external-data/pricing-and-trade
+status: implemented
+---
+
 # Pricing Schedule 工具路由修复
 
 ## 背景

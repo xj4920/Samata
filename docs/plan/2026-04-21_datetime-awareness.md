@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 通用工具
+canonicalDocs:
+  - /platform/common-tools
+status: implemented
+---
+
 # 日期时间感知增强计划
 
 ## Context

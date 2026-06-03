@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: 报价与交易
+canonicalDocs:
+  - /external-data/pricing-and-trade
+status: implemented
+---
+
 # 客户报价 Excel 导入优化
 
 ## 背景

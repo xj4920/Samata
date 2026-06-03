@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - plugins
+docTopics:
+  external-data: Wiki 与文档源
+  plugins: 后台服务插件化
+canonicalDocs:
+  - /external-data/wiki-and-doc-sources
+  - /plugins/catalog
+status: implemented
+---
+
 # Wiki 同步子项目
 
 ## Context

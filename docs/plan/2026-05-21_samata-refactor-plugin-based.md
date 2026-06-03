@@ -1,3 +1,16 @@
+---
+docModules:
+  - plugins
+  - platform
+docTopics:
+  plugins: 插件隔离与迁移
+  platform: 平台边界
+canonicalDocs:
+  - /plugins/sdk-and-lifecycle
+  - /platform/architecture
+status: implemented
+---
+
 # Samata 项目重构：核心平台 + 独立工具插件
 
 ## Context

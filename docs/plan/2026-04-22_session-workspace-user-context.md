@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+canonicalDocs:
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # Session 持久化与用户记忆注入（纯文件版）
 
 日期: 2026-04-22

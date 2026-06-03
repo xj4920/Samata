@@ -1,3 +1,16 @@
+---
+docModules:
+  - permissions
+  - external-data
+docTopics:
+  permissions: 文件与沙箱白名单
+  external-data: Wind 与沙箱
+canonicalDocs:
+  - /permissions/file-and-sandbox-allowlist
+  - /external-data/wind-sandbox
+status: implemented
+---
+
 # Agent read_file 白名单
 
 ## 背景与根因

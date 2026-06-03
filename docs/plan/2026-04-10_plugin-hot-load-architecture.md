@@ -1,3 +1,13 @@
+---
+docModules:
+  - plugins
+docTopics:
+  plugins: 加载与热更新
+canonicalDocs:
+  - /plugins/loading-and-hot-reload
+status: implemented
+---
+
 # Plugin 热加载架构设计
 
 **日期：** 2026-04-10

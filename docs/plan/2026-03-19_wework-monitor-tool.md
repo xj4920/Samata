@@ -1,3 +1,16 @@
+---
+docModules:
+  - platform
+  - plugins
+docTopics:
+  platform: 渠道与会话
+  plugins: 后台服务插件化
+canonicalDocs:
+  - /platform/channels-and-sessions
+  - /plugins/catalog
+status: implemented
+---
+
 # 企微监测 Tools 化计划
 
 ## Context

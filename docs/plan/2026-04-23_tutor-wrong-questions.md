@@ -1,3 +1,13 @@
+---
+docModules:
+  - plugins
+docTopics:
+  plugins: 工具插件目录
+canonicalDocs:
+  - /plugins/catalog
+status: implemented
+---
+
 # Tutor 错题集升级计划
 
 ## 目标

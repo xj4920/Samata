@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - permissions
+docTopics:
+  external-data: Wind 与沙箱
+  permissions: 文件与沙箱白名单
+canonicalDocs:
+  - /external-data/wind-sandbox
+  - /permissions/file-and-sandbox-allowlist
+status: implemented
+---
+
 # TiClaw 沙箱 + Wind 数据库能力（2026-05-08）
 
 ## 背景

@@ -1,3 +1,16 @@
+---
+docModules:
+  - platform
+  - external-data
+docTopics:
+  platform: 观测与稳定性
+  external-data: Web 与浏览器
+canonicalDocs:
+  - /platform/observability
+  - /external-data/web-and-browser
+status: implemented
+---
+
 # 2026-04-29 异常会话根因分析
 
 ## 现象

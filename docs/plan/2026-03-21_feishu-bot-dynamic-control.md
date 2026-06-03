@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+canonicalDocs:
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # 执行计划: 飞书 Bot 动态启停支持
 
 ## 需求背景

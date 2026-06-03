@@ -1,3 +1,16 @@
+---
+docModules:
+  - plugins
+  - permissions
+docTopics:
+  plugins: Tool / Skill / MCP
+  permissions: 工具可见性
+canonicalDocs:
+  - /plugins/sdk-and-lifecycle
+  - /permissions/tool-access
+status: implemented
+---
+
 # Samata vs OpenClaw vs Claude Code: Skill & Tool 架构对比分析
 
 **日期：** 2026-04-02

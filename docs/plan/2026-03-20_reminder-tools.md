@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 通用工具
+canonicalDocs:
+  - /platform/common-tools
+status: implemented
+---
+
 # 定时提醒任务 (Reminder) Common Tools 设计方案
 
 > 实现日期：2026-03-20

@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 部署与模型
+canonicalDocs:
+  - /platform/deployment
+status: implemented
+---
+
 # Samata MVP 部署指南 — 以 Moss Agent 为例
 
 > 目标：在一台全新的 Linux/macOS 机器上，从零部署 Samata 平台，创建一个名为 **Moss** 的 Agent，并通过飞书 Bot 让它运行起来。

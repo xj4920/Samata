@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - plugins
+docTopics:
+  external-data: Web 与浏览器
+  plugins: Tool / Skill / MCP
+canonicalDocs:
+  - /external-data/web-and-browser
+  - /plugins/sdk-and-lifecycle
+status: implemented
+---
+
 # Windows 宿主机 Chrome CDP + Playwright MCP 方案
 
 ## 背景

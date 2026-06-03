@@ -1,3 +1,13 @@
+---
+docModules:
+  - permissions
+docTopics:
+  permissions: RBAC 与 Agent 成员
+canonicalDocs:
+  - /permissions/roles-and-rbac
+status: implemented
+---
+
 # 执行计划：Agent 级别权限管理与系统管理员隔离
 
 ## 1. 需求理解 (Requirement Understanding)

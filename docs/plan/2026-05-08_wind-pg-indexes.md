@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: Wind PostgreSQL
+canonicalDocs:
+  - /external-data/wind-postgres
+status: implemented
+---
+
 # Wind PG 索引落地（2026-05-08）
 
 ## 执行结果

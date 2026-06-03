@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: 报价与交易
+canonicalDocs:
+  - /external-data/pricing-and-trade
+status: implemented
+---
+
 # Pricing Schedule 产品 → 管理人映射导入
 
 ## 背景

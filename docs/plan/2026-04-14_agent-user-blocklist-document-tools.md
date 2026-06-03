@@ -1,3 +1,16 @@
+---
+docModules:
+  - permissions
+  - platform
+docTopics:
+  permissions: 资源作用域
+  platform: 文档与知识
+canonicalDocs:
+  - /permissions/resource-scopes
+  - /platform/agent-capability-model
+status: implemented
+---
+
 # Agent 成员 user blocklist：文档导入/删除
 
 ## 目标

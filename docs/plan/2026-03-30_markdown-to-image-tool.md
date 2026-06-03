@@ -1,3 +1,16 @@
+---
+docModules:
+  - platform
+  - plugins
+docTopics:
+  platform: 通用工具
+  plugins: 工具插件目录
+canonicalDocs:
+  - /platform/common-tools
+  - /plugins/catalog
+status: implemented
+---
+
 # Plan: Markdown → Image Tool
 
 **Date:** 2026-03-30

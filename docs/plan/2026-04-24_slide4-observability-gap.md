@@ -1,3 +1,16 @@
+---
+docModules:
+  - platform
+  - dream
+docTopics:
+  platform: 观测与稳定性
+  dream: 质量与观测
+canonicalDocs:
+  - /platform/observability
+  - /dream/quality
+status: implemented
+---
+
 # 关闭 Slide 4 "观测与调优" 宣传与实现的差距
 
 > 起因：`docs/otcclaw-intro.html` 最后一页（Slide 4 · 调优说明）对外宣称了全链路埋点、KPI、5 类异常告警、改进闭环。核实后发现大部分未实现。本计划补齐差距，让材料与代码一致。

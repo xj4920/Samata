@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 文档与知识
+canonicalDocs:
+  - /platform/agent-capability-model
+status: implemented
+---
+
 # CLI：知识标签与 monitor 白名单核对
 
 ## 背景

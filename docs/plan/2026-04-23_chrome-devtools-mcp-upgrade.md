@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - plugins
+docTopics:
+  external-data: Web 与浏览器
+  plugins: Tool / Skill / MCP
+canonicalDocs:
+  - /external-data/web-and-browser
+  - /plugins/sdk-and-lifecycle
+status: implemented
+---
+
 # 用 chrome-devtools-mcp 替换 @playwright/mcp
 
 ## 背景

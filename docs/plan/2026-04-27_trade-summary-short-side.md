@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: 报价与交易
+canonicalDocs:
+  - /external-data/pricing-and-trade
+status: implemented
+---
+
 # Trade Summary 增加极速空头汇总
 
 > 2026-04-27 落地。配套 cursor plan 文件：`.cursor/plans/trade-summary-add-short-side_988af1cc.plan.md`。

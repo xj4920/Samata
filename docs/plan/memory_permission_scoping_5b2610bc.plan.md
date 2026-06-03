@@ -6,7 +6,8 @@ todos:
     content: 在 memory.ts 新增 getMemoryByIdPrefix() 辅助函数，供 update/delete 的归属检查复用
     status: completed
   - id: tool-save
-    content: "memory-tools.ts handleSaveMemory: 按 scope 分别检查 isSystemAdmin / isAgentAdmin，默认 scope 改为 agent"
+    content: "memory-tools.ts handleSaveMemory: 按 scope 分别检查 isSystemAdmin /
+      isAgentAdmin，默认 scope 改为 agent"
     status: completed
   - id: tool-update-delete
     content: "memory-tools.ts handleUpdateMemory/handleDeleteMemory: 先查行归属再按 scope 检查权限"
@@ -21,6 +22,13 @@ todos:
     content: 手动验证：agent admin 不能写全局、能写自己 agent；system admin 能写全局
     status: completed
 isProject: false
+docModules:
+  - permissions
+docTopics:
+  permissions: 资源作用域
+canonicalDocs:
+  - /permissions/resource-scopes
+status: implemented
 ---
 
 # Memory 权限隔离方案

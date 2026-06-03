@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 通用工具
+canonicalDocs:
+  - /platform/common-tools
+status: implemented
+---
+
 # Todo List Tracking Tools
 
 **Date**: 2026-03-26

@@ -1,3 +1,10 @@
+---
+docModules: []
+docTopics: {}
+canonicalDocs: []
+status: archived
+---
+
 # Plan: Merge tutor branch into main
 
 ## Context

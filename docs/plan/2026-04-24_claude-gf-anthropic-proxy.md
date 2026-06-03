@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 部署与模型
+canonicalDocs:
+  - /platform/deployment
+status: implemented
+---
+
 # 2026-04-24 Claude Code 接入广发 Anthropic 网关（本地拍平代理）
 
 ## 背景

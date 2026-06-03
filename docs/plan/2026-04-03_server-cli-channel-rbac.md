@@ -1,3 +1,16 @@
+---
+docModules:
+  - permissions
+  - platform
+docTopics:
+  permissions: 渠道隔离
+  platform: 渠道与会话
+canonicalDocs:
+  - /permissions/channel-isolation
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # Agent 权限梳理与建议
 
 ## 目标口径

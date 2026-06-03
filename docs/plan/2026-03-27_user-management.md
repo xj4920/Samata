@@ -1,3 +1,13 @@
+---
+docModules:
+  - permissions
+docTopics:
+  permissions: 用户管理
+canonicalDocs:
+  - /permissions/roles-and-rbac
+status: implemented
+---
+
 # User Management CLI Execution Plan
 
 ## 需求理解 (Requirement Understanding)

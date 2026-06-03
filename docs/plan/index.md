@@ -1,42 +1,33 @@
-# 计划归档
+# 演进记录
 
-`docs/plan` 用于沉淀 Samata 的阶段性设计、执行计划、迁移方案和问题复盘。这里的文档保留决策过程与实现背景，主线能力说明仍应整理到架构、权限、插件、数据等正式文档页。
+`docs/plan` 保留 Samata 的阶段性设计、执行计划、迁移方案和问题复盘原文。这些页面用于追溯，不再作为独立的文档模块呈现。
 
-## 文档定位
+## 呈现方式
 
-- **正式文档**：面向使用者和维护者，描述当前系统如何工作，例如权限机制、Agent 能力模型、Wind 数据说明。
-- **计划归档**：面向演进追踪，记录某次改造为什么做、怎么做、风险是什么、完成到哪里。
-- **复盘记录**：面向问题定位，保留故障、异常会话、性能瓶颈等根因分析和后续动作。
+- **正式文档**：按平台介绍、权限控制、Dream、插件机制、外部数据五个模块组织，是主阅读路径。
+- **演进记录**：保留原始计划和复盘文本，由各模块侧边栏的“相关设计/演进记录”引用。
+- **联动机制**：每篇 plan 通过 frontmatter 的 `docModules`、`docTopics` 和 `canonicalDocs` 自动挂到对应模块。
 
-## 建议流程
+## 新增记录
 
-1. 新需求先在 `docs/plan/YYYY-MM-DD_topic.md` 写计划，说明背景、目标、影响面、实施步骤和验证方式。
-2. 实现完成后，把仍然有效的结论同步到正式文档页。
-3. 如果计划已经被替代，在文档顶部补充状态说明，并链接到新的方案。
-4. 涉及对外使用方式、权限规则、环境变量或数据模型变化时，同步更新 `README.md` 或对应专题文档。
+新增 `docs/plan/YYYY-MM-DD_topic.md` 时，需要在文件头补充：
 
-## 命名规则
-
-```text
-YYYY-MM-DD_short-topic.md
+```yaml
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+status: implemented
+canonicalDocs:
+  - /platform/channels-and-sessions
+---
 ```
 
-示例：
-
-```text
-2026-05-21_samata-refactor-plugin-based.md
-```
-
-日期用于归档排序，短主题使用英文小写和连字符，便于链接稳定。
-
-## 本地预览
+然后执行：
 
 ```bash
-npm run docs:dev
+npm run docs:plan-sync
 ```
 
-构建静态站点：
-
-```bash
-npm run docs:build
-```
+生成的索引文件由 VitePress 侧边栏使用，不要手工编辑。

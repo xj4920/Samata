@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 部署与模型
+canonicalDocs:
+  - /platform/deployment
+status: implemented
+---
+
 # Samata 双 Repo 拆分 + Agent 配置/数据管理方案
 
 ## 当前架构概览

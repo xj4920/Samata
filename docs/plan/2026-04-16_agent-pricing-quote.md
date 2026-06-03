@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - plugins
+docTopics:
+  external-data: 报价与交易
+  plugins: 工具插件目录
+canonicalDocs:
+  - /external-data/pricing-and-trade
+  - /plugins/catalog
+status: implemented
+---
+
 # Agent 维度报价上传与询价功能
 
 ## 背景

@@ -1,3 +1,10 @@
+---
+docModules: []
+docTopics: {}
+canonicalDocs: []
+status: archived
+---
+
 # otcclaw 移除 generate_video / extract_wework_qa
 
 ## 目标

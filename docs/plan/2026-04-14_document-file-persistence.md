@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 文档与知识
+canonicalDocs:
+  - /platform/agent-capability-model
+status: implemented
+---
+
 # 文档文件持久化存储
 
 ## 概述

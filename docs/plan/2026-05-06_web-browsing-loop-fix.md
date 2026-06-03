@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - platform
+docTopics:
+  external-data: Web 与浏览器
+  platform: 观测与稳定性
+canonicalDocs:
+  - /external-data/web-and-browser
+  - /platform/observability
+status: implemented
+---
+
 # Web 调用无结论问题改进
 
 **日期**: 2026-05-06

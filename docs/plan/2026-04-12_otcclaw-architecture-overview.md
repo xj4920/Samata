@@ -1,3 +1,19 @@
+---
+docModules:
+  - platform
+  - external-data
+  - plugins
+docTopics:
+  platform: Agent 能力模型
+  external-data: 报价与交易
+  plugins: Tool / Skill / MCP
+canonicalDocs:
+  - /platform/agent-capability-model
+  - /external-data/pricing-and-trade
+  - /plugins/sdk-and-lifecycle
+status: implemented
+---
+
 # OTC Claw（衍语）功能架构说明
 
 > Samata 平台核心 Agent —— 从自然语言到数据查询、知识运用和工具执行的完整链路

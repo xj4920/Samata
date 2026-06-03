@@ -1,3 +1,10 @@
+---
+docModules: []
+docTopics: {}
+canonicalDocs: []
+status: archived
+---
+
 # Plan: README 同步更新
 
 ## Context

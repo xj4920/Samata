@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: 报价与交易
+canonicalDocs:
+  - /external-data/pricing-and-trade
+status: implemented
+---
+
 # North Info CSV 导出工具
 
 > 2026-04-27 落地。配套 cursor plan 文件：`.cursor/plans/north-info_export_csv_fd48f65e.plan.md`。

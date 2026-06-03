@@ -1,3 +1,13 @@
+---
+docModules:
+  - plugins
+docTopics:
+  plugins: Tool / Skill / MCP
+canonicalDocs:
+  - /plugins/sdk-and-lifecycle
+status: implemented
+---
+
 # Samata 新功能扩展设计方案
 
 ## Context

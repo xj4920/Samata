@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: Web 与浏览器
+canonicalDocs:
+  - /external-data/web-and-browser
+status: implemented
+---
+
 # Fix Google CAPTCHA Issue for Web Search
 
 ## Problem

@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 部署与模型
+canonicalDocs:
+  - /platform/deployment
+status: implemented
+---
+
 # DeepSeek 官方 Provider
 
 ## Context

@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+canonicalDocs:
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # 企微智能机器人：长连接接入（详细实施方案）
 
 对应官方文档 [智能机器人长连接 101463](https://developer.work.weixin.qq.com/document/path/101463)，SDK 文档 [aibot-node-sdk](https://github.com/WecomTeam/aibot-node-sdk)。

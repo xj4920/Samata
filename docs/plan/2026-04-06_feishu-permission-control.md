@@ -1,3 +1,13 @@
+---
+docModules:
+  - permissions
+docTopics:
+  permissions: 渠道隔离
+canonicalDocs:
+  - /permissions/channel-isolation
+status: implemented
+---
+
 # 飞书用户权限控制修复
 
 > 日期：2026-04-06 | 状态：已完成

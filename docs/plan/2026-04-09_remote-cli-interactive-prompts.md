@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+canonicalDocs:
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # Remote CLI Interactive Prompts
 
 ## 背景

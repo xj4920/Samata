@@ -1,0 +1,196 @@
+import { existsSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const docsRoot = resolve(repoRoot, 'docs');
+const planDir = resolve(docsRoot, 'plan');
+const generatedPath = resolve(docsRoot, '.vitepress', 'plan-index.generated.ts');
+
+const moduleLabels = {
+  platform: '平台介绍',
+  permissions: '权限控制',
+  dream: 'Dream',
+  plugins: '插件机制',
+  'external-data': '外部数据',
+} as const;
+
+type DocModule = keyof typeof moduleLabels;
+
+type PlanItem = {
+  title: string;
+  link: string;
+  sourcePath: string;
+  sortKey: string;
+  date: string | null;
+  status: string;
+  topic: string;
+  canonicalDocs: string[];
+};
+
+const allowedModules = new Set(Object.keys(moduleLabels));
+
+const args = new Set(process.argv.slice(2));
+const checkMode = args.has('--check');
+const watchMode = args.has('--watch');
+
+const extractFrontmatter = (content: string) => {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return { data: {}, body: content };
+  const data = (parseYaml(match[1]) ?? {}) as Record<string, unknown>;
+  return { data, body: content.slice(match[0].length) };
+};
+
+const readTitle = (body: string, fileName: string) => {
+  const title = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  if (title) return title;
+  return basename(fileName, '.md')
+    .replace(/\.plan$/, '')
+    .replace(/^\d{4}-\d{2}-\d{2}_/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase());
+};
+
+const readDate = (fileName: string) => fileName.match(/^(\d{4}-\d{2}-\d{2})_/)?.[1] ?? null;
+
+const normalizeStringArray = (value: unknown) => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+};
+
+const linkTargetExists = (link: string) => {
+  if (!link.startsWith('/')) return false;
+  const clean = link.replace(/#.*$/, '').replace(/\/$/, '');
+  const relativePath = clean === '' ? 'index' : clean.slice(1);
+  return existsSync(resolve(docsRoot, `${relativePath}.md`)) || existsSync(resolve(docsRoot, relativePath, 'index.md'));
+};
+
+const sortByNewest = (a: PlanItem, b: PlanItem) => b.sortKey.localeCompare(a.sortKey);
+
+const serialize = (value: unknown) => JSON.stringify(value, null, 2);
+
+const generate = () => {
+  const byModule = Object.fromEntries(
+    Object.keys(moduleLabels).map((module) => [module, [] as PlanItem[]]),
+  ) as Record<DocModule, PlanItem[]>;
+  const uncategorized: PlanItem[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const files = readdirSync(planDir)
+    .filter((fileName) => fileName.endsWith('.md') && fileName !== 'index.md')
+    .sort();
+
+  for (const fileName of files) {
+    const sourcePath = `docs/plan/${fileName}`;
+    const filePath = resolve(planDir, fileName);
+    const content = readFileSync(filePath, 'utf8');
+    const { data, body } = extractFrontmatter(content);
+    const modules = normalizeStringArray(data.docModules);
+    const canonicalDocs = normalizeStringArray(data.canonicalDocs);
+    const docTopics = data.docTopics && typeof data.docTopics === 'object'
+      ? data.docTopics as Record<string, unknown>
+      : {};
+    const status = typeof data.status === 'string' ? data.status : 'unknown';
+    const slug = basename(fileName, '.md');
+    const itemBase = {
+      title: readTitle(body, fileName),
+      link: `/plan/${slug}`,
+      sourcePath,
+      sortKey: fileName,
+      date: readDate(fileName),
+      status,
+      canonicalDocs,
+    };
+
+    if (!Object.hasOwn(data, 'docModules')) {
+      errors.push(`${sourcePath}: missing frontmatter field "docModules"`);
+      uncategorized.push({ ...itemBase, topic: '未分类' });
+      continue;
+    }
+
+    for (const module of modules) {
+      if (!allowedModules.has(module)) {
+        errors.push(`${sourcePath}: invalid docModules entry "${module}"`);
+      }
+    }
+
+    for (const link of canonicalDocs) {
+      if (!linkTargetExists(link)) {
+        errors.push(`${sourcePath}: canonicalDocs target does not exist: ${link}`);
+      }
+    }
+
+    if (modules.length === 0) {
+      warnings.push(`${sourcePath}: docModules is empty; it will not appear in module sidebars`);
+      uncategorized.push({ ...itemBase, topic: '未归入正式模块' });
+      continue;
+    }
+
+    for (const module of modules) {
+      if (!allowedModules.has(module)) continue;
+      const topic = typeof docTopics[module] === 'string' ? docTopics[module] as string : '相关设计';
+      byModule[module as DocModule].push({ ...itemBase, topic });
+    }
+  }
+
+  for (const module of Object.keys(moduleLabels) as DocModule[]) {
+    byModule[module].sort(sortByNewest);
+  }
+  uncategorized.sort(sortByNewest);
+
+  const output = `// Generated by scripts/sync-docs-plan-index.ts. Do not edit manually.\n`
+    + `\n`
+    + `export type DocModule = ${Object.keys(moduleLabels).map((key) => `'${key}'`).join(' | ')};\n`
+    + `\n`
+    + `export type PlanIndexItem = {\n`
+    + `  title: string;\n`
+    + `  link: string;\n`
+    + `  sourcePath: string;\n`
+    + `  sortKey: string;\n`
+    + `  date: string | null;\n`
+    + `  status: string;\n`
+    + `  topic: string;\n`
+    + `  canonicalDocs: string[];\n`
+    + `};\n`
+    + `\n`
+    + `export const planModuleLabels: Record<DocModule, string> = ${serialize(moduleLabels)};\n`
+    + `\n`
+    + `export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = ${serialize(byModule)};\n`
+    + `\n`
+    + `export const uncategorizedPlanItems: PlanIndexItem[] = ${serialize(uncategorized)};\n`;
+
+  const previous = existsSync(generatedPath) ? readFileSync(generatedPath, 'utf8') : '';
+  if (previous !== output) {
+    writeFileSync(generatedPath, output);
+    console.log(`updated ${generatedPath}`);
+  } else {
+    console.log(`${generatedPath} is up to date`);
+  }
+
+  for (const warning of warnings) console.warn(`warning: ${warning}`);
+  if (errors.length > 0) {
+    for (const error of errors) console.error(`error: ${error}`);
+    if (checkMode) process.exitCode = 1;
+  }
+
+  return errors.length === 0;
+};
+
+generate();
+
+if (watchMode) {
+  console.log(`watching ${planDir}`);
+  let timer: NodeJS.Timeout | undefined;
+  watch(planDir, () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try {
+        generate();
+      } catch (error) {
+        console.error(error);
+      }
+    }, 150);
+  });
+}

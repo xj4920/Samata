@@ -1,3 +1,16 @@
+---
+docModules:
+  - permissions
+  - plugins
+docTopics:
+  permissions: 工具可见性
+  plugins: Agent 绑定
+canonicalDocs:
+  - /permissions/tool-access
+  - /plugins/bind-to-agent
+status: implemented
+---
+
 # Agent 工具权限矩阵重构
 
 ## 设计目标

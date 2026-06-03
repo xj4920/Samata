@@ -1,3 +1,13 @@
+---
+docModules:
+  - dream
+docTopics:
+  dream: 质量与观测
+canonicalDocs:
+  - /dream/quality
+status: implemented
+---
+
 # 丰富 Dream 数据源 + 改善提取质量
 
 ## 背景问题

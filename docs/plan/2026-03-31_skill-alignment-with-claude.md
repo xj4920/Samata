@@ -1,3 +1,13 @@
+---
+docModules:
+  - plugins
+docTopics:
+  plugins: Skill 机制
+canonicalDocs:
+  - /plugins/sdk-and-lifecycle
+status: implemented
+---
+
 # Skill 系统重构：向 Claude Code / openclaw 定义对齐
 
 **日期：** 2026-03-31

@@ -1,3 +1,16 @@
+---
+docModules:
+  - plugins
+  - platform
+docTopics:
+  plugins: 工具插件目录
+  platform: 通用工具
+canonicalDocs:
+  - /plugins/catalog
+  - /platform/common-tools
+status: implemented
+---
+
 # Add Text-to-Image and Text-to-Video Generation
 
 ## Background

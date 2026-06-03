@@ -1,3 +1,16 @@
+---
+docModules:
+  - external-data
+  - platform
+docTopics:
+  external-data: Wiki 与文档源
+  platform: 文档与知识
+canonicalDocs:
+  - /external-data/wiki-and-doc-sources
+  - /platform/agent-capability-model
+status: implemented
+---
+
 # Agent Wiki 知识库改造计划
 
 参考 Karpathy LLM Wiki 思路，将知识主体从平铺 FAQ 表升级为 Agent 级结构化 Wiki 目录。

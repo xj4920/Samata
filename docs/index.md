@@ -4,22 +4,22 @@ layout: home
 hero:
   name: Samata
   text: 多 Agent 智能助手平台文档
-  tagline: 汇总平台架构、Agent 能力模型、权限体系、Dream 机制与业务数据说明。
+  tagline: 汇总平台介绍、权限控制、Dream、插件机制与外部数据能力。
   actions:
     - theme: brand
-      text: 阅读架构概览
-      link: /agent-skills-tools-knowledge-memory-overview
+      text: 阅读平台介绍
+      link: /platform/
     - theme: alt
-      text: 查看权限机制
-      link: /permission-system
+      text: 查看外部数据
+      link: /external-data/
 
 features:
-  - title: Agent 能力模型
-    details: 说明 Memory、Tools、Skills、Knowledge 如何组成 Samata 的 Agent 上下文。
-  - title: 权限与隔离
-    details: 梳理 System Admin、Agent Admin、Agent User 与渠道隔离规则。
-  - title: 业务数据文档
-    details: 汇总 Wind 数据库连接、表结构索引和分表字段说明。
+  - title: 平台介绍
+    details: 说明 Samata 的 Agent 运行时、渠道接入、会话上下文和通用工具。
+  - title: 权限与插件
+    details: 梳理 System Admin、Agent Admin、Agent User、工具可见性和插件绑定机制。
+  - title: Dream 与外部数据
+    details: 汇总 Dream 经验沉淀、Wind PostgreSQL、报价交易、Wiki 与浏览器能力。
 ---
 
 ## 本地运行
@@ -28,10 +28,12 @@ features:
 npm run docs:dev
 ```
 
+`docs:dev` 会先同步 `docs/plan` 元数据索引，再启动 VitePress。
+
 ## 构建静态站点
 
 ```bash
-npm run docs:build
+npm run docs:check
 ```
 
 构建产物默认输出到 `docs/.vitepress/dist`。

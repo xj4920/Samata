@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 渠道与会话
+canonicalDocs:
+  - /platform/channels-and-sessions
+status: implemented
+---
+
 # feishu bot 凭证迁移到 DB + wework-monitor 使用 alter-ego 绑定
 
 ## Context

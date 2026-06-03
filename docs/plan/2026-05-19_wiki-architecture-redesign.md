@@ -1,3 +1,13 @@
+---
+docModules:
+  - external-data
+docTopics:
+  external-data: Wiki 与文档源
+canonicalDocs:
+  - /external-data/wiki-and-doc-sources
+status: implemented
+---
+
 # Wiki Architecture Redesign: 从编译型百科到链接型文档库
 
 ## 概述

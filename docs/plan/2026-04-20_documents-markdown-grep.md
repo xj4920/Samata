@@ -1,3 +1,16 @@
+---
+docModules:
+  - platform
+  - external-data
+docTopics:
+  platform: 文档与知识
+  external-data: Wiki 与文档源
+canonicalDocs:
+  - /platform/agent-capability-model
+  - /external-data/wiki-and-doc-sources
+status: implemented
+---
+
 # 执行计划：文档知识从 DB 存储改为 Markdown 文件 + Grep 查询
 
 > 日期：2026-04-20

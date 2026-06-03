@@ -1,3 +1,16 @@
+---
+docModules:
+  - plugins
+  - platform
+docTopics:
+  plugins: Skill 机制
+  platform: Agent 能力模型
+canonicalDocs:
+  - /plugins/sdk-and-lifecycle
+  - /platform/agent-capability-model
+status: implemented
+---
+
 # Agent Skills 管理机制
 
 ## 全局工具注册
