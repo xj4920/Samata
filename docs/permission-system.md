@@ -24,7 +24,7 @@ isSystemAdmin() = getExecutionChannel() === 'cli' && getCurrentUser().role === '
 | Agent 管理 | create/del/assign/unassign/bot-app | 仅 CLI |
 | 用户管理 | `/user add/update/delete` | 仅 CLI |
 | 高危工具 | `write_file`、`edit_file`、`reload_app` | 仅 CLI |
-| 监控/运维 | `/watch`（企微监测）、`/bot`（bot启停） | 仅 CLI |
+| 监控/运维 | `/bot`（bot启停） | 仅 CLI |
 | 隐式继承 | 自动成为所有 agent 的 admin | — |
 
 ### CLI-only 命令
@@ -32,7 +32,6 @@ isSystemAdmin() = getExecutionChannel() === 'cli' && getCurrentUser().role === '
 以下命令设置了 `cliOnly: true`，在 bot channel 完全不可见：
 
 - `/user` — 系统用户管理
-- `/watch` — 企微监测
 - `/bot` — Bot 启停
 
 ### Agent 管理工具的双重守卫
@@ -203,7 +202,6 @@ isAgentMember(agentId) = isSystemAdmin()  // 自动通过
 | `/agent member` | — | no | ✅ | ✅ | ❌ |
 | `/model` | agent_admin | no | ✅ | ✅ | ❌ |
 | `/user` | system_admin | yes | ✅ | ❌ | ❌ |
-| `/watch` | system_admin | yes | ✅ | ❌ | ❌ |
 | `/bot` | system_admin | yes | ✅ | ❌ | ❌ |
 
 > 代码位置：`src/commands/router.ts:34-60` — 命令定义；`router.ts:153-162` — `shouldShowCommand()`

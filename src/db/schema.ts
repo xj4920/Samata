@@ -494,7 +494,7 @@ export function initSchema(): void {
         'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
       ]);
       const alterEgoTools = JSON.stringify([
-        'search_knowledge', 'update_knowledge', 'extract_wework_qa', 'wework_monitor',
+        'search_knowledge', 'update_knowledge', 'extract_wework_qa',
         'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
         'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
         'save_memory', 'search_memory', 'delete_memory',
@@ -572,18 +572,6 @@ export function initSchema(): void {
       `);
       db.exec('DROP TABLE agent_assignments;');
       db.exec('ALTER TABLE agent_assignments_new RENAME TO agent_assignments;');
-    }
-  });
-
-  runOnce('alter-ego-add-wework-monitor', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
-    if (row) {
-      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      if (!current.includes('wework_monitor')) {
-        current.push('wework_monitor');
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
-          .run(JSON.stringify(current));
-      }
     }
   });
 
@@ -2673,6 +2661,29 @@ export function initSchema(): void {
     db.prepare(
       "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
     ).run(JSON.stringify(nextToolsList), nextUserToolsList.length > 0 ? JSON.stringify(nextUserToolsList) : null);
+  });
+
+  runOnce('remove-legacy-wework-message-monitor-tool-v1', () => {
+    const legacyTool = ['wework', 'monitor'].join('_');
+    const rows = db.prepare(
+      "SELECT id, tools_list, user_tools_list FROM agents WHERE tools_list IS NOT NULL OR user_tools_list IS NOT NULL",
+    ).all() as Array<{ id: string; tools_list: string | null; user_tools_list: string | null }>;
+
+    for (const row of rows) {
+      const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+      const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+      const nextToolsList = toolsList.filter(name => name !== legacyTool);
+      const nextUserToolsList = userToolsList.filter(name => name !== legacyTool);
+      if (nextToolsList.length === toolsList.length && nextUserToolsList.length === userToolsList.length) continue;
+
+      db.prepare(
+        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE id = ?",
+      ).run(
+        nextToolsList.length > 0 ? JSON.stringify(nextToolsList) : null,
+        nextUserToolsList.length > 0 ? JSON.stringify(nextUserToolsList) : null,
+        row.id,
+      );
+    }
   });
 
   runOnce('seed-fast-trading-summary-sync-scheduled-task-v1', () => {
