@@ -50,6 +50,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "插件生命周期与平台边界"
     },
     {
+      "title": "Docker 部署运行时支持",
+      "link": "/plan/2026-06-03_docker-deployment-runtime",
+      "sourcePath": "docs/plan/2026-06-03_docker-deployment-runtime.md",
+      "sortKey": "2026-06-03_docker-deployment-runtime.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "Samata MVP 部署指南 — 以 Moss Agent 为例",
       "link": "/plan/2026-05-25_moss-deployment-guide",
       "sourcePath": "docs/plan/2026-05-25_moss-deployment-guide.md",

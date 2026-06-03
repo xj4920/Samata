@@ -1,4 +1,33 @@
 services:
+  samata:
+    build:
+      context: ..
+      dockerfile: samata/Dockerfile
+    image: samata:latest
+    container_name: samata
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      NODE_ENV: production
+      CLI_API_HOST: 0.0.0.0
+      CLI_API_PORT: 3457
+      SAMATA_PLUGINS_DIR: /app/plugins
+      PG_WIND_HOST: postgres
+      PG_WIND_PORT: 5432
+      FAST_TRADING_PG_HOST: postgres
+      FAST_TRADING_PG_PORT: 5432
+      WIND_PG_HOST: postgres
+      WIND_PG_PORT: 5432
+      LOG_PG_HOST: postgres
+      LOG_PG_PORT: 5432
+    ports:
+      - "3457:3457"
+    volumes:
+      - ./.env:/app/samata/.env:ro
+      - ./data:/app/samata/data
+      - ./logs:/app/samata/logs
+
   postgres:
     image: postgres:16
     container_name: samata-postgres

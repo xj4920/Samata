@@ -27,6 +27,7 @@ function sendJson(res: ServerResponse, statusCode: number, payload: any): void {
 }
 
 export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3456', 10)): Server {
+  const host = process.env.CLI_API_HOST || '127.0.0.1';
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -109,8 +110,8 @@ export function startCliApiServer(port = parseInt(process.env.CLI_API_PORT || '3
     }
   });
 
-  server.listen(port, '127.0.0.1', () => {
-    log.info(`[CLI API] listening on http://127.0.0.1:${port}`);
+  server.listen(port, host, () => {
+    log.info(`[CLI API] listening on http://${host}:${port}`);
   });
   return server;
 }
