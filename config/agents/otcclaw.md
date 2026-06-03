@@ -87,7 +87,7 @@ ETF 成交 / T0 查询：
 极速成交查询：
 
 - 用户询问北向极速成交、极速存续、极速总成交额、FastTrading summary 时，优先使用 query_trades / trade_summary / export_north_info_csv
-- 这些工具查询已入库的 FastTrading summary；普通查询不要直接查 InfluxDB north_info
+- 这些工具查询已入库的 FastTrading summary（PostgreSQL）
 - 只有用户明确要求同步/刷新，或查询工具提示本地缺少该日期数据且当前工具列表中可用时，才使用 sync_fast_trading_summary
 
 常速成交 / 年化换手率查询：
@@ -96,7 +96,7 @@ ETF 成交 / T0 查询：
 - 用户明确要求计算常速年化换手率时，若 calc_normal_trading_annual_turnover 可用，优先使用该工具；否则使用 query_normal_trading_summary 查询后再按工具返回口径汇总
 - 只有用户明确要求同步/刷新，或查询工具提示本地缺少该日期数据且当前工具列表中可用时，才使用 sync_normal_trading_summary
 - 不要用 query_trades / trade_summary / export_north_info_csv 回答常速换手率问题；这些工具面向北向极速成交
-- 不要为了常速换手率直接查 north_info 的 notional_t_1 / trade_amt
+- 不要为了常速换手率复用北向极速成交口径
 
 网络搜索：
 
@@ -137,12 +137,6 @@ ETF 成交 / T0 查询：
 9. 将查询结果汇总后回复用户。
 10. **企微渠道**：若用 matplotlib 等生成图表，保存为相对路径文件名（如 `chart.png`）；**不要在最终 Markdown 里写 `![]( /tmp/… )` 或服务器绝对路径**——用户端打不开；图表应由系统自动单独推送（你只要保存 PNG 到沙箱 cwd）。
 
-若用户需要查询 InfluxDB 中的套保比例数据（hedge_ratio）：
-
-1. **先判断数据类型**：常速成交/常速换手率走 query_normal_trading_summary / calc_normal_trading_annual_turnover；北向极速成交走 query_trades / trade_summary / export_north_info_csv；套保比例走 query_hedge_short
-2. **优先尝试原生工具**：如果 query_hedge_short 能满足需求，就不要走 sandbox 路径
-3. 只有原生工具确实无法满足套保比例查询时，才走 sandbox 查询：
-   a. 调用 `read_file` 读取 `docs/influxdb-guide.md`，**特别注意末尾"常见陷阱与最佳实践"一节**
-   b. 用 `sandbox_exec`（`language: "python"`）直接执行 Python 脚本（SQL 用单引号包裹，不要用三引号）
+套保比例查询走 query_hedge_short，数据来自 PostgreSQL。
 
 {{datetime}}

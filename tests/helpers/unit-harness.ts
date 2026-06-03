@@ -33,7 +33,7 @@ vi.mock('../../src/plugins/registry.js', () => {
     'export_trades_csv', 'export_north_info_csv',
     'sync_fast_trading_summary',
     'calc_etf_trades', 'query_etf_summary',
-    'query_hedge_short', 'query_qfii_latest_valuation_report', 'migrate_hedge_ratio_influx_history',
+    'query_hedge_short', 'query_qfii_latest_valuation_report',
     'sync_sbl_data', 'analyze_sbl_usage',
     'sync_normal_trading_summary', 'query_normal_trading_summary', 'calc_normal_trading_annual_turnover',
     'titans_code_sync', 'titans_code_grep', 'titans_code_read', 'titans_code_list',
