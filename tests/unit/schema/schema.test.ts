@@ -15,7 +15,7 @@ describe('schema integrity', () => {
   describe('core tables exist', () => {
     const expectedTables = [
       'knowledge', 'knowledge_agents', 'skills', 'users',
-      'agents', 'agent_members', 'todos', 'health_records',
+      'user_aliases', 'agents', 'agent_members', 'todos', 'health_records',
       'reminders', 'bot_apps', 'agent_assignments',
       'documents', 'pricing_quotes', 'memory',
       'wrong_questions', 'wrong_question_assets',
@@ -61,6 +61,12 @@ describe('schema integrity', () => {
   });
 
   describe('runOnce idempotency', () => {
+    it('user_aliases only constrains canonical_user_id', () => {
+      const fks = ctx.db.prepare('PRAGMA foreign_key_list(user_aliases)').all() as { from: string; table: string }[];
+      expect(fks.some(fk => fk.from === 'canonical_user_id' && fk.table === 'users')).toBe(true);
+      expect(fks.some(fk => fk.from === 'alias_user_id')).toBe(false);
+    });
+
     it('scheduled_tasks has a locked_until column', () => {
       const columns = ctx.db.prepare('PRAGMA table_info(scheduled_tasks)').all() as { name: string }[];
       expect(columns.map(c => c.name)).toContain('locked_until');

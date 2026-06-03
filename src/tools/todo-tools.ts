@@ -20,6 +20,13 @@ function loadTodoTags(): string[] {
 
 const TODO_TAGS = loadTodoTags();
 
+function getTodoReadAgentId(): string | undefined {
+  const agent = getCurrentAgent();
+  // alter-ego is the user's personal assistant; it should see that user's todos
+  // even when they were created from another specialized agent.
+  return agent?.name === 'alter-ego' ? undefined : agent?.id;
+}
+
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'create_todo',
@@ -122,7 +129,7 @@ function handleCreateTodo(input: CreateTodoInput): string {
 }
 
 function handleListTodos(input: ListTodosInput): string {
-  const agentId = getCurrentAgent()?.id;
+  const agentId = getTodoReadAgentId();
   const userId = getCurrentUser()?.id;
   const items = listTodos(input, agentId, userId);
   if (items.length === 0) return JSON.stringify({ message: '暂无待办事项' });
@@ -138,7 +145,7 @@ function handleListTodos(input: ListTodosInput): string {
 }
 
 function handleUpdateTodo(input: UpdateTodoInput): string {
-  const agentId = getCurrentAgent()?.id;
+  const agentId = getTodoReadAgentId();
   const userId = getCurrentUser()?.id;
   const result = updateTodo(input, agentId, userId);
   if (!result.success) return JSON.stringify(result);
@@ -154,7 +161,7 @@ function handleUpdateTodo(input: UpdateTodoInput): string {
 }
 
 function handleDeleteTodo(input: DeleteTodoInput): string {
-  const agentId = getCurrentAgent()?.id;
+  const agentId = getTodoReadAgentId();
   const userId = getCurrentUser()?.id;
   return JSON.stringify(deleteTodo(input.id, agentId, userId));
 }

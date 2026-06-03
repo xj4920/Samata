@@ -3,7 +3,7 @@
  * 每个飞书 user 对应一个独立的对话上下文
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { getOrCreateUser } from '../auth/rbac.js';
+import { buildCanonicalUserId, getOrCreateUser, registerUserAliases } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
@@ -23,10 +23,11 @@ const sessions = new Map<string, FeishuSession>();
 export function getSession(feishuUserId: string, feishuUsername: string): FeishuSession {
   let session = sessions.get(feishuUserId);
   if (!session) {
-    const userId = `feishu_${feishuUserId}`;
-    const username = feishuUsername || userId;
-    getOrCreateUser(userId, username, 'user');
-    const user: User = { id: userId, username, role: 'user' };
+    const userId = buildCanonicalUserId('feishu', { open_id: feishuUserId });
+    const legacyUserId = `feishu_${feishuUserId}`;
+    const username = feishuUsername || legacyUserId;
+    const user = getOrCreateUser(userId, username, 'user');
+    registerUserAliases(userId, [legacyUserId], 'feishu legacy session identity');
     const agent = resolveAgent('feishu', feishuUserId);
     if (!agent) throw new AgentUnboundError('feishu', feishuUserId);
     session = {

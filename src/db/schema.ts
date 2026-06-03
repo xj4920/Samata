@@ -84,6 +84,14 @@ export function initSchema(): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS user_aliases (
+      alias_user_id     TEXT PRIMARY KEY,
+      canonical_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      note              TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_aliases_canonical ON user_aliases(canonical_user_id);
+
     CREATE TABLE IF NOT EXISTS clients (
       id           TEXT PRIMARY KEY,
       name         TEXT NOT NULL,
@@ -317,6 +325,33 @@ export function initSchema(): void {
       // migration failure should not block startup
     }
   };
+
+  runOnce('normalize-user-aliases-schema-v1', () => {
+    const fkRows = db.pragma('foreign_key_list(user_aliases)') as Array<{ from: string }>;
+    const hasAliasFk = fkRows.some(r => r.from === 'alias_user_id');
+    if (!hasAliasFk) return;
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE user_aliases_new (
+          alias_user_id     TEXT PRIMARY KEY,
+          canonical_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          note              TEXT,
+          created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO user_aliases_new (alias_user_id, canonical_user_id, note, created_at)
+        SELECT ua.alias_user_id, ua.canonical_user_id, ua.note, ua.created_at
+        FROM user_aliases ua
+        INNER JOIN users u ON u.id = ua.canonical_user_id;
+        DROP TABLE user_aliases;
+        ALTER TABLE user_aliases_new RENAME TO user_aliases;
+        CREATE INDEX IF NOT EXISTS idx_user_aliases_canonical ON user_aliases(canonical_user_id);
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  });
 
   runOnce('scheduled-tasks-allow-tool-call', () => {
     const row = db.prepare(
@@ -2161,6 +2196,78 @@ export function initSchema(): void {
       stmt.run(name, id);
     }
     db.prepare("UPDATE users SET display_name = '孙滨' WHERE id = 'wework_sunbin'").run();
+  });
+
+  runOnce('seed-known-feishu-user-aliases-v1', () => {
+    const aliases: Array<{ canonical: string; alias: string; note: string }> = [
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f',
+        note: 'same user across feishu bot open_ids',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230',
+        note: 'same user across feishu bot open_ids',
+      },
+    ];
+    const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?');
+    const ins = db.prepare(
+      'INSERT OR IGNORE INTO user_aliases (canonical_user_id, alias_user_id, note) VALUES (?, ?, ?)',
+    );
+    for (const row of aliases) {
+      if (userExists.get(row.canonical) && userExists.get(row.alias)) {
+        ins.run(row.canonical, row.alias, row.note);
+      }
+    }
+  });
+
+  runOnce('seed-known-user-aliases-v2', () => {
+    const aliases: Array<{ canonical: string; alias: string; note: string }> = [
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f',
+        note: 'known same person across feishu bot open_ids',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230',
+        note: 'known same person across feishu bot open_ids',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'wework_gzxujun',
+        note: 'known same person across feishu and wework',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'wework_user_gzxujun',
+        note: 'known same person across feishu and wework',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'wework_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ',
+        note: 'known same person across feishu and external wework',
+      },
+      {
+        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        alias: 'wework_user_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ',
+        note: 'known same person across feishu and external wework',
+      },
+    ];
+    const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?');
+    const upsert = db.prepare(`
+      INSERT INTO user_aliases (canonical_user_id, alias_user_id, note)
+      VALUES (?, ?, ?)
+      ON CONFLICT(alias_user_id) DO UPDATE SET
+        canonical_user_id = excluded.canonical_user_id,
+        note = excluded.note
+    `);
+    for (const row of aliases) {
+      if (userExists.get(row.canonical)) {
+        upsert.run(row.canonical, row.alias, row.note);
+      }
+    }
   });
 
   // --- 测试环境：关闭生产 wework bot，新增测试 bot 绑定 otcclaw ---

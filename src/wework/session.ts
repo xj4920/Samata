@@ -8,7 +8,7 @@
  * 每个 bot 实例维护独立的 sessions Map（WeworkBotInstance.sessions）。
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { getOrCreateUser } from '../auth/rbac.js';
+import { buildCanonicalUserId, getOrCreateUser, getUser, registerUserAliases } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
@@ -40,13 +40,16 @@ export function getSession(
     const agent = resolveAgent('wework', botId);
     if (!agent) throw new AgentUnboundError('wework', botId);
     const bindingUserId = mapKey.startsWith('g:') ? mapKey.split(':')[2] : mapKey;
-    const userId = `wework_${bindingUserId}`;
-    const username = weworkUsername || `wework_${bindingUserId}`;
-    getOrCreateUser(userId, username, 'user');
+    const userId = buildCanonicalUserId('wework', { userid: bindingUserId });
+    const legacyUserId = `wework_${bindingUserId}`;
+    const legacyUser = getUser(legacyUserId);
+    const username = weworkUsername || legacyUser?.username || legacyUserId;
+    const user = getOrCreateUser(userId, username, 'user', legacyUser?.display_name);
+    registerUserAliases(userId, [legacyUserId], 'wework internal userid');
     session = {
       weworkUserId: bindingUserId,
       weworkUsername: username,
-      user: { id: userId, username, role: 'user' },
+      user,
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,
