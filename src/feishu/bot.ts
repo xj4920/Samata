@@ -24,7 +24,7 @@ import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isIma
 import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
-import { getOrCreateUser, getUser, isAgentAdmin, type User } from '../auth/rbac.js';
+import { buildCanonicalUserId, getOrCreateUser, getUser, isAgentAdmin, registerUserAliases, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
@@ -57,7 +57,7 @@ type FeishuAppConfig = {
 interface FeishuSession {
   feishuUserId: string;
   feishuUsername: string;
-  user: { id: string; username: string; role: 'admin' | 'user' };
+  user: User;
   history: Anthropic.MessageParam[];
   lastActive: number;
   agentName: string;
@@ -236,29 +236,52 @@ function isPlaceholderName(name: string): boolean {
   return name.startsWith('user_') || name.startsWith('feishu_');
 }
 
+type FeishuSenderIds = FeishuMessage['sender']['sender_id'];
+
+function resolveFeishuIdentity(feishuUserId: string, senderIds?: FeishuSenderIds): { userId: string; aliases: string[]; openId: string } {
+  const openId = senderIds?.open_id || feishuUserId;
+  const userId = buildCanonicalUserId('feishu', {
+    union_id: senderIds?.union_id,
+    user_id: senderIds?.user_id,
+    open_id: openId,
+  });
+  const aliases = [
+    senderIds?.union_id ? `feishu_union_${senderIds.union_id}` : undefined,
+    senderIds?.user_id ? `feishu_user_${senderIds.user_id}` : undefined,
+    senderIds?.open_id ? `feishu_open_${senderIds.open_id}` : undefined,
+    senderIds?.user_id ? `feishu_${senderIds.user_id}` : undefined,
+    senderIds?.open_id ? `feishu_${senderIds.open_id}` : undefined,
+    feishuUserId ? `feishu_${feishuUserId}` : undefined,
+  ].filter((v): v is string => Boolean(v));
+  return { userId, aliases: [...new Set(aliases)], openId };
+}
+
 async function getSessionForInstance(
   instance: FeishuBotInstance,
   feishuUserId: string,
-  feishuUsername: string
+  feishuUsername: string,
+  senderIds?: FeishuSenderIds,
 ): Promise<FeishuSession> {
+  const identity = resolveFeishuIdentity(feishuUserId, senderIds);
   let session = instance.sessions.get(feishuUserId);
   if (!session) {
     const agent = resolveAgent('feishu', instance.appId);
     if (!agent) throw new AgentUnboundError('feishu', instance.appId);
-    const userId = `feishu_${feishuUserId}`;
 
     // 1) Check DB for a previously confirmed real name (survives restarts)
-    const existingUser = getUser(userId);
+    const existingUser = [identity.userId, ...identity.aliases]
+      .map(id => getUser(id))
+      .find(u => u && !isPlaceholderName(u.username));
     const dbName = existingUser?.username;
     const hasRealDbName = dbName && !isPlaceholderName(dbName);
 
     // 2) If DB has no real name, try the Feishu contacts API
     const username = hasRealDbName
       ? dbName
-      : await resolveFeishuRealName(instance, feishuUserId, feishuUsername) || userId;
+      : await resolveFeishuRealName(instance, identity.openId, feishuUsername) || identity.userId;
 
-    getOrCreateUser(userId, username, 'user');
-    const user: User = { id: userId, username, role: 'user' };
+    const user = getOrCreateUser(identity.userId, username, 'user', existingUser?.display_name);
+    registerUserAliases(identity.userId, identity.aliases, 'feishu sender identity');
 
     const needsConfirm = isPlaceholderName(username);
     session = {
@@ -273,11 +296,14 @@ async function getSessionForInstance(
     };
     instance.sessions.set(feishuUserId, session);
   } else {
+    const user = getOrCreateUser(identity.userId, session.user.username, session.user.role, session.user.display_name);
+    registerUserAliases(identity.userId, identity.aliases, 'feishu sender identity');
+    if (session.user.id !== user.id) session.user = user;
     // Session exists but username may be stale (e.g. initial API call failed).
     // Re-resolve via API when the stored name is still a placeholder.
     const cur = session.user.username;
     if (isPlaceholderName(cur)) {
-      const realName = await resolveFeishuRealName(instance, feishuUserId, cur);
+      const realName = await resolveFeishuRealName(instance, identity.openId, cur);
       if (realName !== cur) {
         session.user.username = realName;
         session.feishuUsername = realName;
@@ -331,8 +357,9 @@ async function handleAIChat(
   feishuUsername: string,
   images?: ImageInput[],
   replyOpts?: FeishuReplyOptions,
+  senderIds?: FeishuSenderIds,
 ): Promise<{ text: string; mediaPaths?: string[] }> {
-  const session = await getSessionForInstance(instance, feishuUserId, feishuUsername);
+  const session = await getSessionForInstance(instance, feishuUserId, feishuUsername, senderIds);
   const baseAgentConfig = getAgent(session.agentName);
   const botLLM = getBotAppLLM(instance.appId);
   const agentConfig = (botLLM.provider || botLLM.model)
@@ -854,7 +881,8 @@ async function handleCommand(
   instance: FeishuBotInstance,
   cmd: string,
   args: string,
-  feishuUserId: string
+  feishuUserId: string,
+  senderIds?: FeishuSenderIds,
 ): Promise<string | null> {
   switch (cmd) {
     case 'status': {
@@ -868,7 +896,7 @@ async function handleCommand(
     case 'skill': {
       const sub = args.split(/\s+/)[0]?.toLowerCase();
       if (!sub || sub === 'list') {
-        const session = await getSessionForInstance(instance, feishuUserId, '');
+        const session = await getSessionForInstance(instance, feishuUserId, '', senderIds);
         const agentId = getAgent(session.agentName).id;
         const skills = getAllSkills(agentId);
         return formatSkillList(skills);
@@ -876,22 +904,22 @@ async function handleCommand(
       return null;
     }
     case 'agent': {
-      return handleAgentCommand(instance, args, feishuUserId);
+      return handleAgentCommand(instance, args, feishuUserId, senderIds);
     }
     case 'memory': {
-      return handleMemoryCommand(args, instance, feishuUserId);
+      return handleMemoryCommand(args, instance, feishuUserId, senderIds);
     }
     default:
       return null;
   }
 }
 
-async function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUserId: string): Promise<string> {
+async function handleMemoryCommand(args: string, instance: FeishuBotInstance, feishuUserId: string, senderIds?: FeishuSenderIds): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || 'list').toLowerCase();
   const rest = parts.slice(1).join(' ');
 
-  const session = await getSessionForInstance(instance, feishuUserId, '');
+  const session = await getSessionForInstance(instance, feishuUserId, '', senderIds);
   const agentId = getAgent(session.agentName).id;
 
   if (sub === 'list' || sub === '') {
@@ -926,13 +954,13 @@ async function handleMemoryCommand(args: string, instance: FeishuBotInstance, fe
   return 'Memory 用法：\n/memory list\n/memory add <内容>\n/memory search <关键词>\n/memory del <id>';
 }
 
-async function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUserId: string): Promise<string> {
+async function handleAgentCommand(instance: FeishuBotInstance, args: string, feishuUserId: string, senderIds?: FeishuSenderIds): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
 
   // /agent — show current agent
   if (!sub) {
-    const session = await getSessionForInstance(instance, feishuUserId, '');
+    const session = await getSessionForInstance(instance, feishuUserId, '', senderIds);
     const agent = getAgent(session.agentName);
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
@@ -1080,7 +1108,8 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   }
 
   // 获取发送者信息
-  const senderId = event.sender.sender_id.open_id || event.sender.sender_id.user_id || '';
+  const senderIds = event.sender.sender_id;
+  const senderId = senderIds.open_id || senderIds.user_id || senderIds.union_id || '';
   const senderName = `user_${senderId.slice(-6)}`;
   const replyOpts: FeishuReplyOptions = isGroup ? { messageId, isGroup: true, traceId } : { traceId };
 
@@ -1121,7 +1150,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
   // --- 身份确认流程：API 未能获取用户真实姓名时，友好询问 ---
   if (!text.startsWith('/')) {
-    const nameSession = await getSessionForInstance(instance, senderId, senderName);
+    const nameSession = await getSessionForInstance(instance, senderId, senderName, senderIds);
     if (nameSession.pendingNameConfirm) {
       if (!nameSession.nameAsked) {
         // 首次交互：先回答用户问题之前，礼貌地询问身份
@@ -1156,7 +1185,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
   try {
     // 处理内置命令
     if (text === '/start') {
-      const startSession = await getSessionForInstance(instance, senderId, '');
+      const startSession = await getSessionForInstance(instance, senderId, '', senderIds);
       const startAgentId = getAgent(startSession.agentName).id;
       const role = isAgentAdmin(startAgentId) ? 'agent admin' : 'member';
       await sendFeishuReply(instance, chatId,
@@ -1191,7 +1220,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
 
     // /model 命令：查看或切换 LLM provider/model（bot 级绑定）
     if (text.startsWith('/model')) {
-      const modelSession = await getSessionForInstance(instance, senderId, '');
+      const modelSession = await getSessionForInstance(instance, senderId, '', senderIds);
       if (!isAgentAdmin(getAgent(modelSession.agentName).id)) {
         await sendFeishuReply(instance, chatId, '❌ 仅管理员可切换模型', replyOpts);
         return;
@@ -1209,11 +1238,11 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
       const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
       const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-      const session = await getSessionForInstance(instance, senderId, '');
+      const session = await getSessionForInstance(instance, senderId, '', senderIds);
       const agentConfig = getAgent(session.agentName);
       const reply = await runWithExecutionContext(
         { channel: 'feishu', user: session.user, appId: instance.appId, agent: agentConfig },
-        () => handleCommand(instance, cmd, args, senderId),
+        () => handleCommand(instance, cmd, args, senderId, senderIds),
       );
       if (reply !== null) {
         logTraceBlock(instance, traceId, '命令回复', [
@@ -1227,7 +1256,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     // 自然语言 → AI Agent
-    const { text: reply, mediaPaths } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts);
+    const { text: reply, mediaPaths } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts, senderIds);
     if (reply) {
       await sendFeishuReply(instance, chatId, reply, replyOpts);
     }

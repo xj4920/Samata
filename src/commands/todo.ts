@@ -1,6 +1,7 @@
 import { getDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
 import type { CreateTodoInput, ListTodosInput, UpdateTodoInput } from '../llm/tool-types.js';
+import { resolveUserScopeIds } from '../auth/rbac.js';
 
 export interface Todo {
   id: string;
@@ -19,6 +20,23 @@ export interface Todo {
 function parseTags(raw: string | null): string[] {
   if (!raw) return [];
   try { return JSON.parse(raw); } catch { return []; }
+}
+
+function addScopeConditions(
+  conditions: string[],
+  params: any[],
+  agentId?: string,
+  userId?: string,
+): void {
+  if (agentId) {
+    conditions.push('agent_id = ?');
+    params.push(agentId);
+  }
+  const userIds = resolveUserScopeIds(userId);
+  if (userIds.length > 0) {
+    conditions.push(`user_id IN (${userIds.map(() => '?').join(', ')})`);
+    params.push(...userIds);
+  }
 }
 
 export function createTodo(
@@ -55,14 +73,14 @@ export function listTodos(
   const conditions: string[] = [];
   const params: any[] = [];
 
-  if (agentId) { conditions.push('agent_id = ?'); params.push(agentId); }
-  if (userId) { conditions.push('user_id = ?'); params.push(userId); }
+  addScopeConditions(conditions, params, agentId, userId);
 
   const statusFilter = input.status ?? 'active';
   if (statusFilter === 'all') {
     // no filter
-  } else if (statusFilter === 'done') {
-    conditions.push("status = 'done'");
+  } else if (['pending', 'in_progress', 'done'].includes(statusFilter)) {
+    conditions.push('status = ?');
+    params.push(statusFilter);
   } else {
     // default: show non-done items
     conditions.push("status != 'done'");
@@ -88,8 +106,7 @@ export function updateTodo(
   const db = getDb();
   const conditions: string[] = ['id LIKE ?'];
   const params: any[] = [input.id + '%'];
-  if (agentId) { conditions.push('agent_id = ?'); params.push(agentId); }
-  if (userId) { conditions.push('user_id = ?'); params.push(userId); }
+  addScopeConditions(conditions, params, agentId, userId);
 
   const row = db.prepare(`SELECT id FROM todos WHERE ${conditions.join(' AND ')}`).get(...params) as { id: string } | undefined;
   if (!row) return { success: false, error: `未找到 todo: ${input.id}` };
@@ -117,8 +134,7 @@ export function deleteTodo(
   const db = getDb();
   const conditions: string[] = ['id LIKE ?'];
   const params: any[] = [id + '%'];
-  if (agentId) { conditions.push('agent_id = ?'); params.push(agentId); }
-  if (userId) { conditions.push('user_id = ?'); params.push(userId); }
+  addScopeConditions(conditions, params, agentId, userId);
 
   const row = db.prepare(`SELECT id FROM todos WHERE ${conditions.join(' AND ')}`).get(...params) as { id: string } | undefined;
   if (!row) return { success: false, error: `未找到 todo: ${id}` };
