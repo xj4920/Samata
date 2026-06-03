@@ -1,0 +1,17 @@
+{
+  "notification": {
+    "enabled": true,
+    "channel": "wework:otcclaw-bot",
+    "target_id": "wework_guoxiaoyu"
+  },
+  "sftp": {
+    "remote_base": "/EQDHK_internal/data/CorporateActionAlert"
+  },
+  "schedule": {
+    "enabled": true,
+    "timezone": "Asia/Chongqing",
+    "morning_window": "08:20-09:30",
+    "evening_window": "20:20-21:30",
+    "interval_minutes": 5
+  }
+}

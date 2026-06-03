@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Samata 本地运行时改动推送 GitHub",
+      "link": "/plan/2026-06-03_push-samata-runtime-updates-to-github",
+      "sourcePath": "docs/plan/2026-06-03_push-samata-runtime-updates-to-github.md",
+      "sortKey": "2026-06-03_push-samata-runtime-updates-to-github.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "旧 InfluxDB 监控与 north_info 迁移脚本清理",
       "link": "/plan/2026-06-03_legacy-influxdb-monitor-cleanup",
       "sourcePath": "docs/plan/2026-06-03_legacy-influxdb-monitor-cleanup.md",
@@ -606,6 +618,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Skill 机制"
     },
     {
+      "title": "Samata 本地运行时改动推送 GitHub",
+      "link": "/plan/2026-06-03_push-samata-runtime-updates-to-github",
+      "sourcePath": "docs/plan/2026-06-03_push-samata-runtime-updates-to-github.md",
+      "sortKey": "2026-06-03_push-samata-runtime-updates-to-github.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "插件接入"
+    },
+    {
       "title": "Samata 项目重构：核心平台 + 独立工具插件",
       "link": "/plan/2026-05-21_samata-refactor-plugin-based",
       "sourcePath": "docs/plan/2026-05-21_samata-refactor-plugin-based.md",
@@ -1129,6 +1153,46 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "Samata Server Startup Keepalive",
+    "link": "/plan/2026-06-03_samata-server-startup-keepalive",
+    "sourcePath": "docs/plan/2026-06-03_samata-server-startup-keepalive.md",
+    "sortKey": "2026-06-03_samata-server-startup-keepalive.md",
+    "date": "2026-06-03",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Feishu Image Context Codex Fallback",
+    "link": "/plan/2026-06-03_feishu-image-context-codex-fallback",
+    "sourcePath": "docs/plan/2026-06-03_feishu-image-context-codex-fallback.md",
+    "sortKey": "2026-06-03_feishu-image-context-codex-fallback.md",
+    "date": "2026-06-03",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Codex Agent 图片生成与识别工具",
+    "link": "/plan/2026-06-03_codex-agent-vision-tools",
+    "sourcePath": "docs/plan/2026-06-03_codex-agent-vision-tools.md",
+    "sortKey": "2026-06-03_codex-agent-vision-tools.md",
+    "date": "2026-06-03",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "修复 Agent 删除的级联清理",
+    "link": "/plan/2026-05-28_fix-agent-deletion",
+    "sourcePath": "docs/plan/2026-05-28_fix-agent-deletion.md",
+    "sortKey": "2026-05-28_fix-agent-deletion.md",
+    "date": "2026-05-28",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "Sandbox Oracle -> PostgreSQL Migration",
     "link": "/plan/2026-05-07_sandbox-oracle-to-postgres",

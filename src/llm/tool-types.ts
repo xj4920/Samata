@@ -23,6 +23,7 @@ export type PlotTradesInput  = { client?: string; party?: string; limit?: number
 
 // --- Knowledge ---
 export type SearchKnowledgeInput        = { keyword: string };
+export type ReadKnowledgeDocumentInput  = { document_id: string; max_chars?: number };
 export type AddKnowledgeInput           = { question: string; answer: string; tags?: string; related_users?: string };
 export type UpdateKnowledgeInput        = { id_prefix: string; fields: { question?: string; answer?: string; tags?: string; related_users?: string } };
 export type DeleteKnowledgeInput        = { id_prefix: string };

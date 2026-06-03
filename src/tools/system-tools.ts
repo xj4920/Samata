@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 import { fetchSystemStatus } from '../commands/monitor.js';
+import { areChromiumToolsDisabled } from '../runtime/chromium-tools.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -45,13 +46,15 @@ function handleStatusSummary(): string {
 
 function handleListToolPresets(): string {
   const commonTools = [...COMMON_SET];
+  const presets = Object.entries(TOOL_PRESETS)
+    .filter(([key]) => !(key === 'browser' && areChromiumToolsDisabled()));
   return JSON.stringify({
     common_set: {
       description: '所有 standard 模式 agent 的基础工具集',
       toolCount: commonTools.length,
       tools: commonTools,
     },
-    presets: Object.entries(TOOL_PRESETS).map(([key, preset]) => ({
+    presets: presets.map(([key, preset]) => ({
       preset: key,
       description: preset.description,
       toolCount: preset.tools.length,

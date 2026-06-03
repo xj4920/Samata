@@ -6,37 +6,48 @@ services:
     image: samata:latest
     container_name: samata
     restart: unless-stopped
-    depends_on:
-      - postgres
+    dns:
+      - 10.55.66.66
+      - 10.80.66.66
+      - 8.8.8.8
     environment:
-      NODE_ENV: production
+      NODE_ENV: uat
       CLI_API_HOST: 0.0.0.0
       CLI_API_PORT: 3457
-      SAMATA_PLUGINS_DIR: /app/plugins
-      PG_WIND_HOST: postgres
+      SAMATA_PLUGINS_DIR: /app/plugins,/app/work-plugins
+      PG_WIND_HOST: wind_sync_pg
       PG_WIND_PORT: 5432
-      FAST_TRADING_PG_HOST: postgres
+      FAST_TRADING_PG_HOST: wind_sync_pg
       FAST_TRADING_PG_PORT: 5432
-      WIND_PG_HOST: postgres
+      WIND_PG_HOST: wind_sync_pg
       WIND_PG_PORT: 5432
-      LOG_PG_HOST: postgres
+      LOG_PG_HOST: wind_sync_pg
       LOG_PG_PORT: 5432
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      HEDGE_RATIO_BOOTSTRAP_PYTHON: python3
     ports:
       - "3457:3457"
     volumes:
       - ./.env:/app/samata/.env:ro
       - ./data:/app/samata/data
       - ./logs:/app/samata/logs
+    networks:
+      - default
+      - wind-sync
 
-  postgres:
-    image: postgres:16
-    container_name: samata-postgres
-    restart: unless-stopped
+  docs:
+    build:
+      context: ..
+      dockerfile: samata/Dockerfile
+    image: samata:latest
+    container_name: samata-docs
+    profiles:
+      - docs
+    command: ["npm", "run", "docs:dev", "--", "--host", "0.0.0.0"]
     ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: wind_sync
-      POSTGRES_PASSWORD: wind_sync
-      POSTGRES_DB: wind_sync
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - "5173:5173"
+
+networks:
+  wind-sync:
+    external: true
+    name: samata-wind-sync

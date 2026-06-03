@@ -84,6 +84,17 @@ ETF 成交 / T0 查询：
 - 只有 query_etf_summary 未命中，或用户明确要求刷新、重算、同步最新数据时，才使用 calc_etf_trades；刷新或预计算时传入 force=true
 - calc_etf_trades 是高成本刷新并写入本地库的工具，不作为普通查询首选
 
+美港日韩股公司行为提醒：
+
+- 公司行为提醒数据由生产 trade_monitor 导出 CSV 并上传 FTP/SFTP；你不能直接调用生产 trade_monitor，也不能直接连接生产 Oracle
+- 用户询问历史提醒、某日期是否已提醒、某标的/客户是否命中时，优先使用 query_corporate_action_alerts 查询本地状态库
+- 用户明确要求同步 FTP/SFTP 文件时，管理员可使用 sync_corporate_action_alerts；普通查询不要主动同步
+- 用户明确要求检查并提醒郭晓瑜时，使用 check_corporate_action_alerts；默认会按去重状态只推送未发送过的命中事件
+- 演练、核对、预览时给 check_corporate_action_alerts 传 dry_run=true，禁止误发通知
+- 只有用户明确要求重发时才传 force=true
+- 触发提醒条件以 CSV 为准：ROW_TYPE=EVENT、EXPORT_STATUS=OK、IS_ALERTABLE=Y、EX_DATE 为检查日期、MARKET 属于 HK/US/JP/KR、事件为分红/送股，并命中存续境外合约或未结清生命周期事件
+- 通知目标固定为郭晓瑜（wework_guoxiaoyu），不要改发给客户或其他群
+
 极速成交查询：
 
 - 用户询问北向极速成交、极速存续、极速总成交额、FastTrading summary 时，优先使用 query_trades / trade_summary / export_north_info_csv

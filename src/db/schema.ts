@@ -2581,6 +2581,44 @@ export function initSchema(): void {
       .run(JSON.stringify(current));
   });
 
+  runOnce('otcclaw-add-corporate-action-alert-tools-v1', () => {
+    const tools = [
+      'sync_corporate_action_alerts',
+      'check_corporate_action_alerts',
+      'query_corporate_action_alerts',
+    ];
+    const writeTools = [
+      'sync_corporate_action_alerts',
+      'check_corporate_action_alerts',
+    ];
+    const row = db.prepare(
+      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
+    if (!row) return;
+
+    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
+    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
+    let changed = false;
+
+    for (const tool of tools) {
+      if (!toolsList.includes(tool)) {
+        toolsList.push(tool);
+        changed = true;
+      }
+    }
+    for (const tool of writeTools) {
+      if (!userToolsList.includes(tool)) {
+        userToolsList.push(tool);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    db.prepare(
+      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
   runOnce('otcclaw-add-normal-trading-summary-tools-v1', () => {
     const tools = [
       'sync_normal_trading_summary',

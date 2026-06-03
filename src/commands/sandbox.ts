@@ -20,9 +20,71 @@ const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const GF_PIP_INDEX_URL = 'http://pypi.gf.com.cn/simple/';
 const GF_PIP_TRUSTED_HOST = 'pypi.gf.com.cn';
-const SANDBOX_PYTHON_ROOT = '/usr/local/python-3.10.4';
-const SANDBOX_PATH = `${SANDBOX_PYTHON_ROOT}/bin:/usr/local/bin:/usr/bin:/bin`;
-const SANDBOX_LD_LIBRARY_PATH = `${SANDBOX_PYTHON_ROOT}/lib:/usr/local/lib`;
+const DEFAULT_SANDBOX_PYTHON_ROOT = '/usr/local/python-3.10.4';
+const SANDBOX_PYTHON_ROOT = process.env.SANDBOX_PYTHON_ROOT || DEFAULT_SANDBOX_PYTHON_ROOT;
+
+function isExecutable(filePath: string | undefined | null): filePath is string {
+  if (!filePath) return false;
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findOnPath(executable: string): string | null {
+  const pathEnv = process.env.PATH || '';
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, executable);
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
+}
+
+function uniquePathEntries(entries: Array<string | null | undefined>): string {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const entry of entries) {
+    if (!entry || seen.has(entry)) continue;
+    seen.add(entry);
+    kept.push(entry);
+  }
+  return kept.join(':');
+}
+
+function resolveSandboxPythonBin(): string {
+  const candidates = [
+    process.env.SANDBOX_PYTHON_BIN,
+    path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10'),
+    path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3'),
+    path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python'),
+    findOnPath('python3'),
+    findOnPath('python'),
+    '/usr/bin/python3',
+  ];
+  return candidates.find(isExecutable) || 'python3';
+}
+
+const SANDBOX_PYTHON_BIN = resolveSandboxPythonBin();
+const SANDBOX_PYTHON_BIN_DIR = path.isAbsolute(SANDBOX_PYTHON_BIN)
+  ? path.dirname(SANDBOX_PYTHON_BIN)
+  : null;
+const SANDBOX_PYTHON_ROOT_BIN = path.join(SANDBOX_PYTHON_ROOT, 'bin');
+const SANDBOX_PYTHON_ROOT_LIB = path.join(SANDBOX_PYTHON_ROOT, 'lib');
+const SANDBOX_PATH = uniquePathEntries([
+  SANDBOX_PYTHON_BIN_DIR,
+  fs.existsSync(SANDBOX_PYTHON_ROOT_BIN) ? SANDBOX_PYTHON_ROOT_BIN : null,
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+]);
+const SANDBOX_LD_LIBRARY_PATH = uniquePathEntries([
+  fs.existsSync(SANDBOX_PYTHON_ROOT_LIB) ? SANDBOX_PYTHON_ROOT_LIB : null,
+  '/usr/local/lib',
+  '/usr/lib',
+]);
 
 /** Written to $HOME/.config/matplotlib/matplotlibrc (HOME = sandbox root under bwrap). */
 const SANDBOX_MATPLOTLIBRC = [
@@ -33,9 +95,8 @@ const SANDBOX_MATPLOTLIBRC = [
 
 const SANDBOX_PYTHON_USER_SITE = (() => {
   try {
-    const py = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
-    const r = spawnSync(py, ['-c', 'import site; print(site.getusersitepackages())'], {
-      encoding: 'utf-8', timeout: 5000,
+    const r = spawnSync(SANDBOX_PYTHON_BIN, ['-c', 'import site; print(site.getusersitepackages())'], {
+      encoding: 'utf-8', timeout: 5000, env: { ...process.env, PATH: SANDBOX_PATH },
     });
     return r.stdout?.trim() || '';
   } catch { return ''; }
@@ -57,18 +118,30 @@ export function getSandboxRoot(agentName: string, userId: string): string {
   return path.join(SANDBOX_BASE, agentName, userId);
 }
 
+function ensureExecutableSymlink(linkPath: string, target: string | null): void {
+  if (!target || !path.isAbsolute(target) || !isExecutable(target)) return;
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink() && fs.readlinkSync(linkPath) === target) return;
+    fs.rmSync(linkPath, { force: true });
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') return;
+  }
+  try { fs.symlinkSync(target, linkPath); } catch {}
+}
+
 function ensureSandboxDir(agentName: string, userId: string): string {
   const root = getSandboxRoot(agentName, userId);
   fs.mkdirSync(root, { recursive: true });
 
-  // Ensure python3 symlink exists in sandbox bin/ so "python3 script.py" works
+  // Ensure common runtime commands exist in sandbox bin/ for shell snippets.
   const binDir = path.join(root, '.bin');
-  const python3Link = path.join(binDir, 'python3');
-  if (!fs.existsSync(python3Link)) {
-    fs.mkdirSync(binDir, { recursive: true });
-    const target = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
-    try { fs.symlinkSync(target, python3Link); } catch {}
-  }
+  fs.mkdirSync(binDir, { recursive: true });
+  ensureExecutableSymlink(path.join(binDir, 'python3'), SANDBOX_PYTHON_BIN);
+  ensureExecutableSymlink(path.join(binDir, 'python'), SANDBOX_PYTHON_BIN);
+  ensureExecutableSymlink(path.join(binDir, 'node'), process.execPath);
+  ensureExecutableSymlink(path.join(binDir, 'npm'), findOnPath('npm'));
+  ensureExecutableSymlink(path.join(binDir, 'npx'), findOnPath('npx'));
 
   ensureSandboxMatplotlibRc(root);
 
@@ -111,9 +184,9 @@ function checkPath(root: string, inputPath: string): string | { error: string } 
 
 function checkPythonSyntax(filePath: string): string | null {
   try {
-    const py = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
-    const r = spawnSync(py, ['-m', 'py_compile', filePath], {
+    const r = spawnSync(SANDBOX_PYTHON_BIN, ['-m', 'py_compile', filePath], {
       encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PATH: SANDBOX_PATH },
     });
     if (r.status !== 0) {
       const msg = (r.stderr || r.stdout || '').trim();
@@ -248,8 +321,28 @@ let _bwrapAvailable = false;
 function isBwrapAvailable(): boolean {
   if (_bwrapChecked) return _bwrapAvailable;
   _bwrapChecked = true;
+  if (/^(1|true|yes)$/i.test(process.env.SAMATA_DISABLE_BWRAP || '')) {
+    _bwrapAvailable = false;
+    return _bwrapAvailable;
+  }
   try {
-    const result = spawnSync('bwrap', ['--version'], { stdio: 'pipe', timeout: 3000 });
+    // Docker often allows `bwrap --version` while blocking namespace creation.
+    // Treat bubblewrap as available only if a minimal sandbox can actually run.
+    const result = spawnSync('bwrap', [
+      '--ro-bind', '/usr', '/usr',
+      '--ro-bind', '/lib', '/lib',
+      '--ro-bind-try', '/lib64', '/lib64',
+      '--ro-bind', '/bin', '/bin',
+      '--proc', '/proc',
+      '--dev', '/dev',
+      '--unshare-pid',
+      '--unshare-ipc',
+      '--die-with-parent',
+      '--',
+      '/bin/sh',
+      '-c',
+      'true',
+    ], { stdio: 'pipe', timeout: 3000 });
     _bwrapAvailable = result.status === 0;
   } catch {
     _bwrapAvailable = false;
@@ -425,7 +518,7 @@ export function sandboxExec(
         stderr: `${syntaxErr}\n提示：避免使用三引号字符串(\"\"\"....\"\"\")，改用单引号包裹 SQL`,
       };
     }
-    cmd = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    cmd = SANDBOX_PYTHON_BIN;
     args = ['-B', pyFile];
   } else {
     const pipError = validatePipInstallCommand(options.code);
@@ -593,7 +686,7 @@ export async function sandboxExecAsync(
         stderr: `${syntaxErr}\n提示：避免使用三引号字符串(\"\"\"....\"\"\")，改用单引号包裹 SQL`,
       };
     }
-    cmd = path.join(SANDBOX_PYTHON_ROOT, 'bin', 'python3.10');
+    cmd = SANDBOX_PYTHON_BIN;
     args = ['-B', pyFile];
   } else {
     const pipError = validatePipInstallCommand(options.code);

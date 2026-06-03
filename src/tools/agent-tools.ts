@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
 import { getCurrentAgent, getAllAgents, getAgent, saveAgent, deleteAgent, manageAgentMember, listAgentMembers, saveAssignment, deleteAssignment, listAssignments, TOOL_PRESETS, COMMON_SET, getAgentTools } from '../llm/agents/config.js';
 import { getExecutionChannel, setContextAgent } from '../runtime/execution-context.js';
+import { areChromiumToolsDisabled, chromiumToolsDisabledMessage } from '../runtime/chromium-tools.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -161,6 +162,9 @@ function handleSaveAgent(input: {
   user_tools_list?: string[];
 }): string {
   if (input.preset) {
+    if (input.preset === 'browser' && areChromiumToolsDisabled()) {
+      return JSON.stringify({ error: chromiumToolsDisabledMessage() });
+    }
     const preset = TOOL_PRESETS[input.preset];
     if (!preset) return JSON.stringify({ error: `未知 preset: ${input.preset}，可用: ${Object.keys(TOOL_PRESETS).join(', ')}` });
     input.tools_mode = input.tools_mode || 'standard';

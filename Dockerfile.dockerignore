@@ -4,6 +4,8 @@
 !samata/**
 !samata-plugins/
 !samata-plugins/**
+!samata-plugin-work/
+!samata-plugin-work/**
 
 samata/.git
 samata/.git/**
@@ -24,3 +26,11 @@ samata-plugins/node_modules/**
 samata-plugins/**/node_modules
 samata-plugins/**/node_modules/**
 samata-plugins/.env*
+
+samata-plugin-work/.git
+samata-plugin-work/.git/**
+samata-plugin-work/node_modules
+samata-plugin-work/node_modules/**
+samata-plugin-work/**/node_modules
+samata-plugin-work/**/node_modules/**
+samata-plugin-work/.env*

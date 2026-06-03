@@ -7,6 +7,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import { getContextAgent } from '../runtime/execution-context.js';
+import { chromiumToolsDisabledMessage, isChromiumMcpServerDisabled } from '../runtime/chromium-tools.js';
 
 interface McpServerBase {
   description?: string;
@@ -143,6 +144,12 @@ async function connectServer(name: string, srv: McpServerConfig): Promise<void> 
 export async function initMcpServers(): Promise<void> {
   const config = loadConfig();
   for (const [name, srv] of Object.entries(config.servers)) {
+    if (isChromiumMcpServerDisabled(name)) {
+      serverConfigs.delete(name);
+      lastFailedAt.delete(name);
+      log.info(`MCP [${name}]: 已跳过 — ${chromiumToolsDisabledMessage()}`);
+      continue;
+    }
     serverConfigs.set(name, srv);
     try {
       await connectServer(name, srv);
@@ -168,6 +175,7 @@ function isServerAllowedForAgent(srv: McpServerConfig | undefined, agentName?: s
 
 export function getMcpTools(agentName?: string): Anthropic.Tool[] {
   return [...sessions.entries()]
+    .filter(([name]) => !isChromiumMcpServerDisabled(name))
     .filter(([name]) => isServerAllowedForAgent(serverConfigs.get(name), agentName))
     .flatMap(([, session]) => session.tools);
 }
@@ -176,6 +184,7 @@ export function isMcpToolAllowedForAgent(toolName: string, agentName?: string): 
   const match = toolName.match(/^mcp_([^_]+)_(.+)$/);
   if (!match) return true;
   const serverName = match[1];
+  if (isChromiumMcpServerDisabled(serverName)) return false;
   const srv = serverConfigs.get(serverName);
   if (!srv) return false;
   return isServerAllowedForAgent(srv, agentName);
@@ -309,6 +318,9 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
   if (!match) return JSON.stringify({ error: `无效的 MCP 工具名: ${toolName}` });
 
   const [, serverName, originalName] = match;
+  if (isChromiumMcpServerDisabled(serverName)) {
+    return JSON.stringify({ error: chromiumToolsDisabledMessage() });
+  }
   const agentName = getContextAgent()?.name;
   if (agentName && !isMcpToolAllowedForAgent(toolName, agentName)) {
     return JSON.stringify({ error: `MCP 工具 ${toolName} 未授权给当前 agent: ${agentName}` });

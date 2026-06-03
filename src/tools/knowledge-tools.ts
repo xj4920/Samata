@@ -1,21 +1,34 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { SearchKnowledgeInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
+import type { SearchKnowledgeInput, ReadKnowledgeDocumentInput, AddKnowledgeInput, UpdateKnowledgeInput, AssignKnowledgeAgentInput, UnassignKnowledgeAgentInput, ListKnowledgeRecentInput } from '../llm/tool-types.js';
 import { isSystemAdmin, getCurrentUser } from '../auth/rbac.js';
 import { getDb } from '../db/connection.js';
 import { fetchKnowledge, fetchKnowledgeByUpdatedTime, addKnowledge, updateKnowledgeById, deleteKnowledge, assignKnowledgeToAgent, unassignKnowledgeFromAgent, getKnowledgeAgents } from '../commands/knowledge.js';
+import { getDocumentContent } from '../commands/document-import.js';
 import { getCurrentAgent, type ToolContext } from '../llm/agents/config.js';
 import { recordKnowledge as recordKnowledgeTelemetry } from '../telemetry/emitter.js';
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
+    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考。文档结果会返回 document_id 和片段；如需读取该文档全文，继续调用 read_knowledge_document，不要用 read_file 读取 data/documents。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
     input_schema: {
       type: 'object' as const,
       properties: {
         keyword: { type: 'string', description: '搜索关键词（多个关键词用空格分隔，匹配任一即返回，全部匹配排在前面）' },
       },
       required: ['keyword'],
+    },
+  },
+  {
+    name: 'read_knowledge_document',
+    description: '读取 search_knowledge 返回的文档全文。只能读取当前 Agent 自己的导入文档，传入 documents[].document_id 即可；不要用 read_file 读取 data/documents 下的 parsed.md。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        document_id: { type: 'string', description: '文档 ID 或 ID 前缀，来自 search_knowledge 返回的 documents[].document_id' },
+        max_chars: { type: 'number', description: '最多返回字符数，默认 12000，最大 50000' },
+      },
+      required: ['document_id'],
     },
   },
   {
@@ -226,6 +239,45 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
   return JSON.stringify(result);
 }
 
+function handleReadKnowledgeDocument(input: ReadKnowledgeDocumentInput): string {
+  const agentId = getCurrentAgent()?.id;
+  if (!agentId) return JSON.stringify({ error: '当前上下文没有 Agent，无法读取文档' });
+
+  const prefix = input.document_id?.trim();
+  if (!prefix) return JSON.stringify({ error: 'document_id 不能为空' });
+
+  const db = getDb();
+  const rows = db.prepare('SELECT id, title, agent_id FROM documents WHERE id LIKE ?').all(`${prefix}%`) as Array<{ id: string; title: string; agent_id: string | null }>;
+  if (rows.length === 0) return JSON.stringify({ error: `未找到文档: ${prefix}` });
+  if (rows.length > 1) {
+    return JSON.stringify({
+      error: '匹配到多个文档，请提供更长的 document_id 前缀',
+      matches: rows.slice(0, 10).map(r => ({ document_id: r.id.slice(0, 8), title: r.title })),
+    });
+  }
+
+  const doc = rows[0];
+  if (doc.agent_id !== agentId) {
+    return JSON.stringify({ error: '该文档不属于当前 Agent，拒绝读取' });
+  }
+
+  const result = getDocumentContent(doc.id);
+  if ('error' in result) return JSON.stringify({ error: result.error });
+
+  const maxChars = Math.min(Math.max(input.max_chars ?? 12000, 1000), 50000);
+  const truncated = result.content.length > maxChars;
+  const content = truncated ? result.content.slice(0, maxChars) : result.content;
+  return JSON.stringify({
+    document_id: doc.id.slice(0, 8),
+    title: doc.title,
+    format: result.format,
+    char_count: result.content.length,
+    returned_chars: content.length,
+    truncated,
+    content,
+  });
+}
+
 function handleAddKnowledge(input: AddKnowledgeInput): string {
   const agentId = getCurrentAgent()?.id ?? '';
   return JSON.stringify(addKnowledge(input, agentId));
@@ -275,6 +327,7 @@ function handleListKnowledgeRecent(input: ListKnowledgeRecentInput): string {
 export async function handleTool(name: string, input: any, _ctx?: ToolContext): Promise<string | null> {
   switch (name) {
     case 'search_knowledge': return handleSearchKnowledge(input);
+    case 'read_knowledge_document': return handleReadKnowledgeDocument(input);
     case 'add_knowledge': return handleAddKnowledge(input);
     case 'update_knowledge': return handleUpdateKnowledge(input);
     case 'delete_knowledge': return handleDeleteKnowledge(input);

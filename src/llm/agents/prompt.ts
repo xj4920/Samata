@@ -11,6 +11,7 @@ import { getExecutionChannel } from '../../runtime/execution-context.js';
 import { loadWorkspace } from '../../session/workspace.js';
 import { loadDreamFile } from '../../services/dream-analyze.js';
 import { getAgentFsName } from '../../commands/document-import.js';
+import { areChromiumToolsDisabled, chromiumToolsDisabledMessage } from '../../runtime/chromium-tools.js';
 
 const ATTACHMENT_GUIDANCE = `附件发送规范：
 - 需要给当前对话用户发送 CSV、TXT、Markdown 等文件时，先用 write_artifact 写入 /tmp/samata，再调用 send_file
@@ -65,6 +66,13 @@ function loadPromptTemplate(agent: AgentConfig): string {
 function renderPrompt(template: string, vars: Record<string, string>): string {
   return template
     .replace(/\{\{([\w.]+)\}\}/g, (match, key) => (key in vars ? vars[key] : match))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function stripDevtoolsGuidance(prompt: string): string {
+  return prompt
+    .replace(/\n?浏览器工具（mcp_devtools_\* 系列）：\n(?:\s*\n)?(?:-[^\n]*\n?)+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -135,5 +143,11 @@ export function buildSystemPrompt(agent: AgentConfig, user?: User): string {
     user_context: loadWorkspace(agent.name, u.id),
     datetime: buildDateTimeBlock(),
   };
-  return renderPrompt(template, vars);
+  const rendered = renderPrompt(template, vars);
+  if (!areChromiumToolsDisabled()) return rendered;
+
+  return [
+    stripDevtoolsGuidance(rendered),
+    `生产环境工具限制：${chromiumToolsDisabledMessage()}`,
+  ].filter(Boolean).join('\n\n');
 }

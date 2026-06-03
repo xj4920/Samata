@@ -5,19 +5,38 @@ ENV NODE_ENV=production \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     CLI_API_PORT=3457 \
     CLI_API_HOST=0.0.0.0 \
-    SAMATA_PLUGINS_DIR=/app/plugins
+    SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+    bubblewrap \
     ca-certificates \
     chromium \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     g++ \
+    git \
     make \
+    openssh-client \
     openssl \
     pandoc \
+    python-is-python3 \
     python3 \
+    python3-bs4 \
+    python3-cryptography \
+    python3-lxml \
+    python3-matplotlib \
+    python3-numpy \
+    python3-openpyxl \
+    python3-pandas \
+    python3-paramiko \
+    python3-pil \
+    python3-pip \
+    python3-psycopg2 \
+    python3-requests \
+    python3-venv \
+    python3-xlrd \
+    ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/samata
@@ -29,6 +48,17 @@ RUN npm ci --include=dev
 WORKDIR /app/plugins
 COPY samata-plugins ./
 RUN npm ci --include=dev
+
+WORKDIR /app/work-plugins
+COPY samata-plugin-work ./
+RUN npm ci --include=dev \
+  && rm -rf logyi-mcp
+
+WORKDIR /app/samata-plugin-work/logyi-mcp
+COPY samata-plugin-work/logyi-mcp/package.json samata-plugin-work/logyi-mcp/package-lock.json ./
+RUN npm ci --include=dev
+COPY samata-plugin-work/logyi-mcp ./
+RUN npm run build
 
 WORKDIR /app/samata
 COPY samata ./
