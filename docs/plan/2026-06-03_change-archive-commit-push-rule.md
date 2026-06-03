@@ -21,7 +21,7 @@ status: implemented
 - plan 内容应覆盖背景、决策、改动清单、验证命令和提交信息。
 - 完成验证后必须提交并 `git push` 到远端。
 - 最终回复必须包含详细修改点、验证结果、commit hash 和 push 信息。
-- 长期有效规则或关键决策还需要写入 memory。
+- 长期有效规则或关键决策应写入 Codex 全局配置或项目配置文件；不写入当前应用的 `data/samata.db` memory 表。
 
 ## 改动清单
 
@@ -30,7 +30,8 @@ status: implemented
   - 明确 docs/plan、commit、push、最终回复说明要求。
 - 新增本 plan 文档。
 - 同步 VitePress plan 索引。
-- 写入全局 memory，确保后续会话也能遵循该规则。
+- 写入 Codex 全局配置 `~/.codex/AGENTS.md`，确保后续 Codex 会话也能遵循该规则。
+- 更正本轮误写入：删除当前项目 `data/samata.db` 中的应用 memory 记录，避免把编码规则混入业务运行时记忆。
 - 同步提交本轮未入库的工程收尾：
   - `Dockerfile`：调整 `COPY samata ./` 到插件依赖安装之后，减少主仓文件复制对插件层缓存的影响。
   - `src/commands/monitor.ts`：读取 git hash 时忽略 stderr，避免非 git 环境或容器运行时输出无关错误。
@@ -47,7 +48,7 @@ status: implemented
 后续每个改动任务结束前，按顺序执行：
 
 1. 更新或新增 `docs/plan/YYYY-MM-DD_<topic>.md`。
-2. 将长期规则或关键决策写入 memory。
+2. 将长期规则或关键决策写入 Codex 全局配置或项目配置文件，禁止写入当前应用运行时 memory 数据库。
 3. 运行与改动范围匹配的验证命令。
 4. `git add` 相关文件。
 5. `git commit -m "<message>"`。
