@@ -42,6 +42,5 @@ extensions/
 config/agents/*
 !config/agents/*.files.json
 
-docs/plan/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
