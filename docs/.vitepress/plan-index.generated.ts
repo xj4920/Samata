@@ -62,6 +62,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "部署与运行"
     },
     {
+      "title": "变更留档、提交与推送规范",
+      "link": "/plan/2026-06-03_change-archive-commit-push-rule",
+      "sourcePath": "docs/plan/2026-06-03_change-archive-commit-push-rule.md",
+      "sortKey": "2026-06-03_change-archive-commit-push-rule.md",
+      "date": "2026-06-03",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/architecture"
+      ],
+      "topic": "工程规范"
+    },
+    {
       "title": "Samata MVP 部署指南 — 以 Moss Agent 为例",
       "link": "/plan/2026-05-25_moss-deployment-guide",
       "sourcePath": "docs/plan/2026-05-25_moss-deployment-guide.md",

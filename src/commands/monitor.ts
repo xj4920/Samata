@@ -19,7 +19,10 @@ import { log } from '../utils/logger.js';
 // --- git hash (cached at module load) ---
 let gitHash = '';
 try {
-  gitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+  gitHash = execSync('git rev-parse --short HEAD', {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
 } catch { /* not a git repo */ }
 
 // --- version from package.json ---

@@ -26,13 +26,12 @@ COPY samata/package.json samata/package-lock.json ./
 COPY samata/packages ./packages
 RUN npm ci --include=dev
 
-COPY samata ./
-
 WORKDIR /app/plugins
 COPY samata-plugins ./
 RUN npm ci --include=dev
 
 WORKDIR /app/samata
+COPY samata ./
 
 EXPOSE 3457
 
