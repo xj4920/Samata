@@ -1,5 +1,12 @@
 FROM node:22-bookworm-slim
 
+ARG SAMATA_VERSION=unknown
+ARG SAMATA_COMMIT=unknown
+
+LABEL org.opencontainers.image.title="Samata" \
+      org.opencontainers.image.version="${SAMATA_VERSION}" \
+      org.opencontainers.image.revision="${SAMATA_COMMIT}"
+
 ENV NODE_ENV=production \
     PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \

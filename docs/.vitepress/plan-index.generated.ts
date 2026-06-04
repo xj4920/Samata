@@ -50,6 +50,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "调度与任务"
     },
     {
+      "title": "Docker 镜像版本化 Tag 与清理",
+      "link": "/plan/2026-06-04_docker-image-version-tags",
+      "sourcePath": "docs/plan/2026-06-04_docker-image-version-tags.md",
+      "sortKey": "2026-06-04_docker-image-version-tags.md",
+      "date": "2026-06-04",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "Samata 本地运行时改动推送 GitHub",
       "link": "/plan/2026-06-03_push-samata-runtime-updates-to-github",
       "sourcePath": "docs/plan/2026-06-03_push-samata-runtime-updates-to-github.md",

@@ -27,11 +27,13 @@ source/
 ```bash
 cp .env.example .env
 # 编辑 .env，配置 LLM Provider、Bot 凭证和外部服务密钥
-docker compose --env-file /dev/null up -d --build samata
+npm run docker:samata:up
 docker compose --env-file /dev/null logs -f samata
 ```
 
 Samata 容器通过只读挂载读取 `./.env`；`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
+
+`npm run docker:samata:up` 会从 `package.json` 读取版本号并生成主 tag：`samata:<version>-<git-sha>`；同时打上 `samata:<version>` 和 `samata:latest` 两个别名。需要只构建不启动时使用 `npm run docker:samata:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:samata:prune`。
 
 容器内 Samata 监听 `0.0.0.0:3457`，宿主机可访问：
 

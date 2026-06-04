@@ -1,9 +1,14 @@
+x-samata-build: &samata-build
+  context: ..
+  dockerfile: samata/Dockerfile
+  args:
+    SAMATA_VERSION: ${SAMATA_VERSION:-unknown}
+    SAMATA_COMMIT: ${SAMATA_COMMIT:-unknown}
+
 services:
   samata:
-    build:
-      context: ..
-      dockerfile: samata/Dockerfile
-    image: samata:latest
+    build: *samata-build
+    image: ${SAMATA_IMAGE_REPO:-samata}:${SAMATA_IMAGE_TAG:-latest}
     container_name: samata
     restart: unless-stopped
     dns:
@@ -36,10 +41,8 @@ services:
       - wind-sync
 
   docs:
-    build:
-      context: ..
-      dockerfile: samata/Dockerfile
-    image: samata:latest
+    build: *samata-build
+    image: ${SAMATA_IMAGE_REPO:-samata}:${SAMATA_IMAGE_TAG:-latest}
     container_name: samata-docs
     profiles:
       - docs
