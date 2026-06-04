@@ -7,7 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.resolve(__dirname, '../../data/samata.db');
 const LEGACY_DB_PATH = path.resolve(__dirname, '../../data/yanyu.db');
 
+function ensureDbDir(): void {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+
 function migrateDbFile(): void {
+  ensureDbDir();
   if (fs.existsSync(DB_PATH) || !fs.existsSync(LEGACY_DB_PATH)) return;
   for (const suffix of ['', '-shm', '-wal']) {
     const src = LEGACY_DB_PATH + suffix;
@@ -20,6 +25,7 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (!db) {
     migrateDbFile();
+    ensureDbDir();
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
