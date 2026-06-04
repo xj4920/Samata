@@ -50,6 +50,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "调度与任务"
     },
     {
+      "title": "Dockerfile 缓存层顺序优化",
+      "link": "/plan/2026-06-04_dockerfile-layer-cache-order",
+      "sourcePath": "docs/plan/2026-06-04_dockerfile-layer-cache-order.md",
+      "sortKey": "2026-06-04_dockerfile-layer-cache-order.md",
+      "date": "2026-06-04",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "Docker 镜像版本化 Tag 与清理",
       "link": "/plan/2026-06-04_docker-image-version-tags",
       "sourcePath": "docs/plan/2026-06-04_docker-image-version-tags.md",
