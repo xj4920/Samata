@@ -68,7 +68,7 @@ async function executeToolCall(task: ScheduledTask): Promise<string | null> {
   }
 
   const result = await runWithExecutionContext(
-    { channel: 'system', user: SYSTEM_USER, agent },
+    { channel: 'system', user: SYSTEM_USER, agent, scheduledTaskAuthorized: true },
     () => executePluginTool(payload.tool_name, payload.input),
   );
   if (result === null) throw new Error(`Plugin tool not found: ${payload.tool_name}`);

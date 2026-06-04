@@ -4,7 +4,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
-import { getContextAgent } from '../runtime/execution-context.js';
+import { getContextAgent, isScheduledTaskAuthorized } from '../runtime/execution-context.js';
 import { createReminder } from '../commands/reminder.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
 
@@ -314,7 +314,7 @@ export async function executePluginTool(name: string, input: any, deliveryCtx?: 
     const ctx: PluginContext = {
       ...loaded.context,
       getDeliveryContext: () => deliveryCtx ? { channel: deliveryCtx.channel, targetId: deliveryCtx.targetId || '', appId: deliveryCtx.appId } : undefined,
-      isAdmin: () => agentId ? isAgentAdmin(agentId) : false,
+      isAdmin: () => isScheduledTaskAuthorized() || (agentId ? isAgentAdmin(agentId) : false),
       createReminder: (params) => createReminder(params),
     };
     try {

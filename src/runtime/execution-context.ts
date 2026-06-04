@@ -27,6 +27,8 @@ export interface ExecutionContext {
   promptFn?: PromptFn;
   outputCapture?: OutputCapture;
   onOutputLine?: (line: string) => void;
+  /** Scheduled task tool_call execution: authorization was checked when the task was created or updated. */
+  scheduledTaskAuthorized?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ExecutionContext>();
@@ -39,6 +41,10 @@ export function runWithExecutionContext<T>(ctx: ExecutionContext, fn: () => T | 
 
 export function getExecutionContext(): ExecutionContext | undefined {
   return storage.getStore();
+}
+
+export function isScheduledTaskAuthorized(): boolean {
+  return storage.getStore()?.scheduledTaskAuthorized === true;
 }
 
 export function getExecutionChannel(): AppChannel {

@@ -18,6 +18,18 @@ vi.mock('../../src/db/connection.js', () => ({
   closeDb: () => { memoryDb?.close(); },
 }));
 
+vi.mock('../../src/utils/logger.js', () => ({
+  log: {
+    info: () => {},
+    success: () => {},
+    warn: () => {},
+    error: () => {},
+    dim: () => {},
+    file: () => {},
+    print: () => {},
+  },
+}));
+
 vi.mock('../../src/plugins/registry.js', () => {
   // Stub tool definitions for plugins already migrated from native tools
   const pluginTools = [
@@ -44,11 +56,18 @@ vi.mock('../../src/plugins/registry.js', () => {
     getUniversalPluginTools: () => [],
     executePluginTool: async (name: string, input: any) => {
       if (name === 'calc_etf_trades' || name === 'sync_fast_trading_summary') {
-        const { getContextAgent, getExecutionChannel } = await import('../../src/runtime/execution-context.js');
+        const { getContextAgent, getExecutionChannel, isScheduledTaskAuthorized } = await import('../../src/runtime/execution-context.js');
+        const { isAgentAdmin } = await import('../../src/auth/rbac.js');
+        const agentId = getContextAgent()?.id;
+        const authorized = isScheduledTaskAuthorized() || (agentId ? isAgentAdmin(agentId) : false);
+        if (name === 'sync_fast_trading_summary' && !authorized) {
+          return JSON.stringify({ error: '仅管理员可同步极速summary数据' });
+        }
         const result: Record<string, unknown> = {
           ok: true,
-          agentId: getContextAgent()?.id,
+          agentId,
           channel: getExecutionChannel(),
+          isAdmin: authorized,
           input,
         };
         if (name === 'sync_fast_trading_summary') result.tool = name;

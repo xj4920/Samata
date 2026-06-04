@@ -103,6 +103,9 @@ export const toolDefinitions: Anthropic.Tool[] = [
 // ─── Handlers: app-internal tasks ───────────────────────────
 
 function handleCreateScheduledTask(input: CreateScheduledTaskInput, deliveryCtx?: DeliveryContext): string {
+  const denied = requireAgentAdmin('管理当前 agent 的定时任务');
+  if (denied) return denied;
+
   if (!deliveryCtx) {
     return JSON.stringify({ error: '无法创建定时任务：缺少投递上下文。请通过飞书、Telegram 或企微渠道使用此功能。' });
   }
@@ -144,6 +147,9 @@ function handleListScheduledTasks(): string {
 }
 
 function handleUpdateScheduledTask(input: UpdateScheduledTaskInput): string {
+  const denied = requireAgentAdmin('管理当前 agent 的定时任务');
+  if (denied) return denied;
+
   const agentId = getCurrentAgent()?.id ?? 'default';
   return JSON.stringify(updateScheduledTask(input.id, agentId, {
     enabled: input.enabled,
@@ -155,6 +161,9 @@ function handleUpdateScheduledTask(input: UpdateScheduledTaskInput): string {
 }
 
 function handleDeleteScheduledTask(input: DeleteScheduledTaskInput): string {
+  const denied = requireAgentAdmin('管理当前 agent 的定时任务');
+  if (denied) return denied;
+
   const agentId = getCurrentAgent()?.id ?? 'default';
   return JSON.stringify(deleteScheduledTask(input.id, agentId));
 }
@@ -335,10 +344,10 @@ function rejectMultiline(field: string, value: string | undefined): string | nul
   return null;
 }
 
-function requireAgentAdmin(): string | null {
+function requireAgentAdmin(action = '管理当前 agent 的 crontab'): string | null {
   const agent = getCurrentAgent();
   if (!agent) return JSON.stringify({ error: '无法确定当前 agent' });
-  if (!isAgentAdmin(agent.id)) return JSON.stringify({ error: '需要 agent admin 权限才能管理当前 agent 的 crontab' });
+  if (!isAgentAdmin(agent.id)) return JSON.stringify({ error: `需要 agent admin 权限才能${action}` });
   return null;
 }
 

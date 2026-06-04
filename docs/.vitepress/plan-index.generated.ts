@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "定时任务设置权限与授权运行",
+      "link": "/plan/2026-06-04_scheduled-task-admin-authorized-run",
+      "sourcePath": "docs/plan/2026-06-04_scheduled-task-admin-authorized-run.md",
+      "sortKey": "2026-06-04_scheduled-task-admin-authorized-run.md",
+      "date": "2026-06-04",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "调度与任务"
+    },
+    {
       "title": "Samata 本地运行时改动推送 GitHub",
       "link": "/plan/2026-06-03_push-samata-runtime-updates-to-github",
       "sourcePath": "docs/plan/2026-06-03_push-samata-runtime-updates-to-github.md",
@@ -460,6 +473,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/permissions/resource-scopes"
       ],
       "topic": "资源作用域"
+    },
+    {
+      "title": "定时任务设置权限与授权运行",
+      "link": "/plan/2026-06-04_scheduled-task-admin-authorized-run",
+      "sourcePath": "docs/plan/2026-06-04_scheduled-task-admin-authorized-run.md",
+      "sortKey": "2026-06-04_scheduled-task-admin-authorized-run.md",
+      "date": "2026-06-04",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
     },
     {
       "title": "TiClaw 沙箱 + Wind 数据库能力（2026-05-08）",
@@ -1168,6 +1194,26 @@ export const uncategorizedPlanItems: PlanIndexItem[] = [
     "link": "/plan/2026-06-03_feishu-image-context-codex-fallback",
     "sourcePath": "docs/plan/2026-06-03_feishu-image-context-codex-fallback.md",
     "sortKey": "2026-06-03_feishu-image-context-codex-fallback.md",
+    "date": "2026-06-03",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Codex Vision Image Argument Order Fix",
+    "link": "/plan/2026-06-03_codex-vision-image-arg-order",
+    "sourcePath": "docs/plan/2026-06-03_codex-vision-image-arg-order.md",
+    "sortKey": "2026-06-03_codex-vision-image-arg-order.md",
+    "date": "2026-06-03",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Codex Image Generation Stdin Fix",
+    "link": "/plan/2026-06-03_codex-imagegen-stdin-fix",
+    "sourcePath": "docs/plan/2026-06-03_codex-imagegen-stdin-fix.md",
+    "sortKey": "2026-06-03_codex-imagegen-stdin-fix.md",
     "date": "2026-06-03",
     "status": "unknown",
     "canonicalDocs": [],

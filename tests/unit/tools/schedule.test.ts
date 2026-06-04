@@ -289,7 +289,7 @@ describe('schedule tools', () => {
       expect(row.last_run_at).toBeGreaterThan(0);
       expect(row.next_run_at).toBeGreaterThan(Date.now());
       const parsed = JSON.parse(row.last_result!);
-      expect(parsed).toEqual({ ok: true, agentId, channel: 'system', input: { force: true } });
+      expect(parsed).toEqual({ ok: true, agentId, channel: 'system', isAdmin: true, input: { force: true } });
     });
 
     it('executes due FastTrading sync tasks in the scheduled agent context', async () => {
@@ -320,7 +320,7 @@ describe('schedule tools', () => {
       expect(row.last_run_at).toBeGreaterThan(0);
       expect(row.next_run_at).toBeGreaterThan(Date.now());
       const parsed = JSON.parse(row.last_result!);
-      expect(parsed).toEqual({ ok: true, tool: 'sync_fast_trading_summary', agentId, channel: 'system', input: {} });
+      expect(parsed).toEqual({ ok: true, tool: 'sync_fast_trading_summary', agentId, channel: 'system', isAdmin: true, input: {} });
     });
   });
 
@@ -369,6 +369,65 @@ describe('schedule tools', () => {
         }),
       );
       expect(JSON.parse(updated!).success).toBe(true);
+    });
+
+    it('requires agent admin to create, update, and delete scheduled tasks', async () => {
+      const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const scheduleTools = await import('../../../src/tools/schedule-tools.js');
+      const agentId = await getAgentId('otcclaw');
+      const input = {
+        name: 'admin-only scheduled task',
+        cron_expr: '0 19 * * 1-5',
+        task_type: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false }),
+      };
+      const deliveryContext = { channel: 'wework', targetId: 'room-1' };
+
+      const deniedCreate = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('create_scheduled_task', input, { deliveryContext }),
+      );
+      expect(JSON.parse(deniedCreate!).error).toContain('agent admin');
+
+      const existing = createScheduledTask({
+        agentId,
+        name: 'existing',
+        cronExpr: '0 18 * * 1-5',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false }),
+        channel: 'system',
+        createdBy: 'system',
+      });
+      expect(existing.success).toBe(true);
+
+      const deniedUpdate = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('update_scheduled_task', { id: (existing as any).id, enabled: false }),
+      );
+      expect(JSON.parse(deniedUpdate!).error).toContain('agent admin');
+
+      const deniedDelete = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('delete_scheduled_task', { id: (existing as any).id }),
+      );
+      expect(JSON.parse(deniedDelete!).error).toContain('agent admin');
+
+      unit.db.prepare(
+        `INSERT INTO agent_members (id, agent_id, user_id, role, created_at) VALUES (?, ?, ?, ?, datetime('now'))`,
+      ).run('am-test-user-otc-schedule', agentId, 'test-user', 'admin');
+
+      const created = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('create_scheduled_task', input, { deliveryContext }),
+      );
+      const parsedCreated = JSON.parse(created!);
+      expect(parsedCreated.success).toBe(true);
+
+      const updated = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('update_scheduled_task', { id: parsedCreated.id, enabled: false }),
+      );
+      expect(JSON.parse(updated!).success).toBe(true);
+
+      const deleted = await withContext({ channel: 'wework', role: 'user', agentName: 'otcclaw' }, () =>
+        scheduleTools.handleTool('delete_scheduled_task', { id: parsedCreated.id }),
+      );
+      expect(JSON.parse(deleted!).success).toBe(true);
     });
   });
 
