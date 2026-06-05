@@ -499,6 +499,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
+      "title": "otcclaw 普通用户常速换手计算权限",
+      "link": "/plan/2026-06-05_otcclaw-member-normal-turnover",
+      "sourcePath": "docs/plan/2026-06-05_otcclaw-member-normal-turnover.md",
+      "sortKey": "2026-06-05_otcclaw-member-normal-turnover.md",
+      "date": "2026-06-05",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
+    },
+    {
       "title": "定时任务设置权限与授权运行",
       "link": "/plan/2026-06-04_scheduled-task-admin-authorized-run",
       "sourcePath": "docs/plan/2026-06-04_scheduled-task-admin-authorized-run.md",
@@ -666,6 +678,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/agent-capability-model"
       ],
       "topic": "Skill 机制"
+    },
+    {
+      "title": "otcclaw 普通用户常速换手计算权限",
+      "link": "/plan/2026-06-05_otcclaw-member-normal-turnover",
+      "sourcePath": "docs/plan/2026-06-05_otcclaw-member-normal-turnover.md",
+      "sortKey": "2026-06-05_otcclaw-member-normal-turnover.md",
+      "date": "2026-06-05",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/permissions/tool-access"
+      ],
+      "topic": "插件接入"
     },
     {
       "title": "Samata 本地运行时改动推送 GitHub",

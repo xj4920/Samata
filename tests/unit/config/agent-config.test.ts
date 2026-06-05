@@ -173,8 +173,8 @@ describe('getAgentTools', () => {
       expect(adminNames).toContain('calc_normal_trading_annual_turnover');
       expect(adminNames).toContain('sync_fast_trading_summary');
       expect(memberNames).toContain('query_normal_trading_summary');
+      expect(memberNames).toContain('calc_normal_trading_annual_turnover');
       expect(memberNames).not.toContain('sync_normal_trading_summary');
-      expect(memberNames).not.toContain('calc_normal_trading_annual_turnover');
       expect(memberNames).not.toContain('sync_fast_trading_summary');
     });
 

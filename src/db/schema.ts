@@ -2627,7 +2627,6 @@ export function initSchema(): void {
     ];
     const writeTools = [
       'sync_normal_trading_summary',
-      'calc_normal_trading_annual_turnover',
     ];
     const row = db.prepare(
       "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
@@ -2655,6 +2654,21 @@ export function initSchema(): void {
     db.prepare(
       "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
     ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
+  });
+
+  runOnce('otcclaw-unblock-normal-trading-turnover-calc-v1', () => {
+    const row = db.prepare(
+      "SELECT user_tools_list FROM agents WHERE name = 'otcclaw'",
+    ).get() as { user_tools_list: string | null } | undefined;
+    if (!row?.user_tools_list) return;
+
+    const userToolsList: string[] = JSON.parse(row.user_tools_list);
+    const nextUserToolsList = userToolsList.filter((tool) => tool !== 'calc_normal_trading_annual_turnover');
+    if (nextUserToolsList.length === userToolsList.length) return;
+
+    db.prepare(
+      "UPDATE agents SET user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
+    ).run(JSON.stringify(nextUserToolsList));
   });
 
   runOnce('otcclaw-add-fast-trading-summary-sync-tool-v1', () => {
