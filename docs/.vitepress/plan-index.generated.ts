@@ -1248,36 +1248,6 @@ export const uncategorizedPlanItems: PlanIndexItem[] = [
     "topic": "未分类"
   },
   {
-    "title": "Codex Vision Image Argument Order Fix",
-    "link": "/plan/2026-06-03_codex-vision-image-arg-order",
-    "sourcePath": "docs/plan/2026-06-03_codex-vision-image-arg-order.md",
-    "sortKey": "2026-06-03_codex-vision-image-arg-order.md",
-    "date": "2026-06-03",
-    "status": "unknown",
-    "canonicalDocs": [],
-    "topic": "未分类"
-  },
-  {
-    "title": "Codex Image Generation Stdin Fix",
-    "link": "/plan/2026-06-03_codex-imagegen-stdin-fix",
-    "sourcePath": "docs/plan/2026-06-03_codex-imagegen-stdin-fix.md",
-    "sortKey": "2026-06-03_codex-imagegen-stdin-fix.md",
-    "date": "2026-06-03",
-    "status": "unknown",
-    "canonicalDocs": [],
-    "topic": "未分类"
-  },
-  {
-    "title": "Codex Agent 图片生成与识别工具",
-    "link": "/plan/2026-06-03_codex-agent-vision-tools",
-    "sourcePath": "docs/plan/2026-06-03_codex-agent-vision-tools.md",
-    "sortKey": "2026-06-03_codex-agent-vision-tools.md",
-    "date": "2026-06-03",
-    "status": "unknown",
-    "canonicalDocs": [],
-    "topic": "未分类"
-  },
-  {
     "title": "修复 Agent 删除的级联清理",
     "link": "/plan/2026-05-28_fix-agent-deletion",
     "sourcePath": "docs/plan/2026-05-28_fix-agent-deletion.md",
