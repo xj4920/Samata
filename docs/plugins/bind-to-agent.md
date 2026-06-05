@@ -8,7 +8,7 @@
 
 ## agent-bound
 
-`agent-bound` 插件适合客户、交易、报价、健康、错题等业务专属能力。工具名必须写入 Agent 的 `tools_list` 才会对该 Agent 可见。
+`agent-bound` 插件适合客户、交易、报价、错题等业务专属能力。私有业务插件由外部仓库和运行环境维护；工具名必须写入 Agent 的 `tools_list` 才会对该 Agent 可见。
 
 ## 操作入口
 

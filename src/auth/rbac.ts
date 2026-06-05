@@ -11,6 +11,17 @@ export interface User {
   display_name?: string;
 }
 
+export interface UserListRow extends User {
+  alias_count: number;
+}
+
+export interface UserAlias {
+  alias_user_id: string;
+  canonical_user_id: string;
+  note?: string;
+  created_at: string;
+}
+
 export type IdentityPlatform = 'feishu' | 'wework' | string;
 
 export interface ExternalIdentityIds {
@@ -69,6 +80,110 @@ export function buildCanonicalUserId(platform: IdentityPlatform, ids: ExternalId
     ?? `${platform}_unknown`;
 }
 
+function uniqueIds(values: Array<string | undefined | null>): string[] {
+  return [...new Set(values
+    .map(v => (typeof v === 'string' ? v.trim() : ''))
+    .filter(v => v.length > 0))];
+}
+
+export function collectExternalUserIds(platform: IdentityPlatform, ids: ExternalIdentityIds): string[] {
+  if (platform === 'feishu') {
+    const unionId = firstId(ids.union_id, ids.unionId);
+    const userId = firstId(ids.user_id, ids.userId);
+    const openId = firstId(ids.open_id, ids.openId, ids.rawId, ids.legacyId);
+    return uniqueIds([
+      buildCanonicalUserId(platform, ids),
+      unionId ? `feishu_union_${unionId}` : undefined,
+      userId ? `feishu_user_${userId}` : undefined,
+      openId ? `feishu_open_${openId}` : undefined,
+      unionId ? `feishu_${unionId}` : undefined,
+      userId ? `feishu_${userId}` : undefined,
+      openId ? `feishu_${openId}` : undefined,
+      ids.legacyId,
+      ids.rawId,
+    ]);
+  }
+
+  if (platform === 'wework') {
+    const raw = firstId(ids.userid, ids.user_id, ids.userId, ids.rawId);
+    return uniqueIds([
+      buildCanonicalUserId(platform, ids),
+      raw ? `wework_user_${raw}` : undefined,
+      raw ? `wework_${raw}` : undefined,
+      ids.legacyId,
+      ids.rawId,
+    ]);
+  }
+
+  return uniqueIds([buildCanonicalUserId(platform, ids), ids.legacyId, ids.rawId, ids.user_id, ids.userId, ids.open_id, ids.openId, ids.userid, ids.union_id, ids.unionId]);
+}
+
+export function resolveCanonicalUserId(userId: string): string {
+  const db = getDb();
+  let root = userId;
+  const seen = new Set<string>([root]);
+  try {
+    for (let i = 0; i < 50; i++) {
+      const row = db.prepare(
+        'SELECT canonical_user_id FROM user_aliases WHERE alias_user_id = ?',
+      ).get(root) as { canonical_user_id: string } | undefined;
+      if (!row || seen.has(row.canonical_user_id)) break;
+      root = row.canonical_user_id;
+      seen.add(root);
+    }
+  } catch {
+    return userId;
+  }
+  return root;
+}
+
+export function getUserByIdOrUsername(ref: string): User | undefined {
+  const db = getDb();
+  return db.prepare(
+    'SELECT id, username, role, display_name FROM users WHERE id = ? OR username = ? LIMIT 1',
+  ).get(ref, ref) as User | undefined;
+}
+
+export function upsertUserAlias(canonicalRef: string, aliasUserId: string, note?: string): UserAlias {
+  const canonical = getUserByIdOrUsername(canonicalRef);
+  if (!canonical) throw new Error(`用户不存在: ${canonicalRef}`);
+  const alias = aliasUserId.trim();
+  if (!alias) throw new Error('alias_user_id 不能为空');
+  if (alias === canonical.id) throw new Error('alias_user_id 不能等于 canonical_user_id');
+
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO user_aliases (alias_user_id, canonical_user_id, note)
+    VALUES (?, ?, ?)
+    ON CONFLICT(alias_user_id) DO UPDATE SET
+      canonical_user_id = excluded.canonical_user_id,
+      note = excluded.note
+  `).run(alias, canonical.id, note ?? null);
+
+  return db.prepare(
+    'SELECT alias_user_id, canonical_user_id, note, created_at FROM user_aliases WHERE alias_user_id = ?',
+  ).get(alias) as UserAlias;
+}
+
+export function deleteUserAlias(aliasUserId: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM user_aliases WHERE alias_user_id = ?').run(aliasUserId);
+  return result.changes > 0;
+}
+
+export function listUserAliases(userRef: string): UserAlias[] {
+  const db = getDb();
+  const byUsername = db.prepare(
+    'SELECT id, username, role, display_name FROM users WHERE username = ? LIMIT 1',
+  ).get(userRef) as User | undefined;
+  const root = byUsername ? byUsername.id : resolveCanonicalUserId(userRef);
+  const canonical = getUser(root) ?? getUser(userRef);
+  const canonicalId = canonical?.id ?? root;
+  return db.prepare(
+    'SELECT alias_user_id, canonical_user_id, note, created_at FROM user_aliases WHERE canonical_user_id = ? ORDER BY created_at DESC, alias_user_id',
+  ).all(canonicalId) as UserAlias[];
+}
+
 export function registerUserAliases(canonicalUserId: string, aliases: string[], note?: string): void {
   if (!canonicalUserId) return;
   const db = getDb();
@@ -87,20 +202,43 @@ export function registerUserAliases(canonicalUserId: string, aliases: string[], 
   }
 }
 
+export function resolveExternalUser(
+  platform: IdentityPlatform,
+  ids: ExternalIdentityIds,
+  fallbackName?: string,
+  displayName?: string,
+): User {
+  const canonicalCandidate = buildCanonicalUserId(platform, ids);
+  const allIds = collectExternalUserIds(platform, ids);
+
+  for (const id of allIds) {
+    const root = resolveCanonicalUserId(id);
+    if (root === id) continue;
+    const user = getUser(root);
+    if (user) {
+      registerUserAliases(user.id, allIds, `${platform} sender identity`);
+      return user;
+    }
+  }
+
+  const existingCanonical = getUser(canonicalCandidate);
+  if (existingCanonical) {
+    registerUserAliases(existingCanonical.id, allIds, `${platform} sender identity`);
+    return existingCanonical;
+  }
+
+  const legacyUser = allIds.map(id => getUser(id)).find(Boolean);
+  const username = fallbackName?.trim() || legacyUser?.username || canonicalCandidate;
+  const user = getOrCreateUser(canonicalCandidate, username, 'user', displayName ?? legacyUser?.display_name);
+  registerUserAliases(user.id, allIds, `${platform} sender identity`);
+  return user;
+}
+
 export function resolveUserScopeIds(userId?: string): string[] {
   if (!userId) return [];
   const db = getDb();
   try {
-    let root = userId;
-    const climbSeen = new Set<string>([root]);
-    for (let i = 0; i < 50; i++) {
-      const row = db.prepare(
-        'SELECT canonical_user_id FROM user_aliases WHERE alias_user_id = ?',
-      ).get(root) as { canonical_user_id: string } | undefined;
-      if (!row || climbSeen.has(row.canonical_user_id)) break;
-      root = row.canonical_user_id;
-      climbSeen.add(root);
-    }
+    const root = resolveCanonicalUserId(userId);
 
     const resolved = new Set<string>([root]);
     const queue = [root];
@@ -162,6 +300,17 @@ export function getAllUsers(): User[] {
   return db.prepare('SELECT id, username, role, display_name FROM users').all() as User[];
 }
 
+export function getAllUsersWithAliasCount(): UserListRow[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT u.id, u.username, u.role, u.display_name, COUNT(ua.alias_user_id) AS alias_count
+    FROM users u
+    LEFT JOIN user_aliases ua ON ua.canonical_user_id = u.id
+    GROUP BY u.id, u.username, u.role, u.display_name
+    ORDER BY u.username
+  `).all() as UserListRow[];
+}
+
 export function getUser(id: string): User | undefined {
   const db = getDb();
   return db.prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(id) as User | undefined;
@@ -205,7 +354,7 @@ export function getOrCreateUser(id: string, username: string, role: Role = 'user
   return { id, username: unique, role, display_name: displayName };
 }
 
-export function createUser(username: string, role: Role = 'user'): User {
+export function createUser(username: string, role: Role = 'user', displayName?: string): User {
   const db = getDb();
   
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
@@ -214,11 +363,11 @@ export function createUser(username: string, role: Role = 'user'): User {
   }
 
   const id = uuid();
-  db.prepare('INSERT INTO users (id, username, role) VALUES (?, ?, ?)').run(id, username, role);
-  return { id, username, role };
+  db.prepare('INSERT INTO users (id, username, role, display_name) VALUES (?, ?, ?, ?)').run(id, username, role, displayName ?? null);
+  return { id, username, role, display_name: displayName };
 }
 
-export function updateUser(id: string, updates: Partial<Pick<User, 'username' | 'role'>>): User {
+export function updateUser(id: string, updates: Partial<Pick<User, 'username' | 'role' | 'display_name'>>): User {
   const db = getDb();
   const user = getUser(id);
   if (!user) {
@@ -234,9 +383,12 @@ export function updateUser(id: string, updates: Partial<Pick<User, 'username' | 
 
   const newUsername = updates.username || user.username;
   const newRole = updates.role || user.role;
+  const newDisplayName = Object.prototype.hasOwnProperty.call(updates, 'display_name')
+    ? updates.display_name
+    : user.display_name;
 
-  db.prepare('UPDATE users SET username = ?, role = ? WHERE id = ?').run(newUsername, newRole, id);
-  return { id, username: newUsername, role: newRole };
+  db.prepare('UPDATE users SET username = ?, role = ?, display_name = ? WHERE id = ?').run(newUsername, newRole, newDisplayName ?? null, id);
+  return { id, username: newUsername, role: newRole, display_name: newDisplayName };
 }
 
 export function deleteUser(id: string): void {

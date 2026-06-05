@@ -21,4 +21,4 @@ Agent runtime: prompt build + tool routing + memory/knowledge/skill injection
 
 ## 平台边界
 
-核心平台不承载业务专属数据模型。客户、交易、报价、健康、错题、企微 QA 等业务能力由插件负责，工具名对 Agent 保持稳定。
+核心平台不承载业务专属数据模型。客户、交易、报价、错题、企微 QA 等业务能力由插件负责；私有业务插件由外部仓库和运行环境维护。

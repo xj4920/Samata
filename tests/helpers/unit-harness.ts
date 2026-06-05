@@ -33,8 +33,6 @@ vi.mock('../../src/utils/logger.js', () => ({
 vi.mock('../../src/plugins/registry.js', () => {
   // Stub tool definitions for plugins already migrated from native tools
   const pluginTools = [
-    'add_health_record', 'query_health_records', 'health_summary',
-    'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
     'record_wrong_question', 'list_wrong_questions',
     'mark_wrong_question_mastered', 'wrong_question_report',
     'query_clients', 'view_client', 'get_client_history',
@@ -119,7 +117,6 @@ const FS_MIGRATIONS = [
   'migrate-documents-v2-cleanup',
   'migrate-documents-use-agent-name',
   'backfill-documents-content-hash',
-  'migrate-health-records-to-plugin',
 ];
 
 function prefillFsMigrations(db: Database.Database) {
@@ -168,7 +165,7 @@ export async function setupUnitDb(): Promise<UnitTestContext> {
 }
 
 /**
- * Insert additional test seed data (clients, health records, todos).
+ * Insert additional test seed data (clients, todos).
  */
 export async function seedAll(db: Database.Database) {
   const { seedTestData } = await import('./seed-data.js');

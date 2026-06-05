@@ -53,7 +53,7 @@ const commands: Record<string, Command> = {
   memory:  { description: 'Memory', usage: '/memory <list|add|search|del> [内容]', handler: handleMemory, subcommands: ['list', 'add', 'search', 'del'] },
   model:   { description: '切换模型', usage: '/model <list|<provider>|<provider>/<model>|reset>', requiredRole: 'agent_admin', handler: handleModel, subcommands: ['list', 'reset', 'anthropic', 'minimax', 'gemini', 'openrouter', 'custom'] },
   bot:     { description: 'Bot', usage: '/bot <tg|feishu> <start|stop|status>', requiredRole: 'system_admin', cliOnly: true, handler: handleBot, subcommands: ['tg start', 'tg stop', 'tg status', 'feishu start', 'feishu stop', 'feishu status'] },
-  user:    { description: '系统用户', usage: '/user <list|add|update|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'delete'] },
+  user:    { description: '系统用户', usage: '/user <list|add|update|alias|delete>', requiredRole: 'system_admin', cliOnly: true, handler: handleUser, subcommands: ['list', 'add', 'update', 'alias add', 'alias list', 'alias del', 'delete'] },
 
   help:    { description: '显示帮助', usage: '/help', handler: showHelp },
 };

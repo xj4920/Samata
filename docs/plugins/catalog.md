@@ -9,7 +9,6 @@
 - **pricing**：产品利率报价导入与查询。
 - **hedge-ratio**：对冲比查询和后台监控。
 - **wework-qa**：企微 QA 提取和消息监测。
-- **health-tracker**：健康记录和健康摘要。
 - **wrong-questions**：错题记录与复习状态。
 - **wiki-sync**：Confluence / Wiki 同步后台服务。
 

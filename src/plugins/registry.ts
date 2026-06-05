@@ -15,6 +15,8 @@ const PLUGINS_DIRS = (process.env.SAMATA_PLUGINS_DIR || '../samata-plugins')
   .map(d => path.resolve(PROJECT_ROOT, d.trim()));
 const NPM_PLUGIN_PREFIX = '@samata-platform/plugin-';
 
+type PluginDeliveryContext = { channel: string; targetId?: string; appId?: string };
+
 async function callLLMImpl(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string> {
   const { getProvider, getModelName } = await import('../llm/provider.js');
   const provider = getProvider();
@@ -29,16 +31,29 @@ async function callLLMImpl(messages: Array<{role: string; content: string}>, opt
   return (textBlock as any)?.text || '';
 }
 
-async function sendNotificationImpl(channel: string, targetId: string, message: string): Promise<void> {
+async function sendNotificationImpl(channel: string, targetId: string, message: string, deliveryCtx?: PluginDeliveryContext): Promise<void> {
   if (channel === 'feishu') {
     const { FeishuAPI } = await import('../feishu/api.js');
     const { getDb } = await import('../db/connection.js');
-    const row = getDb().prepare(
+    const db = getDb();
+    const preferredAppId = deliveryCtx?.channel === 'feishu' ? deliveryCtx.appId : undefined;
+    const row = preferredAppId
+      ? db.prepare("SELECT * FROM bot_apps WHERE id = ? AND channel = 'feishu' LIMIT 1").get(preferredAppId) as any
+      : undefined;
+    const fallbackRow = row ?? db.prepare(
       "SELECT * FROM bot_apps WHERE name = 'monitor-bot' AND channel = 'feishu' LIMIT 1"
     ).get() as any;
-    if (!row) throw new Error('No feishu monitor bot configured');
-    const api = new FeishuAPI({ appId: row.id, appSecret: row.secret, verificationToken: '', encryptKey: '' });
-    const idType = targetId.startsWith('oc_') ? 'chat_id' : targetId.startsWith('ou_') ? 'open_id' : 'user_id';
+    if (!fallbackRow) {
+      throw new Error(preferredAppId ? `No feishu bot configured for app ${preferredAppId}` : 'No feishu monitor bot configured');
+    }
+    const cfg = JSON.parse(fallbackRow.config || '{}');
+    const api = new FeishuAPI({
+      appId: fallbackRow.id,
+      appSecret: fallbackRow.secret,
+      verificationToken: cfg.verification_token || '',
+      encryptKey: cfg.encrypt_key || '',
+    });
+    const idType = targetId.startsWith('oc_') ? 'chat_id' : 'open_id';
     await api.sendMessageTo(targetId, idType, 'text', { text: message });
   } else if (channel === 'wework' || channel.startsWith('wework:')) {
     const [, botIdOrName] = channel.split(':', 2);
@@ -308,12 +323,13 @@ export function getUniversalPluginTools(): Anthropic.Tool[] {
     .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
 }
 
-export async function executePluginTool(name: string, input: any, deliveryCtx?: { channel: string; targetId?: string; appId?: string }): Promise<string | null> {
+export async function executePluginTool(name: string, input: any, deliveryCtx?: PluginDeliveryContext): Promise<string | null> {
   for (const loaded of loadedPlugins.values()) {
     const agentId = getContextAgent()?.id;
     const ctx: PluginContext = {
       ...loaded.context,
       getDeliveryContext: () => deliveryCtx ? { channel: deliveryCtx.channel, targetId: deliveryCtx.targetId || '', appId: deliveryCtx.appId } : undefined,
+      sendNotification: (channel, targetId, message) => sendNotificationImpl(channel, targetId, message, deliveryCtx),
       isAdmin: () => isScheduledTaskAuthorized() || (agentId ? isAgentAdmin(agentId) : false),
       createReminder: (params) => createReminder(params),
     };

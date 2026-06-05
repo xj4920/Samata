@@ -63,7 +63,6 @@ samata-plugins/
 ├── pricing/
 ├── hedge-ratio/
 ├── wework-qa/
-├── health-tracker/
 ├── wrong-questions/
 ├── wiki-sync/
 ├── package.json                 # workspace root（依赖 @samata-platform/plugin-sdk）

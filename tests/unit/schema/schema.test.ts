@@ -15,7 +15,7 @@ describe('schema integrity', () => {
   describe('core tables exist', () => {
     const expectedTables = [
       'knowledge', 'knowledge_agents', 'skills', 'users',
-      'user_aliases', 'agents', 'agent_members', 'todos', 'health_records',
+      'user_aliases', 'agents', 'agent_members', 'todos',
       'reminders', 'bot_apps', 'agent_assignments',
       'documents', 'pricing_quotes', 'memory',
       'wrong_questions', 'wrong_question_assets',

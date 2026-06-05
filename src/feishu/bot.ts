@@ -24,7 +24,7 @@ import { FeishuAPI, type FeishuConfig, type FeishuMessage, detectFileType, isIma
 import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
-import { buildCanonicalUserId, getOrCreateUser, getUser, isAgentAdmin, registerUserAliases, type User } from '../auth/rbac.js';
+import { getOrCreateUser, isAgentAdmin, listUserAliases, resolveExternalUser, type ExternalIdentityIds, type User } from '../auth/rbac.js';
 import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
@@ -234,27 +234,20 @@ async function resolveFeishuRealName(
 }
 
 function isPlaceholderName(name: string): boolean {
-  return name.startsWith('user_') || name.startsWith('feishu_');
+  return name.startsWith('user_') || name.startsWith('feishu_') || name.startsWith('ou_') || name.startsWith('on_');
 }
 
 type FeishuSenderIds = FeishuMessage['sender']['sender_id'];
 
-function resolveFeishuIdentity(feishuUserId: string, senderIds?: FeishuSenderIds): { userId: string; aliases: string[]; openId: string } {
+function resolveFeishuIdentity(feishuUserId: string, senderIds?: FeishuSenderIds): { ids: ExternalIdentityIds; openId: string } {
   const openId = senderIds?.open_id || feishuUserId;
-  const userId = buildCanonicalUserId('feishu', {
+  const ids: ExternalIdentityIds = {
     union_id: senderIds?.union_id,
     user_id: senderIds?.user_id,
     open_id: openId,
-  });
-  const aliases = [
-    senderIds?.union_id ? `feishu_union_${senderIds.union_id}` : undefined,
-    senderIds?.user_id ? `feishu_user_${senderIds.user_id}` : undefined,
-    senderIds?.open_id ? `feishu_open_${senderIds.open_id}` : undefined,
-    senderIds?.user_id ? `feishu_${senderIds.user_id}` : undefined,
-    senderIds?.open_id ? `feishu_${senderIds.open_id}` : undefined,
-    feishuUserId ? `feishu_${feishuUserId}` : undefined,
-  ].filter((v): v is string => Boolean(v));
-  return { userId, aliases: [...new Set(aliases)], openId };
+    rawId: feishuUserId,
+  };
+  return { ids, openId };
 }
 
 async function getSessionForInstance(
@@ -269,22 +262,18 @@ async function getSessionForInstance(
     const agent = resolveAgent('feishu', instance.appId);
     if (!agent) throw new AgentUnboundError('feishu', instance.appId);
 
-    // 1) Check DB for a previously confirmed real name (survives restarts)
-    const existingUser = [identity.userId, ...identity.aliases]
-      .map(id => getUser(id))
-      .find(u => u && !isPlaceholderName(u.username));
-    const dbName = existingUser?.username;
-    const hasRealDbName = dbName && !isPlaceholderName(dbName);
+    const fallbackName = feishuUsername || `user_${identity.openId.slice(-6)}`;
+    let user = resolveExternalUser('feishu', identity.ids, fallbackName);
+    let username = user.display_name || user.username;
+    if (isPlaceholderName(user.username)) {
+      const realName = await resolveFeishuRealName(instance, identity.openId, feishuUsername || user.username);
+      if (realName !== user.username) {
+        user = getOrCreateUser(user.id, realName, user.role, user.display_name);
+        username = user.display_name || user.username;
+      }
+    }
 
-    // 2) If DB has no real name, try the Feishu contacts API
-    const username = hasRealDbName
-      ? dbName
-      : await resolveFeishuRealName(instance, identity.openId, feishuUsername) || identity.userId;
-
-    const user = getOrCreateUser(identity.userId, username, 'user', existingUser?.display_name);
-    registerUserAliases(identity.userId, identity.aliases, 'feishu sender identity');
-
-    const needsConfirm = isPlaceholderName(username);
+    const needsConfirm = isPlaceholderName(user.username);
     session = {
       feishuUserId,
       feishuUsername: username,
@@ -297,22 +286,28 @@ async function getSessionForInstance(
     };
     instance.sessions.set(feishuUserId, session);
   } else {
-    const user = getOrCreateUser(identity.userId, session.user.username, session.user.role, session.user.display_name);
-    registerUserAliases(identity.userId, identity.aliases, 'feishu sender identity');
-    if (session.user.id !== user.id) session.user = user;
+    const fallbackName = session.user.username || feishuUsername || `user_${identity.openId.slice(-6)}`;
+    let user = resolveExternalUser('feishu', identity.ids, fallbackName);
+    if (
+      session.user.id !== user.id ||
+      session.user.username !== user.username ||
+      session.user.display_name !== user.display_name
+    ) {
+      session.user = user;
+    }
     // Session exists but username may be stale (e.g. initial API call failed).
     // Re-resolve via API when the stored name is still a placeholder.
     const cur = session.user.username;
     if (isPlaceholderName(cur)) {
       const realName = await resolveFeishuRealName(instance, identity.openId, cur);
       if (realName !== cur) {
-        session.user.username = realName;
-        session.feishuUsername = realName;
         session.pendingNameConfirm = false;
         session.nameAsked = false;
-        getOrCreateUser(session.user.id, realName, session.user.role);
+        user = getOrCreateUser(session.user.id, realName, session.user.role, session.user.display_name);
+        session.user = user;
       }
     }
+    session.feishuUsername = session.user.display_name || session.user.username;
   }
   session.lastActive = Date.now();
   return session;
@@ -369,6 +364,14 @@ function appendRecentImageContext(input: string, imagePaths?: string[]): string 
     ...imagePaths.map((p, i) => `- 图片${i + 1}: ${p}`),
     '如果用户要求识别、分析、转文字或描述图片，请直接调用 recognize_image_codex；不要向用户再次索要图片路径。',
   ].join('\n');
+}
+
+export function buildFeishuDeliveryContext(chatId: string, appId: string): DeliveryContext {
+  return {
+    channel: 'feishu',
+    targetId: chatId,
+    appId,
+  };
 }
 
 /**
@@ -500,11 +503,7 @@ async function handleAIChat(
     agentConfig,
     images,
     onProgress,
-    deliveryContext: {
-      channel: 'feishu',
-      targetId: feishuUserId,
-      appId: instance.appId,
-    } as DeliveryContext,
+    deliveryContext: buildFeishuDeliveryContext(chatId, instance.appId),
   });
 
   if (textReply) {
@@ -1155,10 +1154,23 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     images?.length ? `images=${images.length}` : undefined,
   ], 'info');
 
-  // /debug 命令：显示用户飞书 ID（简化版，直接返回 senderId，不依赖 getUser API）
+  // /debug 命令：显示平台 ID 与 Samata canonical 用户，便于后台人工绑定。
   if (text.startsWith('/debug')) {
     try {
-      await sendFeishuReply(instance, chatId, `你的飞书用户 ID: ${senderId}`, replyOpts);
+      const identity = resolveFeishuIdentity(senderId, senderIds);
+      const user = resolveExternalUser('feishu', identity.ids, senderName);
+      const aliases = listUserAliases(user.id);
+      const lines = [
+        '飞书身份调试信息：',
+        `open_id: ${senderIds.open_id || '-'}`,
+        `user_id: ${senderIds.user_id || '-'}`,
+        `union_id: ${senderIds.union_id || '-'}`,
+        `Samata 用户 ID: ${user.id}`,
+        `用户名: ${user.username}`,
+        `显示名: ${user.display_name || '-'}`,
+        `已绑定 alias: ${aliases.length > 0 ? aliases.map(a => a.alias_user_id).join(', ') : '无'}`,
+      ];
+      await sendFeishuReply(instance, chatId, lines.join('\n'), replyOpts);
     } catch (err: any) {
       log.error(`[飞书:${instance.appName}] /debug 发送失败: ${err.message}`);
     }

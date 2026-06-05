@@ -150,5 +150,55 @@ describe('RBAC', () => {
         'wework_identity_test',
       ]));
     });
+
+    it('resolves canonical user id through alias chain', async () => {
+      const { registerUserAliases, resolveCanonicalUserId } = await import('../../../src/auth/rbac.js');
+
+      ctx.db.prepare(`INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)`).run(
+        'user-duoduo', 'duoduo', 'user',
+      );
+      ctx.db.prepare(`INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)`).run(
+        'feishu_open_ou_duoduo', 'duoduo_feishu', 'user',
+      );
+      registerUserAliases('user-duoduo', ['feishu_open_ou_duoduo'], 'test open id');
+      registerUserAliases('feishu_open_ou_duoduo', ['wework_user_duoduo'], 'test cross channel chain');
+
+      expect(resolveCanonicalUserId('wework_user_duoduo')).toBe('user-duoduo');
+    });
+
+    it('resolves external wework identity to manually bound Samata user', async () => {
+      const { resolveExternalUser, upsertUserAlias, listUserAliases } = await import('../../../src/auth/rbac.js');
+
+      ctx.db.prepare(`INSERT OR IGNORE INTO users (id, username, role, display_name) VALUES (?, ?, ?, ?)`).run(
+        'user-duoduo', 'duoduo', 'user', '多多',
+      );
+      upsertUserAlias('duoduo', 'wework_user_abc', 'manual wework binding');
+
+      const user = resolveExternalUser('wework', { userid: 'abc' }, 'wework_abc');
+      expect(user).toMatchObject({ id: 'user-duoduo', username: 'duoduo', display_name: '多多' });
+
+      const aliases = listUserAliases('duoduo').map(a => a.alias_user_id);
+      expect(aliases).toEqual(expect.arrayContaining(['wework_user_abc', 'wework_abc']));
+    });
+
+    it('resolves feishu multi-id sender to manually bound Samata user and fills missing aliases', async () => {
+      const { resolveExternalUser, upsertUserAlias, listUserAliases } = await import('../../../src/auth/rbac.js');
+
+      ctx.db.prepare(`INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)`).run(
+        'user-duoduo', 'duoduo', 'user',
+      );
+      upsertUserAlias('user-duoduo', 'feishu_open_ou_1', 'manual feishu binding');
+
+      const user = resolveExternalUser('feishu', { union_id: 'on_1', user_id: 'u_1', open_id: 'ou_1' }, 'user_ou_1');
+      expect(user.id).toBe('user-duoduo');
+
+      const aliases = listUserAliases('user-duoduo').map(a => a.alias_user_id);
+      expect(aliases).toEqual(expect.arrayContaining([
+        'feishu_open_ou_1',
+        'feishu_union_on_1',
+        'feishu_user_u_1',
+        'feishu_ou_1',
+      ]));
+    });
   });
 });

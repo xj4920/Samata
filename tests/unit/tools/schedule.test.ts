@@ -371,6 +371,35 @@ describe('schedule tools', () => {
       expect(JSON.parse(updated!).success).toBe(true);
     });
 
+    it('persists Feishu group chat delivery context for scheduled tasks', async () => {
+      const scheduleTools = await import('../../../src/tools/schedule-tools.js');
+
+      const result = await withContext({ agentName: 'alter-ego' }, () =>
+        scheduleTools.handleTool('create_scheduled_task', {
+          name: '群定时任务',
+          cron_expr: '0 8 * * *',
+          task_type: 'remind',
+          payload: JSON.stringify({ message: '早报' }),
+        }, {
+          deliveryContext: {
+            channel: 'feishu',
+            targetId: 'oc_group_chat',
+            appId: 'cli_test_app',
+          },
+        }),
+      );
+
+      expect(JSON.parse(result!).success).toBe(true);
+      const row = unit.db.prepare(
+        'SELECT channel, target_id, app_id FROM scheduled_tasks WHERE name = ?',
+      ).get('群定时任务') as { channel: string; target_id: string; app_id: string };
+      expect(row).toEqual({
+        channel: 'feishu',
+        target_id: 'oc_group_chat',
+        app_id: 'cli_test_app',
+      });
+    });
+
     it('requires agent admin to create, update, and delete scheduled tasks', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const scheduleTools = await import('../../../src/tools/schedule-tools.js');

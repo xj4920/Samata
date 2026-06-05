@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { useUnitDb, withContext } from '../../helpers/unit-harness.js';
 
 describe('reminder tools', () => {
-  useUnitDb();
+  const unit = useUnitDb();
 
   async function getAgentId(name: string): Promise<string> {
     const { getAgent } = await import('../../../src/llm/agents/config.js');
@@ -96,6 +96,33 @@ describe('reminder tools', () => {
         reminderTools.handleTool('list_reminders', {}),
       );
       expect(result).toBeTruthy();
+    });
+
+    it('persists Feishu group chat delivery context for reminders', async () => {
+      const reminderTools = await import('../../../src/tools/reminder-tools.js');
+
+      const result = await withContext({ agentName: 'alter-ego' }, () =>
+        reminderTools.handleTool('set_reminder', {
+          message: '群提醒',
+          delay_minutes: 5,
+        }, {
+          deliveryContext: {
+            channel: 'feishu',
+            targetId: 'oc_group_chat',
+            appId: 'cli_test_app',
+          },
+        }),
+      );
+
+      expect(JSON.parse(result!).success).toBe(true);
+      const row = unit.db.prepare(
+        'SELECT channel, target_id, app_id FROM reminders WHERE message = ?',
+      ).get('群提醒') as { channel: string; target_id: string; app_id: string };
+      expect(row).toEqual({
+        channel: 'feishu',
+        target_id: 'oc_group_chat',
+        app_id: 'cli_test_app',
+      });
     });
   });
 });

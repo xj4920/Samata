@@ -1,7 +1,6 @@
 import fs from 'fs';
 import { createHash } from 'node:crypto';
 import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
-import Database from 'better-sqlite3';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
 import { CronExpressionParser } from 'cron-parser';
@@ -52,7 +51,7 @@ const TICLAW_MEMBER_BLOCKED_TOOLS = [
 export function initSchema(): void {
   const db = getDb();
 
-  /** Client + Trade + Health block list for admin + alter-ego (`tools_mode=all`); keep in sync with ensure-admin-block-tools-v3 / ensure-alter-ego-all-block-v1. */
+  /** Business-tool block list for admin + alter-ego (`tools_mode=all`); keep in sync with ensure-admin-block-tools-v3 / ensure-alter-ego-all-block-v1. */
   const ADMIN_AGENT_BLOCK_TOOLS: string[] = [
     'query_clients',
     'view_client',
@@ -67,13 +66,6 @@ export function initSchema(): void {
     'plot_trades',
     'list_customers',
     'sync_fast_trading_summary',
-    'add_health_record',
-    'query_health_records',
-    'health_summary',
-    'log_sleep',
-    'log_meal',
-    'log_symptom',
-    'set_medication_reminder',
   ];
 
   db.exec(`
@@ -658,64 +650,6 @@ export function initSchema(): void {
       .run(uuid());
   });
 
-  runOnce('create-health-tables', () => {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS health_records (
-        id          TEXT PRIMARY KEY,
-        user_id     TEXT NOT NULL,
-        agent_id    TEXT NOT NULL,
-        record_type TEXT NOT NULL,
-        value       TEXT NOT NULL,
-        unit        TEXT,
-        measured_at TEXT NOT NULL,
-        notes       TEXT,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE IF NOT EXISTS health_files (
-        id          TEXT PRIMARY KEY,
-        user_id     TEXT NOT NULL,
-        agent_id    TEXT NOT NULL,
-        file_path   TEXT NOT NULL,
-        doc_type    TEXT NOT NULL,
-        measured_at TEXT NOT NULL,
-        notes       TEXT,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `);
-  });
-
-  runOnce('doctor-add-health-tools', () => {
-    // system prompt 已迁移到 config/agents/doctor.md，这里只保留 tools_list 更新
-    const doctorRow = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
-    if (doctorRow) {
-      const current: string[] = doctorRow.tools_list ? JSON.parse(doctorRow.tools_list) : [];
-      const healthTools = ['add_health_record', 'query_health_records', 'health_summary',
-        'set_medication_reminder'];
-      let changed = false;
-      for (const tool of healthTools) {
-        if (!current.includes(tool)) { current.push(tool); changed = true; }
-      }
-      if (changed) {
-        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'doctor'")
-          .run(JSON.stringify(current));
-      }
-    }
-  });
-
-  runOnce('doctor-remove-archive-health-file', () => {
-    const doctorRow = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
-    if (doctorRow?.tools_list) {
-      const current: string[] = JSON.parse(doctorRow.tools_list);
-      const removed = ['archive_health_file', 'list_health_files', 'view_health_file'];
-      const next = current.filter(t => !removed.includes(t));
-      if (next.length !== current.length) {
-        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'doctor'")
-          .run(next.length > 0 ? JSON.stringify(next) : null);
-      }
-    }
-  });
-
   runOnce('seed-browser-agent', () => {
     const browserAgent = db.prepare("SELECT id FROM agents WHERE name='browser'").get();
     if (!browserAgent) {
@@ -742,22 +676,6 @@ export function initSchema(): void {
           db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
             .run(JSON.stringify(current), agentName);
         }
-      }
-    }
-  });
-
-  runOnce('doctor-add-lifestyle-tools', () => {
-    const lifestyleTools = ['log_sleep', 'log_meal', 'log_symptom'];
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name='doctor'").get() as { tools_list: string | null } | undefined;
-    if (row) {
-      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      let changed = false;
-      for (const tool of lifestyleTools) {
-        if (!current.includes(tool)) { current.push(tool); changed = true; }
-      }
-      if (changed) {
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='doctor'")
-          .run(JSON.stringify(current));
       }
     }
   });
@@ -957,18 +875,14 @@ export function initSchema(): void {
         ];
         blockTools = ['generate_video'];
       } else if (agent.name === 'alter-ego') {
-        // alter-ego: same effective tools as admin — all \ (Client + Trade + Health)
+        // alter-ego: same effective tools as admin — all minus selected business tools.
         db.prepare(
           `UPDATE agents SET tools_mode='all', tools_list=NULL, block_tools=?, updated_at=datetime('now') WHERE id=?`,
         ).run(JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS), agent.id);
         continue;
       } else if (agent.name === 'doctor') {
-        // doctor: standard mode, allow = Health + update_memory
-        allowTools = [
-          'add_health_record', 'query_health_records', 'health_summary',
-          'log_sleep', 'log_meal', 'log_symptom', 'set_medication_reminder',
-          'update_memory',
-        ];
+        // doctor: standard mode, no platform-owned private plugin tools.
+        allowTools = ['update_memory'];
       } else if (agent.name === 'tutor') {
         // tutor: pure COMMON_SET, no extra allow/block
         allowTools = [];
@@ -1026,7 +940,7 @@ export function initSchema(): void {
       'agent-admin',
       'admin',
       '系统管理员',
-      'CLI 系统管理、全量工具减 Client/Trade/Health',
+      'CLI 系统管理、全量工具减受限业务工具',
       'all',
       null,
       adminBlock,
@@ -1048,7 +962,7 @@ export function initSchema(): void {
     );
   });
 
-  /** Same effective set as admin: all minus Client, Trade, Health. Keeps DB aligned if rows drift. */
+  /** Same effective set as admin: all minus selected business tools. Keeps DB aligned if rows drift. */
   runOnce('ensure-alter-ego-all-block-v1', () => {
     const blockJson = JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS);
     db.prepare(
@@ -2006,7 +1920,7 @@ export function initSchema(): void {
   });
 
   runOnce('ticlaw-standard-tools', () => {
-    // Switch ticlaw from 'all' to 'standard' mode with system tools only (no client/trade/health/pricing/hedge/wework)
+    // Switch ticlaw from 'all' to 'standard' mode with system tools only (no client/trade/pricing/hedge/wework)
     const row = db.prepare("SELECT id, tools_mode, tools_list FROM agents WHERE name = 'ticlaw'").get() as { id: string; tools_mode: string; tools_list: string | null } | undefined;
     if (!row) return;
     if (row.tools_mode === 'standard' && row.tools_list) return; // already migrated
@@ -2482,47 +2396,6 @@ export function initSchema(): void {
         "UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
       ).run(filtered.length > 0 ? JSON.stringify(filtered) : null);
     }
-  });
-
-  runOnce('migrate-health-records-to-plugin', () => {
-    const rows = db.prepare('SELECT * FROM health_records').all() as {
-      id: string; user_id: string; agent_id: string; record_type: string;
-      value: string; unit: string | null; measured_at: string; notes: string | null; created_at: string;
-    }[];
-    if (rows.length === 0) return;
-
-    const pluginDbPath = resolve(process.cwd(), 'data/plugins/health-tracker/health-tracker.db');
-    fs.mkdirSync(resolve(process.cwd(), 'data/plugins/health-tracker'), { recursive: true });
-
-    const pluginDb = new Database(pluginDbPath);
-    pluginDb.pragma('journal_mode = WAL');
-    pluginDb.exec(`
-      CREATE TABLE IF NOT EXISTS health_records (
-        id          TEXT PRIMARY KEY,
-        user_id     TEXT NOT NULL,
-        agent_id    TEXT NOT NULL,
-        record_type TEXT NOT NULL,
-        value       TEXT NOT NULL,
-        unit        TEXT,
-        measured_at TEXT NOT NULL DEFAULT (datetime('now')),
-        notes       TEXT,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
-
-    const ins = pluginDb.prepare(
-      'INSERT OR IGNORE INTO health_records (id, user_id, agent_id, record_type, value, unit, measured_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    const tx = pluginDb.transaction(() => {
-      for (const r of rows) {
-        ins.run(r.id, r.user_id, r.agent_id, r.record_type, r.value, r.unit, r.measured_at, r.notes, r.created_at);
-      }
-    });
-    tx();
-
-    const migrated = (pluginDb.prepare('SELECT COUNT(*) as c FROM health_records').get() as { c: number }).c;
-    pluginDb.close();
-    console.log(`[migrate-health-records-to-plugin] migrated ${rows.length} rows → plugin DB (${migrated} total)`);
   });
 
   runOnce('ticlaw-add-titans-code-search-and-harden-users-v1', () => {
