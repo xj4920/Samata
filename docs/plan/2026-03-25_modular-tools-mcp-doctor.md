@@ -14,7 +14,7 @@ status: implemented
 
 用户希望为 Samata 添加两类新功能：
 1. **Chrome DevTools / 浏览器自动化** — 以 MCP Server 方式接入
-2. **家庭医生增强** — 专业知识库 + 健康数据管理 + 用药提醒 + 更强系统提示词
+2. **外部/私有业务插件接入** — 平台提供插件生命周期和工具路由，不在核心仓库承载私有业务实现
 
 **新增核心问题**：是否把所有现有 tools 也改成 MCP 调用，彻底解决 `agent.ts` 臃肿问题？
 
@@ -61,7 +61,6 @@ src/tools/                        # 新建，按领域组织
 ├── file-tools.ts                 # 文件 I/O (6 tools)
 ├── wework-tools.ts               # 企微 (1 tool)
 ├── reminder-tools.ts             # 提醒 (3 tools)
-├── health-tools.ts               # 健康数据（新增, 4 tools）
 └── system-tools.ts               # 系统状态 (2 tools)
 ```
 
@@ -148,52 +147,11 @@ ins.run('agent-browser', 'browser', '浏览器助手', '网页浏览、截图、
 
 ---
 
-## Part 4：家庭医生增强
+## Part 4：外部/私有业务插件
 
-### 4.1 健康数据管理
+### 4.1 平台职责
 
-**`src/db/schema.ts`** — 新增 migration：
-```sql
-CREATE TABLE IF NOT EXISTS health_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL,
-  record_type TEXT NOT NULL,   -- 'blood_pressure'|'blood_sugar'|'weight'|'custom'
-  value TEXT NOT NULL,         -- JSON 或纯数值
-  unit TEXT,
-  measured_at TEXT NOT NULL,
-  notes TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-```
-
-**`src/tools/health-tools.ts`**（对应 `src/commands/health.ts` 中的业务函数）：
-- `add_health_record` — 记录指标数据
-- `query_health_records` — 查询历史（支持类型/时间范围筛选）
-- `health_summary` — 各指标最近3次 + 趋势
-- `set_medication_reminder` — 包装 reminder，支持"每天X时"周期语法
-- `archive_health_file` — 将用户上传的图片存档到健康文件目录，写入元数据
-- `list_health_files` — 按 doc_type / 时间范围查询存档列表
-- `view_health_file` — 取文件路径供 agent 重新加载图片（用于历史对比分析）
-
-**图片存档设计**：
-
-```
-存储结构（文件系统）
-$HEALTH_FILES_DIR/<user_id>/<YYYY-MM>/<timestamp>_<filename>
-
-默认路径: ~/Documents/my/XBase/health
-配置方式: 环境变量 HEALTH_FILES_DIR（用户可自定义）
-
-元数据（DB 新表 health_files）
-id, user_id, agent_id, file_path, doc_type, measured_at, notes, created_at
-doc_type: 'blood_test' | 'imaging' | 'prescription' | 'report' | 'other'
-```
-
-**典型流程**：
-1. 用户发送图片 → agent 做 vision 分析
-2. 分析后调用 `archive_health_file`，复制到存档目录，写元数据
-3. 下次"与上次对比"→ `list_health_files` 取记录 → `view_health_file` 重载图片 → 对比分析
+核心平台只负责插件发现、加载、生命周期和工具路由。私有业务插件的工具定义、数据表、文件归档和 agent 绑定配置由对应插件仓库或运行环境维护，不写入 Samata 平台 schema。
 
 ### 4.2 系统提示词 + 知识库
 
@@ -209,8 +167,8 @@ doc_type: 'blood_test' | 'imaging' | 'prescription' | 'report' | 'other'
 阶段1（先做，独立）: 内部工具模块化重构
   └─ src/tools/ 目录结构 → agent.ts 瘦身
 
-阶段2（依赖阶段1）: 家庭医生增强
-  └─ health_records migration → health-tools.ts → doctor prompt
+阶段2（依赖阶段1）: 外部/私有业务插件接入
+  └─ plugin lifecycle → agent tool routing → runtime configuration
 
 阶段3（相对独立）: MCP 框架 + 浏览器工具
   └─ mcp-manager.ts → getGlobalTools 扩展 → browser agent seed
@@ -224,17 +182,16 @@ doc_type: 'blood_test' | 'imaging' | 'prescription' | 'report' | 'other'
 |------|------|
 | **新建目录** | `src/tools/` (12个文件) |
 | 新建 | `src/services/mcp-manager.ts` |
-| 新建 | `src/commands/health.ts` |
 | 新建 | `config/mcp-servers.json` |
 | **大改** | `src/llm/agent.ts` — 删除工具定义，改为聚合调用，预期缩到 ~300 行 |
 | 修改 | `src/llm/agents/config.ts` — 新增 browser TOOL_PRESET |
-| 修改 | `src/db/schema.ts` — health_records migration + doctor prompt migration + browser agent seed |
+| 修改 | `src/db/schema.ts` — browser agent seed |
 
 ---
 
 ## 验证方式
 
 1. **重构验证**：重构后所有现有工具行为不变，`venv/bin/python` 运行单元测试 / 手动 CLI 回归
-2. **家庭医生**：切换 doctor agent → 记录血压 → 查趋势 → 设置用药提醒
+2. **插件路由**：启用外部/私有业务插件后，确认 agent 只能看到运行配置允许的插件工具
 3. **浏览器工具**：切换 browser agent → 截图网页 → 提取正文
-4. **权限验证**：非 doctor agent 无法调用健康工具
+4. **权限验证**：未配置对应插件工具的 agent 无法调用私有业务工具

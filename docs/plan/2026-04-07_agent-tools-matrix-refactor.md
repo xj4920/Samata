@@ -71,7 +71,7 @@ export const COMMON_SET = new Set([
 
 - **文件读写**: `read_file`, `write_file`, `edit_file`, `list_directory`, `exec_cmd`, `reload_app`
 - **Agent 管理**: `list_agents`, `get_agent`, `save_agent`, `delete_agent`, `switch_agent`, `assign_agent`, `unassign_agent`, `list_agent_assignments`, `manage_agent_member`, `list_agent_members`
-- **领域专属**: client/trade/health/wework/markdown 等模块工具
+- **领域专属**: client/trade/wework/markdown/private-plugin 等模块工具
 
 ---
 
@@ -79,7 +79,7 @@ export const COMMON_SET = new Set([
 
 `tools_mode` 取值：
 
-- `'all'` — 以全部全局工具为基底，再减去 `block_tools`（**admin**、**alter-ego** 使用本模式，排除 Client、Trade、Health，见下表）
+- `'all'` — 以全部全局工具为基底，再减去 `block_tools`（**admin**、**alter-ego** 使用本模式，排除受限业务工具，见下表）
 - `'standard'` — 使用 `COMMON_SET ∪ allow_tools \ block_tools` 计算（所有 agent 统一使用）
 
 ### 不在 COMMON_SET 中的工具速查
@@ -94,7 +94,6 @@ export const COMMON_SET = new Set([
 - **Memory 扩展 (1)**: `update_memory`
 - **WeWork (1)**: `extract_wework_qa`
 - **Markdown (1)**: `markdown_to_image`
-- **Health (10)**: `add_health_record`, `query_health_records`, `health_summary`, `archive_health_file`, `list_health_files`, `view_health_file`, `log_sleep`, `log_meal`, `log_symptom`, `set_medication_reminder`
 - **System 扩展 (1)**: `list_tool_presets`
 - **UNIVERSAL**: `http_request`（自动注入，无需配置）
 
@@ -108,13 +107,13 @@ export const COMMON_SET = new Set([
 | Agent                | 模式       | allow                                                                                                   | block                                                | 有效工具数                 |
 | -------------------- | -------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------- |
 | **otcclaw** (工作助理)   | standard | Client(8) + Trade(4) + Knowledge扩展(3) + `extract_wework_qa`, `markdown_to_image`, `update_memory` = 18  | 无                                                    | **44**                |
-| **alter-ego** (我的助理) | all      | —                                                                                                       | Client(8) + Trade(4) + Health(10) = 22                 | **≈48**[^admin-tools] |
+| **alter-ego** (我的助理) | all      | —                                                                                                       | Client(8) + Trade(4) = 12                              | **≈58**[^admin-tools] |
 | **tutor** (家庭教师)     | standard | 无                                                                                                       | 无                                                    | **26**                |
 | **falcon** (消息监控)    | standard | 无                                                                                                       | `generate_image`, `generate_video`, `save_skill` = 3 | **23**                |
 | **potato** (丁丁助理)    | standard | 无                                                                                                       | 无                                                    | **26**                |
-| **doctor** (家庭医生)    | standard | Health(10) + `update_memory` = 11                                                                       | 无                                                    | **37**                |
+| **doctor** (家庭医生)    | standard | `update_memory` = 1；私有插件工具由运行环境配置                                                            | 无                                                    | **27**                |
 | **man** (黄老师助理)      | standard | 无                                                                                                       | 无                                                    | **26**                |
-| **admin** (系统管理员)    | all      | —                                                                                                       | Client(8) + Trade(4) + Health(10) = 22                 | **≈48**[^admin-tools] |
+| **admin** (系统管理员)    | all      | —                                                                                                       | Client(8) + Trade(4) = 12                              | **≈58**[^admin-tools] |
 
 
 [^admin-tools]: 按全局原生工具约 70 个估算为 70−22；实际数以 `getGlobalTools()` 为准，不含 MCP 动态工具。
@@ -124,7 +123,7 @@ export const COMMON_SET = new Set([
 | 项 | 设计 | 曾有问题 | 当前实现 |
 | --- | --- | --- | --- |
 | **Falcon** `block_tools` | `generate_image`, `generate_video`, `save_skill` | `INSERT OR IGNORE` 不更新已存在行，member `user_tools_list` 不含此三项，仅靠 agent 层 block | [schema.ts](../../src/db/schema.ts) `runOnce('ensure-falcon-block-tools-v2')` 对 `name='falcon'` 强制 `UPDATE block_tools` |
-| **admin** agent | `tools_mode=all`，`block_tools`=Client(8)+Trade(4)+Health(10) | 无 DB 种子；`getAgentTools` 的 `all` 分支曾不应用 `block_tools` | `seed-system-admin-agent` + `ensure-admin-block-tools-v3`；[config.ts](../../src/llm/agents/config.ts) `all` 分支已 `delete` `blockTools` |
+| **admin** agent | `tools_mode=all`，`block_tools`=Client(8)+Trade(4) | 无 DB 种子；`getAgentTools` 的 `all` 分支曾不应用 `block_tools` | `seed-system-admin-agent` + `ensure-admin-block-tools-v3`；[config.ts](../../src/llm/agents/config.ts) `all` 分支已 `delete` `blockTools` |
 | **alter-ego** agent | 与 admin 相同：`all` + 同上 `block_tools` | 历史为 standard + 大 allowlist | `migrate-agents-to-standard-mode` 中 `alter-ego` 分支 + `ensure-alter-ego-all-block-v1` |
 | **migrate-agents** | admin 保持 `all` | 会把 `name='admin'` 误迁成 `standard` | 循环内 `if (agent.name === 'admin') continue` |
 
@@ -151,7 +150,7 @@ export const COMMON_SET = new Set([
 **建议的 user 默认配置（按飞书侧角色）**：
 
 - **agent admin**（`agent_members.role='admin'`，`/status` 显示为 `agent admin`）：`user_tools_mode='inherit'`，`user_tools_list` 为空 — 与 agent 层有效集一致（再叠 Channel 过滤），便于展业/家庭管理员运维。
-- **member**（非 agent admin，显示为 `member`）：**一律** `user_tools_mode='blocklist'`，`user_tools_list` = [^member-mutation-block]（与 agent 已授予工具求交集后剔除）；**doctor** 须在落地前按健康场景对列表内各项 **逐一确认**（是否保留 `save_memory` / 部分 knowledge 等），避免误伤问诊记录流。
+- **member**（非 agent admin，显示为 `member`）：**一律** `user_tools_mode='blocklist'`，`user_tools_list` = [^member-mutation-block]（与 agent 已授予工具求交集后剔除）；含私有插件的 agent 须在落地前按业务场景对列表内各项 **逐一确认**（是否保留 `save_memory` / 部分 knowledge 等），避免误伤业务记录流。
 
 ### User 配置矩阵（建议默认值）
 
@@ -173,7 +172,7 @@ export const COMMON_SET = new Set([
 | **potato**    | agent admin | `inherit`       | —                                                             | —                                                                           |
 | **potato**    | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | —                                                                           |
 | **doctor**    | agent admin | `inherit`       | —                                                             | —                                                                           |
-| **doctor**    | member      | `blocklist`     | 默认同[^member-mutation-block]（**须逐项确认**）：[^member-doctor-block] | 成员默认同档收紧；health 写入类 tool 不在默认 block 集中，但 memory/knowledge/todo 等与问诊交叉项需业务确认 |
+| **doctor**    | member      | `blocklist`     | 默认同[^member-mutation-block]（**须逐项确认**）：[^member-doctor-block] | 成员默认同档收紧；私有插件工具与 memory/knowledge/todo 等交叉项需业务确认 |
 | **man**       | agent admin | `inherit`       | —                                                             | —                                                                           |
 | **man**       | member      | `blocklist`     | 通用增删改：[^member-mutation-block]                                | —                                                                           |
 | **admin**     | agent admin | `inherit`       | —                                                             | 系统管理员 agent 主要在 CLI                                                         |
@@ -243,7 +242,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
 
 ### 4. 数据迁移
 
-- 除 **admin** 外，其余 agent 从 `allowlist`/`all` 模式迁移到 `standard`；**admin** 行在迁移循环中被 **跳过**，保持 `all` + `block_tools` = Client(8)+Trade(4)+Health(10)（见矩阵）；`seed-system-admin-agent` / `ensure-admin-block-tools-v3` 负责插入/补齐该行
+- 除 **admin** 外，其余 agent 从 `allowlist`/`all` 模式迁移到 `standard`；**admin** 行在迁移循环中被 **跳过**，保持 `all` + `block_tools` = Client(8)+Trade(4)（见矩阵）；`seed-system-admin-agent` / `ensure-admin-block-tools-v3` 负责插入/补齐该行
 - **成员默认 blocklist**（[schema.ts](../../src/db/schema.ts) `runOnce('seed-member-default-blocklist')`）：所有 agent 写入 `user_tools_mode='blocklist'`，`user_tools_list` = 与 [^member-mutation-block] 一致的 JSON；**agent admin 仍不受 user 层约束**。**doctor** 与文档 [^member-doctor-block] 一致，上线前逐项确认列表。**otcclaw** 若需再挡客户增删改，在 [^member-otcclaw-block] 基础上用 `save_agent` 扩展 `user_tools_list`。
 - `tools_list` 清理为仅包含 COMMON_SET 之外的增量工具
 - 每个 agent 按矩阵设置正确的 allow/block
@@ -253,7 +252,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
 - **falcon**: standard, `block_tools` = [generate_image, generate_video, save_skill]；另见 `ensure-falcon-block-tools-v2` 修复已存在行
 - **potato**: standard, 纯 COMMON_SET
 - **man**: standard, 纯 COMMON_SET
-- **admin**: `tools_mode=all`，`block_tools` = Client(8)+Trade(4)+Health(10)（22 个工具名），见 `seed-system-admin-agent` 与 `ensure-admin-block-tools-v3`
+- **admin**: `tools_mode=all`，`block_tools` = Client(8)+Trade(4)（12 个工具名），见 `seed-system-admin-agent` 与 `ensure-admin-block-tools-v3`
 - **alter-ego**: 与 admin 相同（`all` + 同上 `block_tools`），见 `migrate-agents-to-standard-mode` 与 `ensure-alter-ego-all-block-v1`
 
 ---
@@ -305,4 +304,3 @@ flowchart TD
 - [src/tools/agent-tools.ts](../../src/tools/agent-tools.ts) — save_agent tool 新增 blockTools 参数
 - [src/tools/system-tools.ts](../../src/tools/system-tools.ts) — list_tool_presets 返回 COMMON_SET 信息
 - [src/commands/agent.ts](../../src/commands/agent.ts) — CLI 创建向导适配 standard 模式
-

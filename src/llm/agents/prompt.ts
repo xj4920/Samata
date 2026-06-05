@@ -24,7 +24,14 @@ const PROMPTS_DIR = resolve(process.cwd(), 'config/agents');
 
 function buildPermissionText(user: User, agent?: AgentConfig): string {
   const channel = getExecutionChannel();
-  const parts = [`当前接入渠道：${channel}`, `当前用户：${user.username}，系统角色：${user.role}`];
+  const displayName = user.display_name || user.username;
+  const parts = [
+    `当前接入渠道：${channel}`,
+    `当前提问人：${displayName}`,
+    `Samata 用户 ID：${user.id}`,
+    `当前用户：${user.username}，系统角色：${user.role}`,
+    '身份识别规则：用户说“我”“本人”“我的”时，默认指当前提问人。',
+  ];
 
   if (isSystemAdmin()) {
     parts.push('你当前是 CLI 系统管理员，可管理全局 memory/knowledge/skill，也可管理所有 agent。');

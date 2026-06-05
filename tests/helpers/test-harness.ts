@@ -72,7 +72,6 @@ const FS_MIGRATIONS = [
   'migrate-documents-v2-cleanup',
   'migrate-documents-use-agent-name',
   'backfill-documents-content-hash',
-  'migrate-health-records-to-plugin',
 ];
 
 function extractToolExecutions(history: Anthropic.MessageParam[]): ToolExecution[] {

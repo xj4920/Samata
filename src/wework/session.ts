@@ -8,7 +8,7 @@
  * 每个 bot 实例维护独立的 sessions Map（WeworkBotInstance.sessions）。
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { buildCanonicalUserId, getOrCreateUser, getUser, registerUserAliases } from '../auth/rbac.js';
+import { resolveExternalUser } from '../auth/rbac.js';
 import type { User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
@@ -35,29 +35,29 @@ export function getSession(
   mapKey: string,
   weworkUsername: string,
 ): WeworkSession {
+  const bindingUserId = mapKey.startsWith('g:') ? mapKey.split(':')[2] : mapKey;
   let session = sessions.get(mapKey);
+  let resolvedUser: User;
   if (!session) {
     const agent = resolveAgent('wework', botId);
     if (!agent) throw new AgentUnboundError('wework', botId);
-    const bindingUserId = mapKey.startsWith('g:') ? mapKey.split(':')[2] : mapKey;
-    const userId = buildCanonicalUserId('wework', { userid: bindingUserId });
-    const legacyUserId = `wework_${bindingUserId}`;
-    const legacyUser = getUser(legacyUserId);
-    const username = weworkUsername || legacyUser?.username || legacyUserId;
-    const user = getOrCreateUser(userId, username, 'user', legacyUser?.display_name);
-    registerUserAliases(userId, [legacyUserId], 'wework internal userid');
+    resolvedUser = resolveExternalUser('wework', { userid: bindingUserId }, weworkUsername || `wework_${bindingUserId.slice(-6)}`);
     session = {
       weworkUserId: bindingUserId,
-      weworkUsername: username,
-      user,
+      weworkUsername: resolvedUser.display_name || resolvedUser.username,
+      user: resolvedUser,
       history: [],
       lastActive: Date.now(),
       agentName: agent.name,
     };
     sessions.set(mapKey, session);
+  } else {
+    resolvedUser = resolveExternalUser('wework', { userid: bindingUserId }, session.user.username || weworkUsername || `wework_${bindingUserId.slice(-6)}`);
+    session.weworkUserId = bindingUserId;
+    session.user = resolvedUser;
   }
   session.lastActive = Date.now();
-  session.weworkUsername = weworkUsername || session.weworkUsername;
+  session.weworkUsername = resolvedUser.display_name || resolvedUser.username || weworkUsername || session.weworkUsername;
   return session;
 }
 

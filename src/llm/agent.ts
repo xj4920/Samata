@@ -1374,7 +1374,7 @@ export function buildImageRecognitionFallbackInput(
 
 /**
  * 从用户输入中提取本地图片路径，返回 images 数组。
- * 保留原始路径在文本中（供 archive_health_file 等工具使用）。
+ * 保留原始路径在文本中，供工具调用使用。
  */
 function extractLocalImages(input: string): { text: string; images: ImageInput[] } {
   const images: ImageInput[] = [];

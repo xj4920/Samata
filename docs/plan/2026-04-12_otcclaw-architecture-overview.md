@@ -368,7 +368,7 @@ LLM 调用 `run_skill({ name: "展业话术", params: { client_name: "XX基金",
 | otcclaw（衍语） | OTC 业务专家 | `all` | 拥有全部工具，包括客户管理和交易查询 |
 | tutor（教育辅导） | 学习辅导 | `standard` | COMMON_SET + 特定附加 |
 | alter-ego（数字分身） | 个人助手 | `standard` | COMMON_SET + 企微提取等 |
-| doctor（家庭医生） | 健康咨询 | `standard` | COMMON_SET + 健康记录工具 |
+| doctor（家庭医生） | 咨询助手 | `standard` | COMMON_SET + 运行环境配置的插件工具 |
 
 ### 4.4 Skills 的管理
 

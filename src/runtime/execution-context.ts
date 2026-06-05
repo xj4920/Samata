@@ -15,6 +15,7 @@ export interface ContextUser {
   id: string;
   username: string;
   role: string;
+  display_name?: string;
 }
 
 export interface ExecutionContext {

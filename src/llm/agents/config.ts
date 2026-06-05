@@ -260,8 +260,6 @@ export function deleteAgent(name: string): { success: true; name: string } | { s
     db.prepare('DELETE FROM documents WHERE agent_id = ?').run(row.id);
     db.prepare('DELETE FROM reminders WHERE agent_id = ?').run(row.id);
     db.prepare('DELETE FROM scheduled_tasks WHERE agent_id = ?').run(row.id);
-    db.prepare('DELETE FROM health_records WHERE agent_id = ?').run(row.id);
-    db.prepare('DELETE FROM health_files WHERE agent_id = ?').run(row.id);
     db.prepare('DELETE FROM pricing_quotes WHERE agent_id = ?').run(row.id);
     // Delete bot_apps bound to this agent (before CASCADE deletes agent_assignments)
     const boundApps = db.prepare(
@@ -340,7 +338,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 // --- Delivery & Tool context (shared with tool modules) ---
 
-/** Channel-specific context injected by bot layers, used by reminder and health tools */
+/** Channel-specific context injected by bot layers, used by reminder and delivery-aware tools */
 export interface DeliveryContext {
   channel: 'feishu' | 'telegram' | 'cli' | 'wework';
   targetId?: string;

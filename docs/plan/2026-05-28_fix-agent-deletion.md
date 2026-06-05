@@ -16,7 +16,7 @@
 - `documents` — `REFERENCES agents(id)` 未设 ON DELETE = 默认 RESTRICT
 
 **无 FK 约束但存有 `agent_id`（需显式清理）：**
-- `reminders`、`scheduled_tasks`、`pricing_quotes`、`health_records`、`health_files`
+- `reminders`、`scheduled_tasks`、`pricing_quotes`
 - `telemetry_turn` — 保留，用于审计
 
 **文件系统数据：**

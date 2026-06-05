@@ -17,7 +17,6 @@ const FS_MIGRATIONS_IN_HARNESS = [
   'migrate-documents-v2-cleanup',
   'migrate-documents-use-agent-name',
   'backfill-documents-content-hash',
-  'migrate-health-records-to-plugin',
 ];
 
 function extractFsMigrationIds(): string[] {

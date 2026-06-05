@@ -111,13 +111,6 @@ samata/
     │       ├── tools.ts
     │       ├── commands.ts           ← 从 src/commands/wework-qa.ts + wework-grep.ts 迁移
     │       └── monitor.ts            ← 从 src/services/wework-monitor.ts 迁移
-    ├── health-tracker/               ← NEW: 健康管理（7 tools + 独立 SQLite）
-    │   ├── index.ts
-    │   ├── src/
-    │   │   ├── tools.ts
-    │   │   ├── commands.ts           ← 从 src/commands/health.ts 迁移
-    │   │   └── db.ts                 ← health_records + health_files 表
-    │   └── config/
     ├── wrong-questions/              ← NEW: 错题管理（4 tools + 独立 SQLite）
     │   ├── index.ts
     │   ├── src/
@@ -285,9 +278,8 @@ await startAllPlugins();      // phase 2: start() — monitors 等后台服务
 - tools: extract_wework_qa
 - 后台服务: wework-monitor（监听企微消息自动提取 QA）
 
-**2f. health-tracker**（7 tools, scope: `agent-bound`）
-- tools: add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder
-- SQLite: `data/plugins/health-tracker/health-tracker.db` → health_records + health_files 表
+**2f. private business plugins**（scope: `agent-bound`）
+- 私有插件可通过外部插件目录加载；工具名、SQLite 表和文件归档策略由插件仓库维护，不写入 Samata 平台 schema。
 
 **2g. wrong-questions**（4 tools, scope: `agent-bound`）
 - tools: record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report
@@ -304,11 +296,11 @@ await startAllPlugins();      // phase 2: start() — monitors 等后台服务
 
 ### Phase 3: 清理核心 Samata
 
-**3a. `src/tools/index.ts`** — 移除 7 个已迁移 module import（client, trade, pricing-quote, hedge-ratio, wework, health, wrong-question），仅保留 COMMON_SET 对应的 23 个 module。
+**3a. `src/tools/index.ts`** — 移除已迁移业务 module import，仅保留 COMMON_SET 对应的 module。
 
 **3b. `src/commands/`** — 删除已迁移的 command 文件。
 
-**3c. `src/db/schema.ts`** — 移除 clients / pricing_quotes / health_records / health_files / wrong_questions / wrong_question_assets 表定义及相关 migration。保留 `events` 表（平台级审计日志，仅记录 agent/knowledge/document/skill 实体操作）。从 events 表中清除历史 `entity_type='client'` 数据（已迁移到 plugin）。
+**3c. `src/db/schema.ts`** — 移除已迁移业务表定义及相关 migration。保留 `events` 表（平台级审计日志，仅记录 agent/knowledge/document/skill 实体操作）。从 events 表中清除历史 `entity_type='client'` 数据（已迁移到 plugin）。
 
 **3d. `src/models/`** — 移除 `client.ts`；`event.ts` 保留（仍被 knowledge/document/skill/agent 使用）。
 
@@ -322,11 +314,11 @@ await startAllPlugins();      // phase 2: start() — monitors 等后台服务
 
 ### Phase 4: Agent 配置不变
 
-Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_health_record`），只是这些工具的加载来源从 `src/tools/` 变为 `plugins/<xxx>/`。
+Agent 的 `tools_list` 中引用的公共插件工具名不变（如 `query_clients`），只是这些工具的加载来源从 `src/tools/` 变为 `plugins/<xxx>/`。私有插件工具由运行环境配置，不在平台文档展开。
 
 `getAgentTools()` 在 `standard` 模式下合并 `COMMON_SET + tools_list + universalPluginTools + mcpTools`（Phase 1d 已修改）。`agent-bound` 插件的工具只有出现在 `tools_list` 中才可见，天然实现了 agent 隔离。
 
-`AGENT_EXCLUSIVE_TOOLS` 可删除——`agent-bound` scope 已通过 `tools_list` 控制可见性，无需额外的排他映射。`alter-ego`/`admin`（`tools_mode: 'all'`）通过 `block_tools` 排除不想要的业务工具。
+`AGENT_EXCLUSIVE_TOOLS` 可删除——`agent-bound` scope 已通过 `tools_list` 控制可见性，无需额外的排他映射。`alter-ego`/`admin`（`tools_mode: 'all'`）通过 `block_tools` 排除不想要的公共业务工具。
 
 ### Phase 5: `config/agents/` 文件不变
 
@@ -346,7 +338,6 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | pricing | agent-bound | import_pricing_quote, query_pricing_quote, list_pricing_quote_dates | pricing_quotes |
 | hedge-ratio | agent-bound | query_hedge_short | 无 |
 | wework-qa | agent-bound | extract_wework_qa | 无 |
-| health-tracker | agent-bound | add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder | health_records, health_files |
 | wrong-questions | agent-bound | record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report | wrong_questions, wrong_question_assets |
 | wiki-sync | universal | *(无 — 纯后台 Confluence 同步服务)* | 无 |
 | *(保留在 core)* | — | 其余所有 COMMON_SET tools | *(主库：users, agents, knowledge, skills, memory, reminders, todos, documents, bot_apps, events, telemetry_turn, scheduled_tasks, migrations)* |
@@ -356,18 +347,18 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 | Agent | tools_mode | tools_list（来自 plugin 的 tool 名） |
 |-------|-----------|--------------------------------------|
 | otcclaw | standard | query_clients, view_client, get_client_history, add_client, update_client, advance_client, rollback_client, delete_client, import_pricing_schedule, query_trades, trade_summary, plot_trades, list_customers, export_trades_csv, export_north_info_csv, import_pricing_quote, query_pricing_quote, list_pricing_quote_dates, query_hedge_short, extract_wework_qa, markdown_to_image, update_memory, assign_knowledge_agent, unassign_knowledge_agent, get_knowledge_agents, read_file, sandbox_write_file, sandbox_read_file, sandbox_list, sandbox_exec |
-| doctor | standard | add_health_record, query_health_records, health_summary, log_sleep, log_meal, log_symptom, set_medication_reminder, update_memory |
+| doctor | standard | update_memory；私有插件工具由运行环境配置 |
 | tutor | standard | record_wrong_question, list_wrong_questions, mark_wrong_question_mastered, wrong_question_report |
 | ticlaw | standard | read_file, write_file, edit_file, list_directory, exec_cmd, reload_app, sandbox_exec, sandbox_list, sandbox_read_file, sandbox_write_file, list_agents, get_agent, save_agent, delete_agent, switch_agent, assign_agent, unassign_agent, list_agent_assignments, list_agent_members, manage_agent_member, assign_knowledge_agent, unassign_knowledge_agent, get_knowledge_agents, update_memory, markdown_to_image, http_request, list_tool_presets |
-| alter-ego | all | block_tools: [client + trade + health 系列] |
-| admin | all | block_tools: [client + trade + health 系列] |
+| alter-ego | all | block_tools: [client + trade 系列] |
+| admin | all | block_tools: [client + trade 系列] |
 
 ## 验证步骤
 
 1. `npm run server` — 确认所有 plugin 加载日志正常（`✅ Plugin [xxx]: N tools loaded`）
 2. SQLite 检查：确认 `data/plugins/<name>/<name>.db` 已创建且数据已迁移
 3. CLI 下切换 otcclaw agent：`query_clients`、`query_trades` 等工具可用
-4. CLI 下切换 doctor agent：`add_health_record`、`health_summary` 等工具可用
+4. CLI 下切换 doctor agent：确认运行环境配置的私有插件工具按 agent 可见性生效
 5. CLI 下切换 tutor agent：`record_wrong_question` 等工具可用
 6. 飞书 bot 端到端测试：给 otcclaw-bot 发消息确认 client/trade 工具正常
 7. 飞书 bot 测试 doctor/tutor 工具
@@ -383,7 +374,7 @@ Agent 的 `tools_list` 中引用的工具名不变（如 `query_clients`、`add_
 |------|------|------|------|
 | 1 | Plugin SDK 增强（scope, PluginContext, 生命周期, getAgentTools, 两阶段启动） | ✅ 完成 | commit `c010346` |
 | 2 | 迁移 wrong-questions plugin（4 tools） | ✅ 完成 | plugins/wrong-questions/ |
-| 3 | 迁移 health-tracker plugin（7 tools） | ✅ 完成 | plugins/health-tracker/ |
+| 3 | 私有业务插件迁移 | ✅ 完成 | 由外部/私有插件仓库维护 |
 | 4 | 迁移 client-manager plugin（9 tools，最复杂） | ✅ 完成 | commit `a16f27c`；数据迁移脚本 `scripts/sync-plugin-db.ts` 已补齐 44 条缺失事件 + 10 个客户报价数据 |
 | 5 | 迁移 pricing plugin（3 tools） | ✅ 完成 | plugins/pricing/；数据迁移 2 条报价记录 |
 | 6 | 迁移 trade-query plugin（6 tools） | ✅ 完成 | plugins/trade-query/；InfluxDB 连接独立，customers.json 从 config/ 读取 |

@@ -67,11 +67,11 @@ describe('getAgentTools', () => {
   });
 
   describe('standard mode (doctor)', () => {
-    it('includes health tools from tools_list', async () => {
+    it('does not include private health plugin tools from platform schema', async () => {
       const names = await getToolNames('doctor');
-      expect(names).toContain('query_health_records');
-      expect(names).toContain('health_summary');
-      expect(names).toContain('log_sleep');
+      expect(names).toContain('update_memory');
+      expect(names).not.toContain('query_clients');
+      expect(names).not.toContain('query_trades');
     });
 
     it('does not include otcclaw-specific tools', async () => {
@@ -99,11 +99,10 @@ describe('getAgentTools', () => {
       expect(names).toContain('sandbox_exec');
     });
 
-    it('respects blockTools — excludes client/trade/health tools', async () => {
+    it('respects blockTools — excludes client/trade tools', async () => {
       const names = await getToolNames('alter-ego');
       expect(names).not.toContain('query_clients');
       expect(names).not.toContain('query_trades');
-      expect(names).not.toContain('query_health_records');
     });
   });
 

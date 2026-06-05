@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
-import { isAgentAdmin } from '../auth/rbac.js';
+import { isAgentAdmin, listUserAliases } from '../auth/rbac.js';
 import { runAgenticChat, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
@@ -482,7 +482,16 @@ async function handleSlashCommand(
     }
 
     if (text.startsWith('/debug')) {
-      return `你的企微用户 ID: ${userId}\nBot: ${instance.botName} (${instance.botId})`;
+      const aliases = listUserAliases(session.user.id);
+      return [
+        '企微身份调试信息：',
+        `userid: ${userId}`,
+        `Samata 用户 ID: ${session.user.id}`,
+        `用户名: ${session.user.username}`,
+        `显示名: ${session.user.display_name || '-'}`,
+        `已绑定 alias: ${aliases.length > 0 ? aliases.map(a => a.alias_user_id).join(', ') : '无'}`,
+        `Bot: ${instance.botName} (${instance.botId})`,
+      ].join('\n');
     }
 
     if (text.startsWith('/model')) {

@@ -6,7 +6,7 @@ import { sendFileToCurrentChannel, sendImageToCurrentChannel } from '../commands
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'send_file',
-    description: '把本地文件发送给当前对话用户。适合在 write_artifact 生成 CSV、TXT、Markdown 等附件后调用。',
+    description: '把本地文件发送到当前对话。适合在 write_artifact 生成 CSV、TXT、Markdown 等附件后调用。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -17,7 +17,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'send_image',
-    description: '把本地图片发送给当前对话用户。适合在 markdown_to_image 生成 PNG 后调用。',
+    description: '把本地图片发送到当前对话。适合在 markdown_to_image 生成 PNG 后调用。',
     input_schema: {
       type: 'object' as const,
       properties: {
