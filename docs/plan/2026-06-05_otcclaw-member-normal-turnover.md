@@ -58,4 +58,4 @@ git diff --check -- src/db/schema.ts tests/unit/config/agent-config.test.ts docs
 
 ## Commit Hash
 
-待回填。
+40d20355e6182875b71f22e9c6d5c993d7249bce
