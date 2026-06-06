@@ -101,4 +101,5 @@ git diff --check -- src/llm/tool-types.ts src/tools/knowledge-tools.ts src/tools
 
 ## Commit Hash
 
-待提交后补充。
+- 实现提交：`62d3b02bff9f9315d3d65c73b1fa3f15f28087db`
+- 留档回填提交：本段所在提交。
