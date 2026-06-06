@@ -10,7 +10,7 @@ import { recordKnowledge as recordKnowledgeTelemetry } from '../telemetry/emitte
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考。文档结果会返回 document_id 和片段；如需读取该文档全文，继续调用 read_knowledge_document，不要用 read_file 读取 data/documents。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
+    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考；如需展开 wiki 页面全文，调用 read_wiki_page 并传入 wiki[].page。文档结果会返回 document_id 和片段；只有读取导入文档全文时才调用 read_knowledge_document 并传 documents[].document_id，不要把 wiki[].page 传给 read_knowledge_document，也不要用 read_file 读取 data/documents。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -21,7 +21,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'read_knowledge_document',
-    description: '读取 search_knowledge 返回的文档全文。只能读取当前 Agent 自己的导入文档，传入 documents[].document_id 即可；不要用 read_file 读取 data/documents 下的 parsed.md。',
+    description: '读取 search_knowledge 返回的导入文档全文。只能读取当前 Agent 自己的 documents[].document_id；不能读取 wiki[].page，wiki 页面全文请调用 read_wiki_page。',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -196,6 +196,7 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
       category: w.category,
       snippet: w.snippet,
       relevance: w.relevance,
+      read_tool: 'read_wiki_page',
     };
     const size = JSON.stringify(entry).length;
     if (totalLen + size > MAX_SEARCH_RESULT_CHARS && wikiOut.length > 0) break;
@@ -225,6 +226,7 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
       snippet: doc.snippet,
       tags: doc.tags,
       relevance: doc.relevance,
+      read_tool: 'read_knowledge_document',
     };
     const size = JSON.stringify(entry).length;
     if (totalLen + size > MAX_SEARCH_RESULT_CHARS && docOut.length > 0) break;

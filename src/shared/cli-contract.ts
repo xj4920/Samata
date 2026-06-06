@@ -41,7 +41,8 @@ const TOOL_LABELS: Record<string, string> = {
   list_directory: '浏览目录', exec_cmd: '执行命令', reload_app: '重载应用',
   sandbox_exec: '执行代码', sandbox_write_file: '编写代码',
   sandbox_read_file: '读取结果', sandbox_list: '查看文件',
-  search_knowledge: '搜索知识库', add_knowledge: '添加知识',
+  search_knowledge: '搜索知识库', read_wiki_page: '读取 Wiki',
+  read_knowledge_document: '读取文档', add_knowledge: '添加知识',
   update_knowledge: '更新知识', delete_knowledge: '删除知识',
   list_knowledge_recent: '查看最新知识',
   web_search: '搜索网络', web_fetch: '访问网页',
@@ -170,6 +171,11 @@ export function summarizeToolResult(name: string, result: string): string {
       if (typeof p === 'string') return truncResult(`已写入 ${p.split('/').pop()}`);
       if (typeof parsed.message === 'string') return truncResult(parsed.message);
       return '已写入';
+    }
+
+    if (name === 'read_wiki_page' || name === 'read_knowledge_document') {
+      const label = parsed.title ?? parsed.page ?? parsed.document_id;
+      if (typeof label === 'string') return truncResult(label);
     }
 
     for (const key of ['results', 'items', 'documents', 'records', 'files', 'rows', 'data']) {

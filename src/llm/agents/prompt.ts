@@ -118,6 +118,7 @@ function buildWikiGuidance(agentId?: string): string {
   const guidance = [
     '知识 Wiki 规范：',
     '- search_knowledge 返回的 wiki 结果是已编译的综合知识，优先参考',
+    '- 如需读取 wiki 命中页面全文，调用 read_wiki_page(page=wiki[].page)；不要把 wiki 页面路径传给 read_knowledge_document',
     '- 当回答综合了 2+ 个知识源（文档/FAQ/wiki），或发现文档间的关联、矛盾、互补关系时，调用 file_to_wiki 将洞察持久化',
     '- 用户明确要求"记住这个"或"总结一下"时，也应调用 file_to_wiki',
     '- **严禁在 wiki 中写入未经知识库验证的信息**：file_to_wiki 的 content 必须完全来源于 search_knowledge 返回的结果，每条信息标注 [来源: FAQ/文档标题]',
@@ -126,7 +127,7 @@ function buildWikiGuidance(agentId?: string): string {
 
   if (hasWiki) {
     guidance.push(`- 当前 Wiki 已有内容，可通过 search_knowledge 检索`);
-    guidance.push('- wiki 页面中的 [[xxx]] 是关联页面链接；当需要更完整上下文时，对链接目标再次 search_knowledge 即可跟链获取');
+    guidance.push('- wiki 页面中的 [[xxx]] 是关联页面链接；当需要更完整上下文时，可对链接目标再次 search_knowledge，或在已知 page 路径时调用 read_wiki_page');
   }
 
   return guidance.join('\n');

@@ -15,7 +15,7 @@ import { getMcpTools, isMcpToolAllowedForAgent } from '../../services/mcp-manage
  */
 export const COMMON_SET = new Set([
   // Knowledge
-  'search_knowledge', 'read_knowledge_document', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_knowledge_recent',
+  'search_knowledge', 'read_wiki_page', 'read_knowledge_document', 'add_knowledge', 'update_knowledge', 'delete_knowledge', 'list_knowledge_recent',
   // Skill
   'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
   // System

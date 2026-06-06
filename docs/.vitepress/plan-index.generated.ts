@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Agent Wiki 页面读取修复",
+      "link": "/plan/2026-06-06_agent-wiki-read-page",
+      "sourcePath": "docs/plan/2026-06-06_agent-wiki-read-page.md",
+      "sortKey": "2026-06-06_agent-wiki-read-page.md",
+      "date": "2026-06-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/wiki-and-doc-sources"
+      ],
+      "topic": "Agent 工具"
+    },
+    {
       "title": "定时任务设置权限与授权运行",
       "link": "/plan/2026-06-04_scheduled-task-admin-authorized-run",
       "sourcePath": "docs/plan/2026-06-04_scheduled-task-admin-authorized-run.md",
@@ -897,6 +910,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
     }
   ],
   "external-data": [
+    {
+      "title": "Agent Wiki 页面读取修复",
+      "link": "/plan/2026-06-06_agent-wiki-read-page",
+      "sourcePath": "docs/plan/2026-06-06_agent-wiki-read-page.md",
+      "sortKey": "2026-06-06_agent-wiki-read-page.md",
+      "date": "2026-06-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/wiki-and-doc-sources"
+      ],
+      "topic": "Wiki 与文档源"
+    },
     {
       "title": "旧 InfluxDB 监控与 north_info 迁移脚本清理",
       "link": "/plan/2026-06-03_legacy-influxdb-monitor-cleanup",
