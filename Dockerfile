@@ -5,7 +5,8 @@ ENV NODE_ENV=production \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     CLI_API_PORT=3457 \
     CLI_API_HOST=0.0.0.0 \
-    SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins
+    SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins \
+    TZ=Asia/Chongqing
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
