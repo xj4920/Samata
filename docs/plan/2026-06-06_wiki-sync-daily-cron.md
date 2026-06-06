@@ -46,4 +46,5 @@ wiki-sync 原设计依赖 `cf-export`，但容器内验证发现 PyPI 版 `confl
 
 ## Commit Hash
 
-- `4c04d50680d5540b078c6dcfe6bb44cbd93f4df0`
+- 实现提交：`5a723bedb72079a1152080d46e1dc1ac8d6d2af5`
+- 留档回填提交：本段由后续文档提交记录。
