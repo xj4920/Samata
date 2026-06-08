@@ -16,7 +16,6 @@ const TAG = '[task-scheduler]';
 const SYSTEM_USER: User = { id: 'system', username: 'system', role: 'admin' };
 const DEFAULT_TASK_LOCK_MS = 10 * 60 * 1000;
 const TOOL_CALL_TASK_LOCK_MS = 6 * 60 * 60 * 1000;
-const DOCTOR_SCHEDULED_DISABLED_TOOLS = ['send_file'];
 
 function getLockMs(task: ScheduledTask): number {
   return task.task_type === 'tool_call' || task.task_type === 'agent_chat'
@@ -43,11 +42,6 @@ function buildDeliveryContext(task: ScheduledTask): DeliveryContext | undefined 
     targetId: task.target_id ?? undefined,
     appId: task.app_id ?? undefined,
   };
-}
-
-function getScheduledAgentChatDisabledTools(agentName: string): string[] | undefined {
-  if (agentName === 'doctor') return DOCTOR_SCHEDULED_DISABLED_TOOLS;
-  return undefined;
 }
 
 async function executeRemind(task: ScheduledTask): Promise<string | null> {
@@ -131,7 +125,6 @@ async function executeAgentChat(task: ScheduledTask): Promise<string | null> {
       showThinking: false,
       agentConfig: agent,
       deliveryContext,
-      disabledTools: getScheduledAgentChatDisabledTools(agent.name),
       logPrefix: `${TAG}[${agent.name}:${task.id.slice(0, 8)}] `,
     }),
   );
