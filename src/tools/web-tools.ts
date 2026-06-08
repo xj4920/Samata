@@ -81,6 +81,7 @@ async function searchSogou(query: string, axios: any): Promise<SearchResult[]> {
   const resp = await axios.request({
     url,
     method: 'GET',
+    proxy: false,
     timeout: 15000,
     responseType: 'text',
     transformResponse: [(data: string) => data],
@@ -116,6 +117,7 @@ async function searchBing(query: string, axios: any): Promise<SearchResult[]> {
   const resp = await axios.request({
     url,
     method: 'GET',
+    proxy: false,
     timeout: 15000,
     responseType: 'text',
     transformResponse: [(data: string) => data],
@@ -152,25 +154,44 @@ async function handleWebSearch(input: {
 }): Promise<string> {
   const { default: axios } = await import('axios');
   const count = Math.min(Math.max(input.count ?? 8, 1), 20);
+  const directAxios = axios.create({ proxy: false });
+  const failures: string[] = [];
+
+  let results: SearchResult[] = [];
+  let engine = 'serper';
 
   try {
-    let results = await searchSerper(input.query, count, axios);
-    let engine = 'serper';
-    if (results.length === 0) {
-      results = await searchSogou(input.query, axios);
-      engine = 'sogou';
-    }
-    if (results.length === 0) {
-      results = await searchBing(input.query, axios);
-      engine = 'bing';
-    }
-    if (results.length === 0) {
-      return JSON.stringify({ error: '搜索引擎未返回结果，可能触发了验证码或网络异常', query: input.query });
-    }
-    return JSON.stringify({ query: input.query, engine, results: results.slice(0, count) });
+    results = await searchSerper(input.query, count, axios);
   } catch (err: any) {
-    return JSON.stringify({ error: err.message || 'search failed', query: input.query });
+    failures.push(`serper: ${err.message || 'search failed'}`);
   }
+
+  if (results.length === 0) {
+    try {
+      results = await searchSogou(input.query, directAxios);
+      engine = 'sogou';
+    } catch (err: any) {
+      failures.push(`sogou: ${err.message || 'search failed'}`);
+    }
+  }
+
+  if (results.length === 0) {
+    try {
+      results = await searchBing(input.query, directAxios);
+      engine = 'bing';
+    } catch (err: any) {
+      failures.push(`bing: ${err.message || 'search failed'}`);
+    }
+  }
+
+  if (results.length === 0) {
+    return JSON.stringify({
+      error: '搜索引擎未返回结果，可能触发了验证码或网络异常',
+      query: input.query,
+      ...(failures.length > 0 && { failures }),
+    });
+  }
+  return JSON.stringify({ query: input.query, engine, results: results.slice(0, count) });
 }
 
 async function handleWebFetch(input: {

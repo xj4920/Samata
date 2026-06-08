@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Web 搜索直连 fallback 修复（2026-06-08）",
+      "link": "/plan/2026-06-08_web-search-direct-fallback",
+      "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
+      "sortKey": "2026-06-08_web-search-direct-fallback.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/web-and-browser"
+      ],
+      "topic": "工具系统"
+    },
+    {
       "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
       "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
       "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
@@ -936,6 +949,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
     }
   ],
   "external-data": [
+    {
+      "title": "Web 搜索直连 fallback 修复（2026-06-08）",
+      "link": "/plan/2026-06-08_web-search-direct-fallback",
+      "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
+      "sortKey": "2026-06-08_web-search-direct-fallback.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/web-and-browser"
+      ],
+      "topic": "Web 访问"
+    },
     {
       "title": "Agent Wiki 页面读取修复",
       "link": "/plan/2026-06-06_agent-wiki-read-page",
