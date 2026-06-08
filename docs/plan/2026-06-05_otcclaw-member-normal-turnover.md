@@ -71,4 +71,4 @@ git diff --check -- tests/unit/config/agent-config.test.ts docs/plan/2026-06-05_
 
 40d20355e6182875b71f22e9c6d5c993d7249bce
 
-本次 CLI 验证固化提交：待提交后补充。
+本次 CLI 验证固化提交：`2343b77ece88ef833212ac07b64273ffc28f5fcf`
