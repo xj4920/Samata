@@ -6,6 +6,7 @@ import { log } from '../utils/logger.js';
 import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getContextAgent, isScheduledTaskAuthorized } from '../runtime/execution-context.js';
 import { createReminder } from '../commands/reminder.js';
+import { buildFeishuMarkdownCard } from '../feishu/markdown-card.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,7 +55,12 @@ async function sendNotificationImpl(channel: string, targetId: string, message: 
       encryptKey: cfg.encrypt_key || '',
     });
     const idType = targetId.startsWith('oc_') ? 'chat_id' : 'open_id';
-    await api.sendMessageTo(targetId, idType, 'text', { text: message });
+    try {
+      await api.sendMessageTo(targetId, idType, 'interactive', buildFeishuMarkdownCard(message));
+    } catch (err: any) {
+      log.warn(`[plugin] 飞书 markdown card 发送失败，降级 text: ${err.message}`);
+      await api.sendMessageTo(targetId, idType, 'text', { text: message });
+    }
   } else if (channel === 'wework' || channel.startsWith('wework:')) {
     const [, botIdOrName] = channel.split(':', 2);
     const { getConnectedWsClient } = await import('../wework/bot.js');

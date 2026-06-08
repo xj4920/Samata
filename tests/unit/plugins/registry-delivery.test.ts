@@ -125,8 +125,11 @@ export default {
     expect(sentMessages[0]).toEqual({
       receiveId: 'oc_group_chat',
       receiveIdType: 'chat_id',
-      messageType: 'text',
-      content: { text: 'hello' },
+      messageType: 'interactive',
+      content: {
+        config: { wide_screen_mode: true },
+        elements: [{ tag: 'markdown', content: 'hello' }],
+      },
     });
 
     registry.stopPluginWatcher();

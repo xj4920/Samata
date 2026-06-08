@@ -670,6 +670,13 @@ export interface RunAgenticChatOptions {
   onProgress?: (event: ProgressEvent) => void;
   onTextChunk?: (chunk: string) => void;
   deliveryContext?: DeliveryContext;
+  disabledTools?: string[];
+}
+
+function filterDisabledTools(tools: Anthropic.Tool[], disabledTools?: string[]): Anthropic.Tool[] {
+  if (!disabledTools?.length) return tools;
+  const disabled = new Set(disabledTools);
+  return tools.filter(tool => !disabled.has(tool.name));
 }
 
 /**
@@ -692,7 +699,8 @@ export async function runAgenticChat(
     : undefined;
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
-  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const availableTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const activeTools = filterDisabledTools(availableTools, options.disabledTools);
   const model = agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName());
 
   return withLangfuseAgentChat({
@@ -722,7 +730,8 @@ async function runAgenticChatInner(
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
-  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const availableTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const activeTools = filterDisabledTools(availableTools, options.disabledTools);
   const systemPrompt = buildSystemPrompt(agent ?? getDefaultAgent(), user);
 
   // Telemetry: start turn

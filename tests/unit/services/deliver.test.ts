@@ -14,8 +14,11 @@ describe('deliver service', () => {
     const sendSpy = vi.spyOn(FeishuAPI.prototype, 'sendMessageTo').mockResolvedValue('om_test');
     const { deliverMessage } = await import('../../../src/services/deliver.js');
 
-    expect(await deliverMessage('feishu', 'oc_group_chat', 'cli_test_app', 'hello')).toBe(true);
-    expect(sendSpy).toHaveBeenCalledWith('oc_group_chat', 'chat_id', 'text', { text: 'hello' });
+    expect(await deliverMessage('feishu', 'oc_group_chat', 'cli_test_app', '**hello**')).toBe(true);
+    expect(sendSpy).toHaveBeenCalledWith('oc_group_chat', 'chat_id', 'interactive', {
+      config: { wide_screen_mode: true },
+      elements: [{ tag: 'markdown', content: '**hello**' }],
+    });
 
     sendSpy.mockRestore();
   });

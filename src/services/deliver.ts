@@ -1,5 +1,6 @@
 import { getBotApp } from '../llm/agents/config.js';
 import { FeishuAPI } from '../feishu/api.js';
+import { buildFeishuMarkdownCard } from '../feishu/markdown-card.js';
 import { log } from '../utils/logger.js';
 
 export async function deliverFeishu(appId: string, targetId: string, message: string): Promise<void> {
@@ -10,7 +11,12 @@ export async function deliverFeishu(appId: string, targetId: string, message: st
   }
   const api = new FeishuAPI({ appId: appRow.id, appSecret: appRow.secret, verificationToken: '', encryptKey: '' });
   const idType = targetId.startsWith('oc_') ? 'chat_id' : 'open_id';
-  await api.sendMessageTo(targetId, idType, 'text', { text: message });
+  try {
+    await api.sendMessageTo(targetId, idType, 'interactive', buildFeishuMarkdownCard(message));
+  } catch (err: any) {
+    log.warn(`[deliver] 飞书 markdown card 发送失败，降级 text: ${err.message}`);
+    await api.sendMessageTo(targetId, idType, 'text', { text: message });
+  }
 }
 
 export async function deliverTelegram(targetId: string, message: string): Promise<void> {

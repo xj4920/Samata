@@ -58,6 +58,7 @@ describe('task scheduler agent_chat tasks', () => {
       targetId: 'oc_group_chat',
       appId: 'cli_app',
     });
+    expect(options.disabledTools).toContain('send_file');
 
     expect(mockDeliverMessage).toHaveBeenCalledWith(
       'feishu',
