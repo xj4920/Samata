@@ -66,6 +66,7 @@ export function initSchema(): void {
     'plot_trades',
     'list_customers',
     'sync_fast_trading_summary',
+    'sync_normal_trading_summary',
   ];
 
   db.exec(`
@@ -2641,6 +2642,50 @@ export function initSchema(): void {
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
       `).run(taskId, agent.id, taskName, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
+    }
+  });
+
+  runOnce('otcclaw-19-normal-trading-summary-sync-scheduled-task-v1', () => {
+    const cronExpr = '0 19 * * 1-5';
+    const payload = JSON.stringify({ tool_name: 'sync_normal_trading_summary', input: {}, notify: false });
+    const agent = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
+    if (!agent) return;
+
+    const taskId = '283ce632-45ab-468a-823b-90244bb12cad';
+    const taskName = '北向常速业务规模同步';
+    const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
+    const existing = db.prepare(
+      'SELECT id, cron_expr, next_run_at, created_by FROM scheduled_tasks WHERE id = ?',
+    ).get(taskId) as { id: string; cron_expr: string; next_run_at: number | null; created_by: string | null } | undefined;
+
+    if (existing) {
+      const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
+      db.prepare(`
+        UPDATE scheduled_tasks
+        SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
+            channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
+            next_run_at = ?, last_run_at = NULL, last_result = NULL,
+            created_by = ?, locked_until = NULL
+        WHERE id = ?
+      `).run(
+        agent.id,
+        taskName,
+        cronExpr,
+        'tool_call',
+        payload,
+        'wework',
+        nextRunAt,
+        existing.created_by ?? 'system',
+        taskId,
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO scheduled_tasks (
+          id, agent_id, name, cron_expr, task_type, payload, channel,
+          target_id, app_id, next_run_at, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+      `).run(taskId, agent.id, taskName, cronExpr, 'tool_call', payload, 'wework', nextRun, 'system');
     }
   });
 }

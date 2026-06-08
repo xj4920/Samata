@@ -25,7 +25,11 @@ export type ScheduledTaskType = 'remind' | 'sandbox_exec' | 'tool_call';
 
 const MAX_TASKS_PER_AGENT = 50;
 const TASK_TYPES = new Set<ScheduledTaskType>(['remind', 'sandbox_exec', 'tool_call']);
-const TOOL_CALL_ALLOWLIST = new Set(['calc_etf_trades', 'sync_fast_trading_summary']);
+const TOOL_CALL_ALLOWLIST = new Set([
+  'calc_etf_trades',
+  'sync_fast_trading_summary',
+  'sync_normal_trading_summary',
+]);
 
 export function computeNextRun(cronExpr: string, tz = 'Asia/Shanghai'): number {
   const expr = CronExpressionParser.parse(cronExpr, { tz });
@@ -78,20 +82,20 @@ function validateToolCallInput(toolName: string, input: Record<string, unknown>)
     return { ok: true };
   }
 
-  if (toolName === 'sync_fast_trading_summary') {
+  if (toolName === 'sync_fast_trading_summary' || toolName === 'sync_normal_trading_summary') {
     const allowedKeys = new Set(['date_from', 'date_to', 'force', 'keep_raw']);
     const invalidKeys = Object.keys(input).filter((key) => !allowedKeys.has(key));
     if (invalidKeys.length > 0) {
-      return { ok: false, error: `sync_fast_trading_summary input 不支持字段: ${invalidKeys.join(', ')}` };
+      return { ok: false, error: `${toolName} input 不支持字段: ${invalidKeys.join(', ')}` };
     }
     for (const key of ['date_from', 'date_to']) {
       if (key in input && typeof input[key] !== 'string') {
-        return { ok: false, error: `sync_fast_trading_summary input.${key} 必须是 string` };
+        return { ok: false, error: `${toolName} input.${key} 必须是 string` };
       }
     }
     for (const key of ['force', 'keep_raw']) {
       if (key in input && typeof input[key] !== 'boolean') {
-        return { ok: false, error: `sync_fast_trading_summary input.${key} 必须是 boolean` };
+        return { ok: false, error: `${toolName} input.${key} 必须是 boolean` };
       }
     }
     return { ok: true };

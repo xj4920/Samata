@@ -53,13 +53,16 @@ vi.mock('../../src/plugins/registry.js', () => {
     getPluginTools: () => pluginTools,
     getUniversalPluginTools: () => [],
     executePluginTool: async (name: string, input: any) => {
-      if (name === 'calc_etf_trades' || name === 'sync_fast_trading_summary') {
+      if (name === 'calc_etf_trades' || name === 'sync_fast_trading_summary' || name === 'sync_normal_trading_summary') {
         const { getContextAgent, getExecutionChannel, isScheduledTaskAuthorized } = await import('../../src/runtime/execution-context.js');
         const { isAgentAdmin } = await import('../../src/auth/rbac.js');
         const agentId = getContextAgent()?.id;
         const authorized = isScheduledTaskAuthorized() || (agentId ? isAgentAdmin(agentId) : false);
         if (name === 'sync_fast_trading_summary' && !authorized) {
           return JSON.stringify({ error: '仅管理员可同步极速summary数据' });
+        }
+        if (name === 'sync_normal_trading_summary' && !authorized) {
+          return JSON.stringify({ error: '仅管理员可同步常速成交与业务规模数据' });
         }
         const result: Record<string, unknown> = {
           ok: true,
@@ -68,7 +71,7 @@ vi.mock('../../src/plugins/registry.js', () => {
           isAdmin: authorized,
           input,
         };
-        if (name === 'sync_fast_trading_summary') result.tool = name;
+        if (name === 'sync_fast_trading_summary' || name === 'sync_normal_trading_summary') result.tool = name;
         return JSON.stringify(result);
       }
       return null;

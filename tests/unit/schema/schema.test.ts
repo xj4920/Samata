@@ -163,6 +163,46 @@ describe('schema integrity', () => {
       `).get() as { c: number };
       expect(after.c).toBe(1);
     });
+
+    it('seeds 19:00 NormalTrading summary sync scheduled task idempotently', async () => {
+      const row = ctx.db.prepare(`
+        SELECT st.id, a.name AS agent_name, st.name, st.cron_expr, st.task_type,
+               st.payload, st.channel, st.created_by, st.last_run_at, st.last_result
+        FROM scheduled_tasks st
+        JOIN agents a ON a.id = st.agent_id
+        WHERE st.id = '283ce632-45ab-468a-823b-90244bb12cad'
+      `).get() as {
+        id: string;
+        agent_name: string;
+        name: string;
+        cron_expr: string;
+        task_type: string;
+        payload: string;
+        channel: string;
+        created_by: string;
+        last_run_at: number | null;
+        last_result: string | null;
+      } | undefined;
+
+      expect(row).toBeDefined();
+      expect(row?.agent_name).toBe('otcclaw');
+      expect(row?.name).toBe('北向常速业务规模同步');
+      expect(row?.cron_expr).toBe('0 19 * * 1-5');
+      expect(row?.task_type).toBe('tool_call');
+      expect(row?.channel).toBe('wework');
+      expect(JSON.parse(row!.payload)).toEqual({ tool_name: 'sync_normal_trading_summary', input: {}, notify: false });
+      expect(row?.last_run_at).toBeNull();
+      expect(row?.last_result).toBeNull();
+
+      const { initSchema } = await import('../../../src/db/schema.js');
+      initSchema();
+      const after = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM scheduled_tasks
+        WHERE id = '283ce632-45ab-468a-823b-90244bb12cad'
+      `).get() as { c: number };
+      expect(after.c).toBe(1);
+    });
   });
 
   describe('default users', () => {

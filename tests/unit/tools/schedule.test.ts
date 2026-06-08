@@ -77,7 +77,7 @@ describe('schedule tools', () => {
       expect(forceInput.success).toBe(true);
     });
 
-    it('accepts FastTrading summary sync tool_call input', async () => {
+    it('accepts trading summary sync tool_call input', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const agentId = await getAgentId('otcclaw');
 
@@ -106,6 +106,21 @@ describe('schedule tools', () => {
         createdBy: 'system',
       });
       expect(rangedInput.success).toBe(true);
+
+      const normalTradingInput = createScheduledTask({
+        agentId,
+        name: '常速业务规模同步',
+        cronExpr: '0 19 * * 1-5',
+        taskType: 'tool_call',
+        payload: JSON.stringify({
+          tool_name: 'sync_normal_trading_summary',
+          input: { date_from: '20260601', date_to: '20260602', force: true, keep_raw: false },
+          notify: false,
+        }),
+        channel: 'wework',
+        createdBy: 'system',
+      });
+      expect(normalTradingInput.success).toBe(true);
     });
 
     it('rejects invalid tool_call payload', async () => {
@@ -321,6 +336,37 @@ describe('schedule tools', () => {
       expect(row.next_run_at).toBeGreaterThan(Date.now());
       const parsed = JSON.parse(row.last_result!);
       expect(parsed).toEqual({ ok: true, tool: 'sync_fast_trading_summary', agentId, channel: 'system', isAdmin: true, input: {} });
+    });
+
+    it('executes due NormalTrading sync tasks in the scheduled agent context', async () => {
+      const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+      const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
+      const agentId = await getAgentId('otcclaw');
+
+      const created = createScheduledTask({
+        agentId,
+        name: 'due 常速业务规模同步',
+        cronExpr: '0 19 * * 1-5',
+        taskType: 'tool_call',
+        payload: JSON.stringify({ tool_name: 'sync_normal_trading_summary', input: {}, notify: false }),
+        channel: 'wework',
+        createdBy: 'system',
+      });
+      expect(created.success).toBe(true);
+
+      const idPrefix = (created as any).id;
+      const task = unit.db.prepare('SELECT id FROM scheduled_tasks WHERE id LIKE ?').get(`${idPrefix}%`) as { id: string };
+      unit.db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(Date.now() - 1000, task.id);
+
+      await checkAndExecute();
+
+      const row = unit.db.prepare(
+        'SELECT last_run_at, last_result, next_run_at FROM scheduled_tasks WHERE id = ?',
+      ).get(task.id) as { last_run_at: number | null; last_result: string | null; next_run_at: number | null };
+      expect(row.last_run_at).toBeGreaterThan(0);
+      expect(row.next_run_at).toBeGreaterThan(Date.now());
+      const parsed = JSON.parse(row.last_result!);
+      expect(parsed).toEqual({ ok: true, tool: 'sync_normal_trading_summary', agentId, channel: 'system', isAdmin: true, input: {} });
     });
   });
 
