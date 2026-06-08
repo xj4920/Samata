@@ -1,7 +1,9 @@
 import { getDueScheduledTasks, claimDueScheduledTask, markTaskExecuted, computeNextRun, type ScheduledTask } from '../commands/scheduled-task.js';
 import { sandboxExecAsync } from '../commands/sandbox.js';
-import { getAgentById, getAgentTools } from '../llm/agents/config.js';
-import { runWithExecutionContext } from '../runtime/execution-context.js';
+import { getAgentById, getAgentTools, type DeliveryContext } from '../llm/agents/config.js';
+import { runAgenticChat } from '../llm/agent.js';
+import { getUser, type User } from '../auth/rbac.js';
+import { runWithExecutionContext, type AppChannel } from '../runtime/execution-context.js';
 import { getAllNativeTools } from '../tools/index.js';
 import { getPluginTools, executePluginTool } from '../plugins/registry.js';
 import { getMcpTools } from './mcp-manager.js';
@@ -11,12 +13,35 @@ import { log } from '../utils/logger.js';
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const TAG = '[task-scheduler]';
-const SYSTEM_USER = { id: 'system', username: 'system', role: 'admin' as const };
+const SYSTEM_USER: User = { id: 'system', username: 'system', role: 'admin' };
 const DEFAULT_TASK_LOCK_MS = 10 * 60 * 1000;
 const TOOL_CALL_TASK_LOCK_MS = 6 * 60 * 60 * 1000;
 
 function getLockMs(task: ScheduledTask): number {
-  return task.task_type === 'tool_call' ? TOOL_CALL_TASK_LOCK_MS : DEFAULT_TASK_LOCK_MS;
+  return task.task_type === 'tool_call' || task.task_type === 'agent_chat'
+    ? TOOL_CALL_TASK_LOCK_MS
+    : DEFAULT_TASK_LOCK_MS;
+}
+
+function toExecutionChannel(channel: string): AppChannel {
+  if (channel === 'cli' || channel === 'feishu' || channel === 'telegram' || channel === 'wework') return channel;
+  return 'system';
+}
+
+function buildDeliveryContext(task: ScheduledTask): DeliveryContext | undefined {
+  if (
+    task.channel !== 'cli' &&
+    task.channel !== 'feishu' &&
+    task.channel !== 'telegram' &&
+    task.channel !== 'wework'
+  ) {
+    return undefined;
+  }
+  return {
+    channel: task.channel,
+    targetId: task.target_id ?? undefined,
+    appId: task.app_id ?? undefined,
+  };
 }
 
 async function executeRemind(task: ScheduledTask): Promise<string | null> {
@@ -76,6 +101,39 @@ async function executeToolCall(task: ScheduledTask): Promise<string | null> {
   return result.slice(0, 4000);
 }
 
+async function executeAgentChat(task: ScheduledTask): Promise<string | null> {
+  const payload = JSON.parse(task.payload) as { prompt?: string; message?: string };
+  const prompt = (payload.prompt ?? payload.message ?? '').trim();
+  if (!prompt) throw new Error('agent_chat payload.prompt is required');
+
+  const agent = getAgentById(task.agent_id);
+  if (!agent) throw new Error(`Agent not found: ${task.agent_id}`);
+
+  const user = task.created_by ? (getUser(task.created_by) ?? SYSTEM_USER) : SYSTEM_USER;
+  const deliveryContext = buildDeliveryContext(task);
+  const history: Parameters<typeof runAgenticChat>[0] = [];
+
+  const reply = await runWithExecutionContext(
+    {
+      channel: toExecutionChannel(task.channel),
+      user,
+      appId: task.app_id ?? undefined,
+      agent,
+    },
+    () => runAgenticChat(history, prompt, user, {
+      streamEnabled: false,
+      showThinking: false,
+      agentConfig: agent,
+      deliveryContext,
+      logPrefix: `${TAG}[${agent.name}:${task.id.slice(0, 8)}] `,
+    }),
+  );
+
+  const message = reply.trim() || '（无回复内容）';
+  const ok = await deliverMessage(task.channel, task.target_id, task.app_id, message, TAG);
+  return ok ? message.slice(0, 4000) : `delivery_failed: ${message.slice(0, 3983)}`;
+}
+
 export async function checkAndExecute(): Promise<void> {
   let tasks: ScheduledTask[];
   try {
@@ -98,6 +156,8 @@ export async function checkAndExecute(): Promise<void> {
         result = await executeSandbox(task);
       } else if (task.task_type === 'tool_call') {
         result = await executeToolCall(task);
+      } else if (task.task_type === 'agent_chat') {
+        result = await executeAgentChat(task);
       } else {
         throw new Error(`Unsupported task type: ${task.task_type}`);
       }

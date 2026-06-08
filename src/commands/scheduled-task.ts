@@ -21,10 +21,10 @@ export interface ScheduledTask {
   created_by: string | null;
 }
 
-export type ScheduledTaskType = 'remind' | 'sandbox_exec' | 'tool_call';
+export type ScheduledTaskType = 'remind' | 'sandbox_exec' | 'tool_call' | 'agent_chat';
 
 const MAX_TASKS_PER_AGENT = 50;
-const TASK_TYPES = new Set<ScheduledTaskType>(['remind', 'sandbox_exec', 'tool_call']);
+const TASK_TYPES = new Set<ScheduledTaskType>(['remind', 'sandbox_exec', 'tool_call', 'agent_chat']);
 const TOOL_CALL_ALLOWLIST = new Set(['calc_etf_trades', 'sync_fast_trading_summary']);
 
 export function computeNextRun(cronExpr: string, tz = 'Asia/Shanghai'): number {
@@ -38,6 +38,26 @@ function validatePayload(taskType: ScheduledTaskType, payload: string): { ok: tr
     parsed = JSON.parse(payload);
   } catch {
     return { ok: false, error: 'payload 必须是合法的 JSON 字符串' };
+  }
+
+  if (taskType === 'agent_chat') {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: 'agent_chat payload 必须是 JSON 对象' };
+    }
+    const obj = parsed as Record<string, unknown>;
+    const prompt = typeof obj.prompt === 'string'
+      ? obj.prompt
+      : typeof obj.message === 'string'
+      ? obj.message
+      : '';
+    if (!prompt.trim()) {
+      return { ok: false, error: 'agent_chat payload 必须包含非空 prompt 字符串' };
+    }
+    const invalidKeys = Object.keys(obj).filter((key) => !['prompt', 'message'].includes(key));
+    if (invalidKeys.length > 0) {
+      return { ok: false, error: `agent_chat payload 不支持字段: ${invalidKeys.join(', ')}` };
+    }
+    return { ok: true };
   }
 
   if (taskType !== 'tool_call') return { ok: true };

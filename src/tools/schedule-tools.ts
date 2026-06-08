@@ -21,14 +21,14 @@ import {
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'create_scheduled_task',
-    description: '创建周期性定时任务。支持三种类型：(1) remind — 按 cron 周期推送提醒消息；(2) sandbox_exec — 按 cron 周期在沙箱中执行脚本；(3) tool_call — 按 cron 周期调用允许的系统工具。cron_expr 为标准 5 字段格式（分 时 日 月 周），如 "0 9 * * 1-5" 表示工作日每天 9 点。',
+    description: '创建周期性定时任务。支持四种类型：(1) remind — 按 cron 周期推送固定提醒消息；(2) sandbox_exec — 按 cron 周期在沙箱中执行脚本；(3) tool_call — 按 cron 周期调用允许的系统工具；(4) agent_chat — 按 cron 周期让当前 agent 执行一段 prompt，并把最终回复推送到当前渠道。cron_expr 为标准 5 字段格式（分 时 日 月 周），如 "0 9 * * 1-5" 表示工作日每天 9 点。',
     input_schema: {
       type: 'object' as const,
       properties: {
         name: { type: 'string', description: '任务名称（方便识别）' },
         cron_expr: { type: 'string', description: '标准 5 字段 cron 表达式，如 "30 8 * * *"（每天 8:30）、"0 */2 * * *"（每 2 小时）' },
-        task_type: { type: 'string', enum: ['remind', 'sandbox_exec', 'tool_call'], description: 'remind=周期提醒，sandbox_exec=周期执行脚本，tool_call=周期调用系统工具' },
-        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}, tool_call: {"tool_name":"calc_etf_trades","input":{"force":true},"notify":false}' },
+        task_type: { type: 'string', enum: ['remind', 'sandbox_exec', 'tool_call', 'agent_chat'], description: 'remind=周期提醒，sandbox_exec=周期执行脚本，tool_call=周期调用系统工具，agent_chat=周期运行当前 agent 并推送最终回复' },
+        payload: { type: 'string', description: 'JSON 字符串。remind: {"message":"..."}, sandbox_exec: {"language":"python","code":"...","notify":true}, tool_call: {"tool_name":"calc_etf_trades","input":{"force":true},"notify":false}, agent_chat: {"prompt":"请执行每日健康播报..."}' },
         timezone: { type: 'string', description: '时区，默认 Asia/Shanghai' },
       },
       required: ['name', 'cron_expr', 'task_type', 'payload'],

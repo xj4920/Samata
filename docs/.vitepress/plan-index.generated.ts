@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
+      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
+      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "调度与任务"
+    },
+    {
       "title": "Agent Wiki 页面读取修复",
       "link": "/plan/2026-06-06_agent-wiki-read-page",
       "sourcePath": "docs/plan/2026-06-06_agent-wiki-read-page.md",
@@ -510,6 +523,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/permissions/resource-scopes"
       ],
       "topic": "资源作用域"
+    },
+    {
+      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
+      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
+      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
     },
     {
       "title": "otcclaw 普通用户常速换手计算权限",
@@ -1253,6 +1279,16 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "Wiki 每日定时同步",
+    "link": "/plan/2026-06-06_wiki-sync-daily-cron",
+    "sourcePath": "docs/plan/2026-06-06_wiki-sync-daily-cron.md",
+    "sortKey": "2026-06-06_wiki-sync-daily-cron.md",
+    "date": "2026-06-06",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "Samata Server Startup Keepalive",
     "link": "/plan/2026-06-03_samata-server-startup-keepalive",

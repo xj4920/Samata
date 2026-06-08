@@ -236,7 +236,7 @@ export function initSchema(): void {
       agent_id    TEXT NOT NULL,
       name        TEXT NOT NULL,
       cron_expr   TEXT NOT NULL,
-      task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call')),
+      task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call', 'agent_chat')),
       payload     TEXT NOT NULL,
       channel     TEXT NOT NULL,
       target_id   TEXT,
@@ -390,6 +390,49 @@ export function initSchema(): void {
 
   runOnce('scheduled-tasks-add-locked-until-v1', () => {
     try { db.exec('ALTER TABLE scheduled_tasks ADD COLUMN locked_until INTEGER'); } catch (e) {}
+  });
+
+  runOnce('scheduled-tasks-allow-agent-chat-v1', () => {
+    const row = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'",
+    ).get() as { sql: string } | undefined;
+    if (!row || row.sql.includes("'agent_chat'")) return;
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        CREATE TABLE scheduled_tasks_new (
+          id          TEXT PRIMARY KEY,
+          agent_id    TEXT NOT NULL,
+          name        TEXT NOT NULL,
+          cron_expr   TEXT NOT NULL,
+          task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call', 'agent_chat')),
+          payload     TEXT NOT NULL,
+          channel     TEXT NOT NULL,
+          target_id   TEXT,
+          app_id      TEXT,
+          enabled     INTEGER NOT NULL DEFAULT 1,
+          next_run_at INTEGER,
+          locked_until INTEGER,
+          last_run_at INTEGER,
+          last_result TEXT,
+          created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+          created_by  TEXT
+        );
+        INSERT INTO scheduled_tasks_new (
+          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
+          enabled, next_run_at, locked_until, last_run_at, last_result, created_at, created_by
+        )
+        SELECT
+          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
+          enabled, next_run_at, locked_until, last_run_at, last_result, created_at, created_by
+        FROM scheduled_tasks;
+        DROP TABLE scheduled_tasks;
+        ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   });
 
   runOnce('add-knowledge-columns', () => {
