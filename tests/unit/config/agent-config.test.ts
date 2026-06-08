@@ -177,6 +177,15 @@ describe('getAgentTools', () => {
       expect(memberNames).not.toContain('sync_fast_trading_summary');
     });
 
+    it('otcclaw member can calculate normal trading turnover without sync tools', async () => {
+      const names = await getToolNames('otcclaw', false);
+
+      expect(names).toContain('calc_normal_trading_annual_turnover');
+      expect(names).toContain('query_normal_trading_summary');
+      expect(names).not.toContain('sync_normal_trading_summary');
+      expect(names).not.toContain('sync_fast_trading_summary');
+    });
+
     it('ticlaw member keeps titans/logyi tools but not high-risk native tools', async () => {
       const logyiTool = { name: 'mcp_logyi_search_logs', description: 'logyi', input_schema: { type: 'object', properties: {} } };
       setMockMcpTools([logyiTool], { ticlaw: [logyiTool] });
