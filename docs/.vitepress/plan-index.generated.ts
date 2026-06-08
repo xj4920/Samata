@@ -50,10 +50,10 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "工具系统"
     },
     {
-      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
-      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
-      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
-      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "title": "Agent Chat 定时任务与 Markdown 投递修复（2026-06-08）",
+      "link": "/plan/2026-06-08_agent-chat-scheduled-delivery",
+      "sourcePath": "docs/plan/2026-06-08_agent-chat-scheduled-delivery.md",
+      "sortKey": "2026-06-08_agent-chat-scheduled-delivery.md",
       "date": "2026-06-08",
       "status": "implemented",
       "canonicalDocs": [
@@ -538,10 +538,10 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
-      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
-      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
-      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
-      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "title": "Agent Chat 定时任务与 Markdown 投递修复（2026-06-08）",
+      "link": "/plan/2026-06-08_agent-chat-scheduled-delivery",
+      "sourcePath": "docs/plan/2026-06-08_agent-chat-scheduled-delivery.md",
+      "sortKey": "2026-06-08_agent-chat-scheduled-delivery.md",
       "date": "2026-06-08",
       "status": "implemented",
       "canonicalDocs": [

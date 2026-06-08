@@ -52,14 +52,14 @@ describe('schedule tools', () => {
 
     it('creates agent_chat tasks with a prompt payload', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('doctor');
+      const agentId = await getAgentId('alter-ego');
 
       const result = createScheduledTask({
         agentId,
-        name: '每日健康播报',
+        name: '每日摘要播报',
         cronExpr: '0 8 * * *',
         taskType: 'agent_chat',
-        payload: JSON.stringify({ prompt: '请生成每日健康播报' }),
+        payload: JSON.stringify({ prompt: '请生成每日摘要播报' }),
         channel: 'feishu',
         targetId: 'oc_group_chat',
         appId: 'cli_app',
@@ -68,7 +68,7 @@ describe('schedule tools', () => {
 
       expect(result.success).toBe(true);
       const tasks = listScheduledTasks(agentId);
-      expect(tasks.some(t => t.name === '每日健康播报' && t.task_type === 'agent_chat')).toBe(true);
+      expect(tasks.some(t => t.name === '每日摘要播报' && t.task_type === 'agent_chat')).toBe(true);
 
       const invalid = createScheduledTask({
         agentId,
