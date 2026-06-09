@@ -146,9 +146,10 @@ export function initSchema(): void {
       id         TEXT PRIMARY KEY,
       agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
       channel    TEXT NOT NULL,
+      app_id     TEXT,
       target_id  TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(channel, target_id)
+      UNIQUE(channel, app_id, target_id)
     );
 
     CREATE TABLE IF NOT EXISTS agent_members (
@@ -303,121 +304,8 @@ export function initSchema(): void {
     }
   };
 
-  runOnce('normalize-user-aliases-schema-v1', () => {
-    const fkRows = db.pragma('foreign_key_list(user_aliases)') as Array<{ from: string }>;
-    const hasAliasFk = fkRows.some(r => r.from === 'alias_user_id');
-    if (!hasAliasFk) return;
-
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE user_aliases_new (
-          alias_user_id     TEXT PRIMARY KEY,
-          canonical_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          note              TEXT,
-          created_at        TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        INSERT OR IGNORE INTO user_aliases_new (alias_user_id, canonical_user_id, note, created_at)
-        SELECT ua.alias_user_id, ua.canonical_user_id, ua.note, ua.created_at
-        FROM user_aliases ua
-        INNER JOIN users u ON u.id = ua.canonical_user_id;
-        DROP TABLE user_aliases;
-        ALTER TABLE user_aliases_new RENAME TO user_aliases;
-        CREATE INDEX IF NOT EXISTS idx_user_aliases_canonical ON user_aliases(canonical_user_id);
-      `);
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
-  });
-
-  runOnce('scheduled-tasks-allow-tool-call', () => {
-    const row = db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'",
-    ).get() as { sql: string } | undefined;
-    if (!row || row.sql.includes("'tool_call'")) return;
-
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE scheduled_tasks_new (
-          id          TEXT PRIMARY KEY,
-          agent_id    TEXT NOT NULL,
-          name        TEXT NOT NULL,
-          cron_expr   TEXT NOT NULL,
-          task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call')),
-          payload     TEXT NOT NULL,
-          channel     TEXT NOT NULL,
-          target_id   TEXT,
-          app_id      TEXT,
-          enabled     INTEGER NOT NULL DEFAULT 1,
-          next_run_at INTEGER,
-          locked_until INTEGER,
-          last_run_at INTEGER,
-          last_result TEXT,
-          created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-          created_by  TEXT
-        );
-        INSERT INTO scheduled_tasks_new (
-          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
-          enabled, next_run_at, last_run_at, last_result, created_at, created_by
-        )
-        SELECT
-          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
-          enabled, next_run_at, last_run_at, last_result, created_at, created_by
-        FROM scheduled_tasks;
-        DROP TABLE scheduled_tasks;
-        ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
-      `);
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
-  });
-
   runOnce('scheduled-tasks-add-locked-until-v1', () => {
     try { db.exec('ALTER TABLE scheduled_tasks ADD COLUMN locked_until INTEGER'); } catch (e) {}
-  });
-
-  runOnce('scheduled-tasks-allow-agent-chat-v1', () => {
-    const row = db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'",
-    ).get() as { sql: string } | undefined;
-    if (!row || row.sql.includes("'agent_chat'")) return;
-
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE scheduled_tasks_new (
-          id          TEXT PRIMARY KEY,
-          agent_id    TEXT NOT NULL,
-          name        TEXT NOT NULL,
-          cron_expr   TEXT NOT NULL,
-          task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call', 'agent_chat')),
-          payload     TEXT NOT NULL,
-          channel     TEXT NOT NULL,
-          target_id   TEXT,
-          app_id      TEXT,
-          enabled     INTEGER NOT NULL DEFAULT 1,
-          next_run_at INTEGER,
-          locked_until INTEGER,
-          last_run_at INTEGER,
-          last_result TEXT,
-          created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-          created_by  TEXT
-        );
-        INSERT INTO scheduled_tasks_new (
-          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
-          enabled, next_run_at, locked_until, last_run_at, last_result, created_at, created_by
-        )
-        SELECT
-          id, agent_id, name, cron_expr, task_type, payload, channel, target_id, app_id,
-          enabled, next_run_at, locked_until, last_run_at, last_result, created_at, created_by
-        FROM scheduled_tasks;
-        DROP TABLE scheduled_tasks;
-        ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
-      `);
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
   });
 
   runOnce('add-knowledge-columns', () => {
@@ -442,29 +330,6 @@ export function initSchema(): void {
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS skills_name_agent_unique ON skills(name, COALESCE(agent_id, ''))");
     } catch (e) {}
-  });
-
-  runOnce('rebuild-skills-drop-name-unique', () => {
-    const hasOldUnique = (db.prepare(
-      "SELECT COUNT(*) as cnt FROM pragma_index_list('skills') WHERE origin = 'u' AND name LIKE 'sqlite_autoindex_skills%'"
-    ).get() as { cnt: number }).cnt > 0;
-    if (hasOldUnique) {
-      db.exec(`
-        CREATE TABLE skills_new (
-          id          TEXT PRIMARY KEY,
-          name        TEXT NOT NULL,
-          prompt      TEXT NOT NULL,
-          description TEXT,
-          agent_id    TEXT REFERENCES agents(id) ON DELETE SET NULL,
-          created_by  TEXT NOT NULL REFERENCES users(id),
-          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        INSERT INTO skills_new SELECT id, name, prompt, description, agent_id, created_by, created_at FROM skills;
-        DROP TABLE skills;
-        ALTER TABLE skills_new RENAME TO skills;
-        CREATE UNIQUE INDEX IF NOT EXISTS skills_name_agent_unique ON skills(name, COALESCE(agent_id, ''));
-      `);
-    }
   });
 
   runOnce('add-run-skill-to-agents', () => {
@@ -558,29 +423,6 @@ export function initSchema(): void {
         const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
         db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
       }
-    }
-  });
-
-  runOnce('agent-assignments-add-app-id', () => {
-    const cols = db.pragma('table_info(agent_assignments)') as Array<{ name: string }>;
-    if (!cols.some(c => c.name === 'app_id')) {
-      db.exec(`
-        CREATE TABLE agent_assignments_new (
-          id         TEXT PRIMARY KEY,
-          agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-          channel    TEXT NOT NULL,
-          app_id     TEXT,
-          target_id  TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          UNIQUE(channel, app_id, target_id)
-        );
-      `);
-      db.exec(`
-        INSERT INTO agent_assignments_new (id, agent_id, channel, app_id, target_id, created_at)
-        SELECT id, agent_id, channel, NULL, target_id, created_at FROM agent_assignments;
-      `);
-      db.exec('DROP TABLE agent_assignments;');
-      db.exec('ALTER TABLE agent_assignments_new RENAME TO agent_assignments;');
     }
   });
 
@@ -761,59 +603,6 @@ export function initSchema(): void {
     try { db.exec("ALTER TABLE agents ADD COLUMN block_tools TEXT"); } catch (e) {}
   });
 
-  runOnce('agents-allow-standard-tools-mode', () => {
-    // Recreate agents table with updated CHECK constraint to allow 'standard'.
-    // Temporarily disable FK to prevent CASCADE deleting agent_assignments/agent_members.
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS agents_new (
-          id            TEXT PRIMARY KEY,
-          name          TEXT NOT NULL UNIQUE,
-          display_name  TEXT NOT NULL,
-          description   TEXT,
-          system_prompt TEXT,
-          model         TEXT,
-          provider      TEXT,
-          tools_mode    TEXT NOT NULL DEFAULT 'standard'
-                        CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
-          tools_list    TEXT,
-          block_tools   TEXT,
-          preset        TEXT,
-          user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
-                        CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
-          user_tools_list TEXT,
-          max_history   INTEGER DEFAULT 80,
-          created_by    TEXT NOT NULL,
-          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-      `);
-      const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
-      const hasBlockTools = cols.some(c => c.name === 'block_tools');
-      const hasPreset = cols.some(c => c.name === 'preset');
-      const hasUserToolsMode = cols.some(c => c.name === 'user_tools_mode');
-      const hasUserToolsList = cols.some(c => c.name === 'user_tools_list');
-
-      db.exec(`
-        INSERT INTO agents_new (id, name, display_name, description, system_prompt, model, provider,
-          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list, max_history, created_by, created_at, updated_at)
-        SELECT id, name, display_name, description, system_prompt, model, provider,
-          tools_mode, tools_list,
-          ${hasBlockTools ? 'block_tools' : 'NULL'},
-          ${hasPreset ? 'preset' : 'NULL'},
-          ${hasUserToolsMode ? 'user_tools_mode' : "'inherit'"},
-          ${hasUserToolsList ? 'user_tools_list' : 'NULL'},
-          max_history, created_by, created_at, updated_at
-        FROM agents;
-      `);
-      db.exec('DROP TABLE agents;');
-      db.exec('ALTER TABLE agents_new RENAME TO agents;');
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
-  });
-
   runOnce('migrate-agents-to-standard-mode', () => {
     // Migrate all agents from legacy allowlist/blocklist/all to the new standard model.
     // tools_list is cleaned to only contain tools NOT in COMMON_SET.
@@ -956,14 +745,19 @@ export function initSchema(): void {
   runOnce('add-documents-table', () => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS documents (
-        id          TEXT PRIMARY KEY,
-        title       TEXT NOT NULL,
-        source_path TEXT NOT NULL,
-        file_type   TEXT NOT NULL,
-        chunk_count INTEGER NOT NULL DEFAULT 0,
-        agent_id    TEXT REFERENCES agents(id),
-        created_by  TEXT NOT NULL REFERENCES users(id),
-        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        id                 TEXT PRIMARY KEY,
+        title              TEXT NOT NULL,
+        source_path        TEXT NOT NULL,
+        file_type          TEXT NOT NULL,
+        chunk_count        INTEGER NOT NULL DEFAULT 0,
+        agent_id           TEXT REFERENCES agents(id) ON DELETE CASCADE,
+        created_by         TEXT NOT NULL REFERENCES users(id),
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        stored_path        TEXT,
+        size_bytes         INTEGER,
+        content_hash       TEXT,
+        doc_date           TEXT,
+        wiki_compiled_hash TEXT
       );
     `);
     try { db.exec("ALTER TABLE knowledge ADD COLUMN document_id TEXT REFERENCES documents(id) ON DELETE CASCADE"); } catch (e) {}
@@ -1138,56 +932,11 @@ export function initSchema(): void {
 
   /**
    * system prompt 迁移到 config/agents/<name>.md 后，删除 agents.system_prompt 列。
-   * 优先使用 SQLite 3.35+ 的 `ALTER TABLE ... DROP COLUMN`；不支持则回退到 rebuild 模式。
    */
   runOnce('drop-agents-system-prompt-column', () => {
     const cols = db.pragma('table_info(agents)') as Array<{ name: string }>;
     if (!cols.some(c => c.name === 'system_prompt')) return;
-    try {
-      db.exec('ALTER TABLE agents DROP COLUMN system_prompt');
-      return;
-    } catch (_e) {
-      // fall through to rebuild
-    }
-
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE agents_new (
-          id            TEXT PRIMARY KEY,
-          name          TEXT NOT NULL UNIQUE,
-          display_name  TEXT NOT NULL,
-          description   TEXT,
-          model         TEXT,
-          provider      TEXT,
-          tools_mode    TEXT NOT NULL DEFAULT 'standard'
-                        CHECK(tools_mode IN ('all', 'standard', 'allowlist', 'blocklist')),
-          tools_list    TEXT,
-          block_tools   TEXT,
-          preset        TEXT,
-          user_tools_mode TEXT NOT NULL DEFAULT 'inherit'
-                        CHECK(user_tools_mode IN ('inherit', 'all', 'allowlist', 'blocklist')),
-          user_tools_list TEXT,
-          max_history   INTEGER DEFAULT 80,
-          created_by    TEXT NOT NULL,
-          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-      `);
-      db.exec(`
-        INSERT INTO agents_new (id, name, display_name, description, model, provider,
-          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list,
-          max_history, created_by, created_at, updated_at)
-        SELECT id, name, display_name, description, model, provider,
-          tools_mode, tools_list, block_tools, preset, user_tools_mode, user_tools_list,
-          max_history, created_by, created_at, updated_at
-        FROM agents;
-      `);
-      db.exec('DROP TABLE agents;');
-      db.exec('ALTER TABLE agents_new RENAME TO agents;');
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
+    db.exec('ALTER TABLE agents DROP COLUMN system_prompt');
   });
 
   runOnce('agents-minimax-provider', () => {
@@ -1887,45 +1636,6 @@ export function initSchema(): void {
 
   runOnce('agents-add-custom-prompt', () => {
     try { db.exec("ALTER TABLE agents ADD COLUMN custom_prompt TEXT"); } catch {}
-  });
-
-  runOnce('fix-documents-agent-fk-cascade', () => {
-    const cols = db.prepare("PRAGMA table_info('documents')").all() as { name: string; type: string; notnull: number; dflt_value: string | null; pk: number }[];
-    const colNames = cols.map(c => c.name);
-    if (!colNames.includes('id')) return; // table doesn't exist yet
-
-    db.pragma('foreign_keys = OFF');
-    try {
-      db.exec(`
-        CREATE TABLE documents_new (
-          id                TEXT PRIMARY KEY,
-          title             TEXT NOT NULL,
-          source_path       TEXT NOT NULL,
-          file_type         TEXT NOT NULL,
-          chunk_count       INTEGER NOT NULL DEFAULT 0,
-          agent_id          TEXT REFERENCES agents(id) ON DELETE CASCADE,
-          created_by        TEXT NOT NULL REFERENCES users(id),
-          created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-          stored_path       TEXT,
-          size_bytes        INTEGER,
-          content_hash      TEXT,
-          doc_date          TEXT,
-          wiki_compiled_hash TEXT
-        );
-      `);
-
-      const srcCols = colNames.filter(c =>
-        ['id','title','source_path','file_type','chunk_count','agent_id',
-         'created_by','created_at','stored_path','size_bytes','content_hash',
-         'doc_date','wiki_compiled_hash'].includes(c)
-      ).join(', ');
-
-      db.exec(`INSERT INTO documents_new (${srcCols}) SELECT ${srcCols} FROM documents;`);
-      db.exec('DROP TABLE documents;');
-      db.exec('ALTER TABLE documents_new RENAME TO documents;');
-    } finally {
-      db.pragma('foreign_keys = ON');
-    }
   });
 
   runOnce('ticlaw-add-titans-code-search-and-harden-users-v1', () => {

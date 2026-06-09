@@ -49,6 +49,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "部署与配置"
     },
     {
+      "title": "Schema 临时重建表清理",
+      "link": "/plan/2026-06-09_schema-new-temp-table-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_schema-new-temp-table-cleanup.md",
+      "sortKey": "2026-06-09_schema-new-temp-table-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "数据库初始化"
+    },
+    {
       "title": "清理 schema.ts 硬编码 Seed",
       "link": "/plan/2026-06-09_schema-hardcoded-seed-cleanup",
       "sourcePath": "docs/plan/2026-06-09_schema-hardcoded-seed-cleanup.md",
