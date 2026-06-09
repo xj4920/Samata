@@ -115,6 +115,15 @@ npm run start        # 通过 scripts/start.sh 启动（含 screen 守护）
 npm run stop         # 停止 screen 守护进程
 ```
 
+## 协作流程
+
+所有功能需求、Bug 修复、架构调整、文档治理和 Agent 开发任务都应先创建 Issue，并使用仓库内的中文模板：
+
+- Issue 模板：`.gitee/ISSUE_TEMPLATE.zh-CN.md`
+- 中大型变更需先完成需求澄清和方案确认，再进入开发
+- MR 需关联对应 Issue，并说明修改范围、验证结果和风险
+- 使用 Agent 参与开发时，提交人需 review Agent 产物，并对最终变更负责
+
 ## 环境变量
 
 ### 必填
