@@ -601,8 +601,13 @@ async function callLLM(
   providerOverride?: import('./provider.js').LLMProvider,
   onTextChunk?: (chunk: string) => void,
   onProgress?: (event: ProgressEvent) => void,
+  abortSignal?: AbortSignal,
 ): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = providerOverride ?? getProvider();
+  const throwIfRunAborted = () => {
+    throwIfAborted();
+    if (abortSignal?.aborted) throw new DOMException('cancelled', 'AbortError');
+  };
 
   for (let attempt = 0; ; attempt++) {
     try {
@@ -611,7 +616,7 @@ async function callLLM(
           let result: CreateMessageResult | null = null;
           let buffer = '';
           for await (const event of provider.createMessageStream(params)) {
-            throwIfAborted();
+            throwIfRunAborted();
             if (event.type === 'text_delta') {
               buffer += event.text;
             } else if (event.type === 'done') {
@@ -639,11 +644,13 @@ async function callLLM(
         }
       }
 
-      throwIfAborted();
-      return { result: await provider.createMessage(params), streamed: false };
+      throwIfRunAborted();
+      const result = await provider.createMessage(params);
+      throwIfRunAborted();
+      return { result, streamed: false };
     } catch (err: any) {
       if (attempt < CALLLLM_MAX_RETRIES && isTransientError(err)) {
-        throwIfAborted();
+        throwIfRunAborted();
         const delay = 1000 * (attempt + 1);
         log.warn(`LLM 网络抖动 (${err.message})，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...`);
         onProgress?.({ type: 'tool_progress', message: `⚠️ 网络抖动，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...` });
@@ -670,6 +677,7 @@ export interface RunAgenticChatOptions {
   onProgress?: (event: ProgressEvent) => void;
   onTextChunk?: (chunk: string) => void;
   deliveryContext?: DeliveryContext;
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -713,7 +721,11 @@ async function runAgenticChatInner(
   user: User,
   options: RunAgenticChatOptions = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext, abortSignal } = options;
+  const throwIfRunAborted = () => {
+    throwIfAborted();
+    if (abortSignal?.aborted) throw new DOMException('cancelled', 'AbortError');
+  };
 
   const agent = agentConfig;
   const agentProviderOverride = agent?.provider
@@ -748,7 +760,9 @@ async function runAgenticChatInner(
     const langfuseGeneration = startLangfuseGeneration(round, params);
     let r: { result: CreateMessageResult; streamed: boolean };
     try {
-      r = await callLLM(params, stream, showTh, provOverride, onChunk, onProg);
+      throwIfRunAborted();
+      r = await callLLM(params, stream, showTh, provOverride, onChunk, onProg, abortSignal);
+      throwIfRunAborted();
     } catch (err) {
       failLangfuseGeneration(langfuseGeneration, err);
       throw err;
@@ -771,6 +785,7 @@ async function runAgenticChatInner(
   let processedInput = userInput;
 
   if (images && images.length > 0) {
+    throwIfRunAborted();
     const activeProvider = agentProviderOverride ?? getProvider();
     const hasAnyDescriber = !!(hasBigModelOcrDescriber()
       || activeProvider.describeImage
@@ -783,6 +798,7 @@ async function runAgenticChatInner(
         const descriptions: string[] = [];
         const usedProviders: string[] = [];
         for (const img of images) {
+          throwIfRunAborted();
           const dataUrl = `data:${img.mediaType};base64,${img.data}`;
           const { desc, providerName } = await describeImageWithFallback(
             activeProvider,
@@ -790,6 +806,7 @@ async function runAgenticChatInner(
             userInput || '请描述这张图片的内容',
             logPrefix,
           );
+          throwIfRunAborted();
           descriptions.push(desc);
           usedProviders.push(providerName);
         }
@@ -986,7 +1003,7 @@ async function runAgenticChatInner(
   let devtoolsCallCount = 0;
   const docIdsHitThisTurn = new Set<string>();
   while (response.stop_reason === 'tool_use') {
-    throwIfAborted();
+    throwIfRunAborted();
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
@@ -1017,7 +1034,7 @@ async function runAgenticChatInner(
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
         onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
-        throwIfAborted();
+        throwIfRunAborted();
         const toolStartedAt = Date.now();
         const langfuseTool = startLangfuseTool(block.name, round, block.input);
         let result: string;
@@ -1028,7 +1045,9 @@ async function runAgenticChatInner(
           toolError = errMsg;
         } else {
           try {
+            throwIfRunAborted();
             result = await executeTool(block.name, block.input, deliveryContext, onProgress);
+            throwIfRunAborted();
           } catch (err: any) {
             const errMsg = `工具执行异常: ${err.message}`;
             result = JSON.stringify({ error: errMsg });
@@ -1210,6 +1229,7 @@ async function runAgenticChatInner(
     activeTools.some(t => t.name === 'file_to_wiki')
   ) {
     try {
+      throwIfRunAborted();
       history.push({ role: 'assistant', content: response.content });
       history.push({
         role: 'user',
@@ -1231,7 +1251,9 @@ async function runAgenticChatInner(
               const wikiLangfuseTool = startLangfuseTool(block.name, round, block.input);
               let wikiResult: string;
               try {
+                throwIfRunAborted();
                 wikiResult = await executeTool(block.name, block.input, deliveryContext, onProgress);
+                throwIfRunAborted();
                 finishLangfuseTool(wikiLangfuseTool, wikiResult, {
                   success: true,
                   durationMs: Date.now() - wikiStartedAt,
@@ -1264,6 +1286,8 @@ async function runAgenticChatInner(
 
   // Use pre-nudge response for user-facing text extraction
   const assistantContent = preNudgeResponse.content;
+
+  throwIfRunAborted();
 
   if (wasInterrupted) {
     history.length = historyLenBefore;

@@ -43,6 +43,8 @@ import {
   formatError,
 } from './formatter.js';
 import { saveUploadedFile } from '../commands/artifact.js';
+import { sendFileToCurrentChannel, sendImageToCurrentChannel } from '../commands/delivery.js';
+import { SingleFlightCoordinator, type SingleFlightRunRequest } from './single-flight-coordinator.js';
 
 type FeishuAppConfig = {
   appId: string;
@@ -114,6 +116,41 @@ type InteractionTrace = {
   thoughts: string[];
   tools: InteractionToolTrace[];
 };
+
+type PendingFeishuAIMessage = {
+  chatId: string;
+  text: string;
+  senderId: string;
+  senderName: string;
+  images?: ImageInput[];
+  replyOpts: FeishuReplyOptions;
+  senderIds?: FeishuSenderIds;
+  receivedAt: number;
+};
+
+type DeferredQueuedDelivery = {
+  mode: 'file' | 'image';
+  path: string;
+};
+
+type FeishuAIProgressState = {
+  progressMessageId?: string;
+  lastUpdateTime: number;
+};
+
+type FeishuAIRunResult = {
+  session: FeishuSession;
+  history: Anthropic.MessageParam[];
+  text: string;
+  mediaPaths: string[];
+  deferredDeliveries: DeferredQueuedDelivery[];
+  target: PendingFeishuAIMessage;
+  progressMessageId?: string;
+};
+
+const AI_DEBOUNCE_MS = 800;
+const AI_QUIET_COMMIT_MS = 1200;
+const aiCoordinators = new Map<string, SingleFlightCoordinator<PendingFeishuAIMessage, FeishuAIRunResult>>();
 
 function createTraceId(): string {
   return `${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
@@ -374,25 +411,82 @@ export function buildFeishuDeliveryContext(chatId: string, appId: string): Deliv
   };
 }
 
-/**
- * 处理 AI 对话（含 tool use 循环）
- */
-async function handleAIChat(
+function cloneHistory(history: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  return JSON.parse(JSON.stringify(history)) as Anthropic.MessageParam[];
+}
+
+function combinePendingMessages(messages: PendingFeishuAIMessage[]): string {
+  if (messages.length === 1) return messages[0].text;
+  const lines = [
+    `用户连续发送了 ${messages.length} 条消息。请把它们视为同一个任务，优先满足后续消息对前面任务的补充或修改。`,
+    '',
+  ];
+  messages.forEach((msg, idx) => lines.push(`[${idx + 1}] ${msg.text || '（空）'}`));
+  return lines.join('\n');
+}
+
+function collectPendingImages(messages: PendingFeishuAIMessage[]): ImageInput[] | undefined {
+  const images: ImageInput[] = [];
+  const seen = new Set<string>();
+  for (const msg of messages) {
+    for (const image of msg.images ?? []) {
+      const key = image.path ?? `${image.mediaType}:${image.data.slice(0, 64)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      images.push(image);
+    }
+  }
+  return images.length > 0 ? images : undefined;
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError'
+    || err instanceof Error && err.name === 'AbortError';
+}
+
+async function sendOrUpdateProgressCard(
   instance: FeishuBotInstance,
-  chatId: string,
-  userInput: string,
-  feishuUserId: string,
-  feishuUsername: string,
-  images?: ImageInput[],
-  replyOpts?: FeishuReplyOptions,
-  senderIds?: FeishuSenderIds,
-): Promise<{ text: string; mediaPaths?: string[] }> {
-  const session = await getSessionForInstance(instance, feishuUserId, feishuUsername, senderIds);
+  state: FeishuAIProgressState,
+  target: PendingFeishuAIMessage,
+  hint: string,
+): Promise<void> {
+  try {
+    const card = buildThinkingCard(hint);
+    if (state.progressMessageId) {
+      try {
+        await instance.api.updateCard(state.progressMessageId, card);
+        return;
+      } catch (updateErr: any) {
+        log.dim(`[飞书:${instance.appName}] 更新过程卡片失败，尝试发送新卡片: ${updateErr.message}`);
+        state.progressMessageId = undefined;
+      }
+    }
+
+    if (target.replyOpts.isGroup && target.replyOpts.messageId) {
+      state.progressMessageId = await instance.api.replyMessage(target.replyOpts.messageId, 'interactive', JSON.stringify(card));
+    } else {
+      state.progressMessageId = await instance.api.sendCard(target.chatId, card);
+    }
+  } catch (err: any) {
+    log.warn(`[飞书:${instance.appName}] 发送/更新过程卡片失败: ${err.message}`);
+  }
+}
+
+async function runFeishuAIConversation(
+  instance: FeishuBotInstance,
+  coordinator: SingleFlightCoordinator<PendingFeishuAIMessage, FeishuAIRunResult>,
+  progressState: FeishuAIProgressState,
+  request: SingleFlightRunRequest<PendingFeishuAIMessage>,
+): Promise<FeishuAIRunResult> {
+  const latest = request.messages[request.messages.length - 1];
+  const session = await getSessionForInstance(instance, latest.senderId, latest.senderName, latest.senderIds);
   const baseAgentConfig = getAgent(session.agentName);
   const botLLM = getBotAppLLM(instance.appId);
   const agentConfig = (botLLM.provider || botLLM.model)
     ? { ...baseAgentConfig, provider: botLLM.provider ?? baseAgentConfig.provider, model: botLLM.model ?? baseAgentConfig.model }
     : baseAgentConfig;
+  const userInput = combinePendingMessages(request.messages);
+  const images = collectPendingImages(request.messages);
   const currentImagePaths = collectImagePaths(images);
   if (currentImagePaths.length > 0) {
     session.lastImagePaths = currentImagePaths;
@@ -402,152 +496,145 @@ async function handleAIChat(
     : appendRecentImageContext(userInput, session.lastImagePaths);
 
   return runWithExecutionContext({ channel: 'feishu', user: session.user, appId: instance.appId, agent: agentConfig }, async () => {
-  const showThinkingEnabled = instance.config.showThinking !== false;
-  const traceId = replyOpts?.traceId ?? createTraceId();
-  const interactionTrace: InteractionTrace = {
-    id: traceId,
-    startedAt: Date.now(),
-    thoughts: [],
-    tools: [],
-  };
+    const showThinkingEnabled = instance.config.showThinking !== false;
+    const traceId = latest.replyOpts.traceId ?? request.runId;
+    const interactionTrace: InteractionTrace = {
+      id: traceId,
+      startedAt: Date.now(),
+      thoughts: [],
+      tools: [],
+    };
 
-  let progressMessageId: string | undefined;
-  let progressChain: Promise<void> = Promise.resolve();
+    const workingHistory = cloneHistory(session.history);
+    const deferredDeliveries: DeferredQueuedDelivery[] = [];
+    const deferredKeys = new Set<string>();
+    const deliveryContext: DeliveryContext = {
+      ...buildFeishuDeliveryContext(latest.chatId, instance.appId),
+      deferredDelivery: {
+        runId: request.runId,
+        isCurrent: () => coordinator.isCurrent(request.runId),
+        enqueue: (mode, rawPath) => {
+          if (!coordinator.isCurrent(request.runId)) {
+            return { success: false, error: '当前对话轮次已被后续消息替代，跳过发送' };
+          }
+          const resolved = resolveMediaPath(rawPath);
+          const key = `${mode}:${resolved}`;
+          if (!deferredKeys.has(key)) {
+            deferredKeys.add(key);
+            deferredDeliveries.push({ mode, path: resolved });
+          }
+          return {
+            success: true,
+            channel: 'feishu',
+            filename: path.basename(resolved),
+            queued: true,
+          };
+        },
+      },
+    };
 
-  const sendProgressCard = async (hint: string) => {
-    try {
-      const card = buildThinkingCard(hint);
-      if (progressMessageId) {
-        try {
-          await instance.api.updateCard(progressMessageId, card);
-          return;
-        } catch (updateErr: any) {
-          log.dim(`[飞书:${instance.appName}] 更新过程卡片失败，尝试发送新卡片: ${updateErr.message}`);
-          progressMessageId = undefined;
+    let progressChain: Promise<void> = Promise.resolve();
+    if (showThinkingEnabled) {
+      await sendOrUpdateProgressCard(instance, progressState, latest, '🤔 思考中...');
+    }
+    logTraceBlock(instance, traceId, 'AI 对话开始', [
+      `user=${session.user.username} (${session.user.role})`,
+      `agent=${agentConfig.displayName} (${agentConfig.name})`,
+      `history=${session.history.length} 条`,
+      `input=${compactTextForLog(userInput, 240)}`,
+      effectiveUserInput !== userInput ? `recent_images=${session.lastImagePaths?.join(', ')}` : undefined,
+      images?.length ? `images=${images.length}` : undefined,
+      request.messages.length > 1 ? `merged_messages=${request.messages.length}` : undefined,
+    ], 'info');
+
+    const THROTTLE_MS = 1500;
+    const onProgress = (event: import('../llm/agent.js').ProgressEvent) => {
+      if (!coordinator.isCurrent(request.runId)) return;
+      if (event.type === 'thinking') {
+        const preview = compactTextForLog(event.text, 220);
+        if (preview) interactionTrace.thoughts.push(`r${event.round}: ${preview}`);
+      } else if (event.type === 'tool_start') {
+        interactionTrace.tools.push({
+          round: event.round,
+          name: event.name,
+          inputPreview: formatValueForLog(event.input),
+        });
+      } else if (event.type === 'tool_end') {
+        const toolTrace = [...interactionTrace.tools].reverse().find(
+          item => item.name === event.name && item.round === event.round && item.resultPreview === undefined,
+        );
+        if (toolTrace) {
+          toolTrace.resultPreview = formatValueForLog(event.result, 260);
+          toolTrace.durationMs = event.durationMs;
         }
       }
 
-      if (replyOpts?.isGroup && replyOpts?.messageId) {
-        progressMessageId = await instance.api.replyMessage(replyOpts.messageId, 'interactive', JSON.stringify(card));
-      } else {
-        progressMessageId = await instance.api.sendCard(chatId, card);
+      if (!showThinkingEnabled) return;
+
+      const now = Date.now();
+      if (now - progressState.lastUpdateTime < THROTTLE_MS) return;
+      progressState.lastUpdateTime = now;
+      let hint = '';
+      if (event.type === 'tool_start') {
+        const inputHint = summarizeToolInput(event.name, event.input);
+        const label = toolFriendlyLabel(event.name);
+        hint = inputHint ? `🔧 ${label}：${inputHint}` : `🔧 ${label}...`;
+      } else if (event.type === 'tool_end') {
+        const resultSummary = summarizeToolResult(event.name, event.result);
+        const label = toolFriendlyLabel(event.name);
+        const timeLabel = event.durationMs > 0 ? ` (${(event.durationMs / 1000).toFixed(1)}s)` : '';
+        hint = resultSummary
+          ? `✅ ${label}${timeLabel}\n→ ${resultSummary}`
+          : `✅ ${label}${timeLabel}`;
+      } else if (event.type === 'tool_progress') hint = `⏳ ${event.message}`;
+      else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 200)}`;
+      if (hint) {
+        progressChain = progressChain.then(() => sendOrUpdateProgressCard(instance, progressState, latest, hint)).catch(() => {});
       }
-    } catch (err: any) {
-      log.warn(`[飞书:${instance.appName}] 发送/更新过程卡片失败: ${err.message}`);
-    }
-  };
+    };
 
-  if (showThinkingEnabled) {
-    await sendProgressCard('🤔 思考中...');
-  }
-  logTraceBlock(instance, traceId, 'AI 对话开始', [
-    `user=${session.user.username} (${session.user.role})`,
-    `agent=${agentConfig.displayName} (${agentConfig.name})`,
-    `history=${session.history.length} 条`,
-    `input=${compactTextForLog(userInput, 240)}`,
-    effectiveUserInput !== userInput ? `recent_images=${session.lastImagePaths?.join(', ')}` : undefined,
-    images?.length ? `images=${images.length}` : undefined,
-  ], 'info');
+    const textReply = await runAgenticChat(workingHistory, effectiveUserInput, session.user, {
+      streamEnabled: false,
+      logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
+      showThinking: true,
+      agentConfig,
+      images,
+      onProgress,
+      deliveryContext,
+      abortSignal: request.abortSignal,
+    });
 
-  // 渐进发送过程卡片（节流 1.5s）
-  let lastUpdateTime = 0;
-  const THROTTLE_MS = 1500;
-  const onProgress = (event: import('../llm/agent.js').ProgressEvent) => {
-    if (event.type === 'thinking') {
-      const preview = compactTextForLog(event.text, 220);
-      if (preview) interactionTrace.thoughts.push(`r${event.round}: ${preview}`);
-    } else if (event.type === 'tool_start') {
-      interactionTrace.tools.push({
-        round: event.round,
-        name: event.name,
-        inputPreview: formatValueForLog(event.input),
-      });
-    } else if (event.type === 'tool_end') {
-      const toolTrace = [...interactionTrace.tools].reverse().find(
-        item => item.name === event.name && item.round === event.round && item.resultPreview === undefined,
-      );
-      if (toolTrace) {
-        toolTrace.resultPreview = formatValueForLog(event.result, 260);
-        toolTrace.durationMs = event.durationMs;
-      }
-    }
+    const { cleanText, mediaPaths } = extractMediaFromText(textReply);
 
-    if (!showThinkingEnabled) return;
+    const elapsedMs = Date.now() - interactionTrace.startedAt;
+    const toolLines = interactionTrace.tools.slice(0, 8).map((tool, index) =>
+      `tool${index + 1}=r${tool.round} ${tool.name}${tool.durationMs !== undefined ? ` (${tool.durationMs}ms)` : ''} | input=${tool.inputPreview}${tool.resultPreview ? ` | result=${tool.resultPreview}` : ''}`
+    );
+    const thoughtLines = interactionTrace.thoughts.slice(0, 6).map((thought, index) => `thought${index + 1}=${thought}`);
+    logTraceBlock(instance, traceId, 'AI 对话完成', [
+      `elapsed=${elapsedMs}ms`,
+      `reply=${compactTextForLog(cleanText || '（无回复内容）', 320)}`,
+      mediaPaths.length > 0 ? `media=${mediaPaths.map(p => path.basename(p)).join(', ')}` : undefined,
+      deferredDeliveries.length > 0 ? `deferred=${deferredDeliveries.map(d => `${d.mode}:${path.basename(d.path)}`).join(', ')}` : undefined,
+      `tools=${interactionTrace.tools.length}`,
+      ...toolLines,
+      interactionTrace.tools.length > toolLines.length ? `tools_more=${interactionTrace.tools.length - toolLines.length}` : undefined,
+      `thoughts=${interactionTrace.thoughts.length}`,
+      ...thoughtLines,
+      interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
+    ], 'info');
 
-    const now = Date.now();
-    if (now - lastUpdateTime < THROTTLE_MS) return;
-    lastUpdateTime = now;
-    let hint = '';
-    if (event.type === 'tool_start') {
-      const inputHint = summarizeToolInput(event.name, event.input);
-      const label = toolFriendlyLabel(event.name);
-      hint = inputHint ? `🔧 ${label}：${inputHint}` : `🔧 ${label}...`;
-    } else if (event.type === 'tool_end') {
-      const resultSummary = summarizeToolResult(event.name, event.result);
-      const label = toolFriendlyLabel(event.name);
-      const timeLabel = event.durationMs > 0 ? ` (${(event.durationMs / 1000).toFixed(1)}s)` : '';
-      hint = resultSummary
-        ? `✅ ${label}${timeLabel}\n→ ${resultSummary}`
-        : `✅ ${label}${timeLabel}`;
-    } else if (event.type === 'tool_progress') hint = `⏳ ${event.message}`;
-    else if (event.type === 'thinking') hint = `💭 ${event.text.slice(0, 200)}`;
-    if (hint) {
-      progressChain = progressChain.then(() => sendProgressCard(hint)).catch(() => {});
-    }
-  };
+    await progressChain;
 
-  let textReply = await runAgenticChat(session.history, effectiveUserInput, session.user, {
-    streamEnabled: false,
-    logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
-    showThinking: true,
-    agentConfig,
-    images,
-    onProgress,
-    deliveryContext: buildFeishuDeliveryContext(chatId, instance.appId),
-  });
-
-  if (textReply) {
-    session.history.push({ role: 'assistant', content: textReply });
-  }
-
-  const { cleanText, mediaPaths } = extractMediaFromText(textReply);
-  let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
-
-  const elapsedMs = Date.now() - interactionTrace.startedAt;
-  const toolLines = interactionTrace.tools.slice(0, 8).map((tool, index) =>
-    `tool${index + 1}=r${tool.round} ${tool.name}${tool.durationMs !== undefined ? ` (${tool.durationMs}ms)` : ''} | input=${tool.inputPreview}${tool.resultPreview ? ` | result=${tool.resultPreview}` : ''}`
-  );
-  const thoughtLines = interactionTrace.thoughts.slice(0, 6).map((thought, index) => `thought${index + 1}=${thought}`);
-  logTraceBlock(instance, traceId, 'AI 对话完成', [
-    `elapsed=${elapsedMs}ms`,
-    `reply=${compactTextForLog(processedText || '（无回复内容）', 320)}`,
-    mediaPaths.length > 0 ? `media=${mediaPaths.map(p => path.basename(p)).join(', ')}` : undefined,
-    `tools=${interactionTrace.tools.length}`,
-    ...toolLines,
-    interactionTrace.tools.length > toolLines.length ? `tools_more=${interactionTrace.tools.length - toolLines.length}` : undefined,
-    `thoughts=${interactionTrace.thoughts.length}`,
-    ...thoughtLines,
-    interactionTrace.thoughts.length > thoughtLines.length ? `thoughts_more=${interactionTrace.thoughts.length - thoughtLines.length}` : undefined,
-  ], 'info');
-
-  await progressChain;
-
-  if (processedText && progressMessageId) {
-    try {
-      await sendFeishuReply(instance, chatId, processedText, {
-        ...replyOpts,
-        updateMessageId: progressMessageId
-      });
-      if (mediaPaths.length > 0) {
-        await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
-      }
-      return { text: '' };
-    } catch (err: any) {
-      log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
-    }
-  }
-
-  return { text: processedText || '（无回复内容）', mediaPaths };
+    return {
+      session,
+      history: workingHistory,
+      text: cleanText || (mediaPaths.length > 0 || deferredDeliveries.length > 0 ? '' : '（无回复内容）'),
+      mediaPaths,
+      deferredDeliveries,
+      target: latest,
+      progressMessageId: progressState.progressMessageId,
+    };
   }); // end runWithExecutionContext
 }
 
@@ -905,6 +992,145 @@ async function sendFeishuReply(
   return lastMessageId || '';
 }
 
+async function sendDeferredDeliveries(instance: FeishuBotInstance, result: FeishuAIRunResult): Promise<void> {
+  if (result.deferredDeliveries.length === 0) return;
+  const deliveryContext = buildFeishuDeliveryContext(result.target.chatId, instance.appId);
+
+  for (const item of result.deferredDeliveries) {
+    try {
+      const deliveryResult = item.mode === 'image'
+        ? await sendImageToCurrentChannel({ path: item.path }, deliveryContext)
+        : await sendFileToCurrentChannel({ path: item.path }, deliveryContext);
+      if (!deliveryResult.success) {
+        log.warn(`[飞书:${instance.appName}] 延迟发送失败 (${path.basename(item.path)}): ${deliveryResult.error}`);
+      }
+    } catch (err: any) {
+      log.error(`[飞书:${instance.appName}] 延迟发送异常 (${path.basename(item.path)}): ${err.message}`);
+    }
+  }
+}
+
+async function commitFeishuAIConversation(instance: FeishuBotInstance, result: FeishuAIRunResult): Promise<void> {
+  result.session.history = result.history;
+
+  const processedText = result.text ? await processImagesInText(instance, result.text) : '';
+  const finalText = processedText || (
+    result.deferredDeliveries.length > 0 || result.mediaPaths.length > 0
+      ? '文件已准备好。'
+      : '（无回复内容）'
+  );
+
+  if (finalText && result.progressMessageId) {
+    try {
+      await sendFeishuReply(instance, result.target.chatId, finalText, {
+        ...result.target.replyOpts,
+        updateMessageId: result.progressMessageId,
+      });
+    } catch (err: any) {
+      log.warn(`[飞书:${instance.appName}] 尝试通过进度卡片返回最终结果失败: ${err.message}`);
+      await sendFeishuReply(instance, result.target.chatId, finalText, result.target.replyOpts);
+    }
+  } else if (finalText) {
+    await sendFeishuReply(instance, result.target.chatId, finalText, result.target.replyOpts);
+  }
+
+  await sendDeferredDeliveries(instance, result);
+
+  if (result.mediaPaths.length > 0) {
+    await sendMediaMessages(instance, result.target.chatId, result.mediaPaths, result.target.replyOpts);
+  }
+}
+
+function getAICoordinatorKey(instance: FeishuBotInstance, senderId: string): string {
+  return `${instance.appId}:${senderId}`;
+}
+
+function getAICoordinator(
+  instance: FeishuBotInstance,
+  senderId: string,
+): SingleFlightCoordinator<PendingFeishuAIMessage, FeishuAIRunResult> {
+  const key = getAICoordinatorKey(instance, senderId);
+  const existing = aiCoordinators.get(key);
+  if (existing) return existing;
+
+  const progressState: FeishuAIProgressState = { lastUpdateTime: 0 };
+  let coordinator!: SingleFlightCoordinator<PendingFeishuAIMessage, FeishuAIRunResult>;
+  coordinator = new SingleFlightCoordinator<PendingFeishuAIMessage, FeishuAIRunResult>({
+    debounceMs: AI_DEBOUNCE_MS,
+    quietMs: AI_QUIET_COMMIT_MS,
+    async run(request) {
+      try {
+        return await runFeishuAIConversation(instance, coordinator, progressState, request);
+      } catch (error) {
+        if (!isAbortError(error)) {
+          const targetMessage = request.messages.at(-1);
+          if (targetMessage) {
+            await sendFeishuReply(
+              instance,
+              targetMessage.chatId,
+              `AI 执行出错: ${friendlyAIError(error)}`,
+              targetMessage.replyOpts,
+            );
+          }
+        }
+        throw error;
+      }
+    },
+    commit: (_request, result) => commitFeishuAIConversation(instance, result),
+    onMerged: (message, pendingCount) => {
+      const now = Date.now();
+      if (now - progressState.lastUpdateTime < 800) return;
+      progressState.lastUpdateTime = now;
+      void sendOrUpdateProgressCard(
+        instance,
+        progressState,
+        message,
+        `收到新消息，正在合并最新要求（待合并 ${pendingCount} 条）...`,
+      );
+    },
+    onError: err => {
+      if (isAbortError(err)) return;
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[飞书:${instance.appName}] AI 协调器异常: ${message}`);
+    },
+    onIdle: () => {
+      if (coordinator.isIdle()) aiCoordinators.delete(key);
+    },
+  });
+  aiCoordinators.set(key, coordinator);
+  return coordinator;
+}
+
+function cancelAICoordinator(instance: FeishuBotInstance, senderId: string): void {
+  const key = getAICoordinatorKey(instance, senderId);
+  const coordinator = aiCoordinators.get(key);
+  if (!coordinator) return;
+  coordinator.cancel();
+  aiCoordinators.delete(key);
+}
+
+function enqueueFeishuAIChat(
+  instance: FeishuBotInstance,
+  chatId: string,
+  text: string,
+  senderId: string,
+  senderName: string,
+  images: ImageInput[] | undefined,
+  replyOpts: FeishuReplyOptions,
+  senderIds?: FeishuSenderIds,
+): void {
+  getAICoordinator(instance, senderId).enqueue({
+    chatId,
+    text,
+    senderId,
+    senderName,
+    images,
+    replyOpts,
+    senderIds,
+    receivedAt: Date.now(),
+  });
+}
+
 /**
  * 直接处理 /command，不经过 LLM
  * 返回格式化后的文本，或 null 表示未匹配到命令
@@ -1258,6 +1484,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     if (text === '/reset') {
+      cancelAICoordinator(instance, senderId);
       resetSessionForInstance(instance, senderId);
       await sendFeishuReply(instance, chatId, '✅ 对话上下文已重置', replyOpts);
       return;
@@ -1301,14 +1528,8 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     // 自然语言 → AI Agent
-    const { text: reply, mediaPaths } = await handleAIChat(instance, chatId, text, senderId, senderName, images, replyOpts, senderIds);
-    if (reply) {
-      await sendFeishuReply(instance, chatId, reply, replyOpts);
-    }
-    // 文本之后发送独立媒体附件（图片/文件）
-    if (mediaPaths && mediaPaths.length > 0) {
-      await sendMediaMessages(instance, chatId, mediaPaths, replyOpts);
-    }
+    enqueueFeishuAIChat(instance, chatId, text, senderId, senderName, images, replyOpts, senderIds);
+    return;
 
   } catch (err: any) {
     if (err instanceof AgentUnboundError) {

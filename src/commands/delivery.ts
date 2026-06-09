@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import type { DeliveryContext } from '../llm/agents/config.js';
 import { getBotApp } from '../llm/agents/config.js';
 import { getArtifactRoot } from './artifact.js';
@@ -7,9 +8,16 @@ import { FeishuAPI, detectFileType, isImageFile } from '../feishu/api.js';
 import { TelegramAPI } from '../telegram/api.js';
 import { log } from '../utils/logger.js';
 
-type DeliveryResult =
-  | { success: true; channel: DeliveryContext['channel']; filename: string; message_id?: string }
+export type DeliveryResult =
+  | { success: true; channel: DeliveryContext['channel']; filename: string; message_id?: string; queued?: true; already_sent?: true }
   | { success: false; error: string };
+
+const DELIVERY_DEDUP_TTL_MS = (() => {
+  const v = Number(process.env.DELIVERY_DEDUP_TTL_MS);
+  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 5 * 60 * 1000;
+})();
+
+const recentDeliveries = new Map<string, { expiresAt: number; result: Extract<DeliveryResult, { success: true }> }>();
 
 function resolveInputPath(inputPath: string): string {
   if (inputPath.startsWith('~/')) {
@@ -39,6 +47,36 @@ function validateDeliverablePath(inputPath: string): { ok: true; path: string; f
 
 function resolveFeishuReceiveIdType(targetId: string): 'chat_id' | 'open_id' {
   return targetId.startsWith('oc_') ? 'chat_id' : 'open_id';
+}
+
+function hashFile(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function pruneRecentDeliveries(now = Date.now()): void {
+  for (const [key, item] of recentDeliveries) {
+    if (item.expiresAt <= now) recentDeliveries.delete(key);
+  }
+}
+
+function deliveryDedupKey(
+  filePath: string,
+  mode: 'file' | 'image',
+  deliveryContext: DeliveryContext,
+): string | null {
+  if (DELIVERY_DEDUP_TTL_MS <= 0) return null;
+  if (!deliveryContext.targetId) return null;
+  return [
+    deliveryContext.channel,
+    deliveryContext.appId ?? '',
+    deliveryContext.targetId,
+    mode,
+    hashFile(filePath),
+  ].join(':');
+}
+
+export function resetDeliveryDedupForTests(): void {
+  recentDeliveries.clear();
 }
 
 async function createTelegramApi(): Promise<TelegramAPI> {
@@ -138,20 +176,46 @@ async function sendPathToCurrentChannel(input: { path: string }, deliveryContext
     return { success: false, error: `send_image 仅支持图片文件: ${checked.filename}` };
   }
 
+  if (deliveryContext.deferredDelivery) {
+    if (!deliveryContext.deferredDelivery.isCurrent()) {
+      return { success: false, error: '当前对话轮次已被后续消息替代，跳过发送' };
+    }
+    return deliveryContext.deferredDelivery.enqueue(mode, checked.path);
+  }
+
+  const dedupKey = deliveryDedupKey(checked.path, mode, deliveryContext);
+  if (dedupKey) {
+    const now = Date.now();
+    pruneRecentDeliveries(now);
+    const existing = recentDeliveries.get(dedupKey);
+    if (existing && existing.expiresAt > now) {
+      log.file(`[delivery] 跳过重复发送: ${checked.filename} -> ${deliveryContext.channel}/${deliveryContext.targetId}`);
+      return { ...existing.result, already_sent: true };
+    }
+  }
+
+  let result: DeliveryResult;
   if (deliveryContext.channel === 'feishu') {
-    return sendViaFeishu(checked.path, checked.filename, deliveryContext);
-  }
-  if (deliveryContext.channel === 'telegram') {
-    return sendViaTelegram(checked.path, checked.filename, deliveryContext);
-  }
-  if (deliveryContext.channel === 'wework') {
-    const result = await sendViaWework(checked.path, checked.filename, deliveryContext);
+    result = await sendViaFeishu(checked.path, checked.filename, deliveryContext);
+  } else if (deliveryContext.channel === 'telegram') {
+    result = await sendViaTelegram(checked.path, checked.filename, deliveryContext);
+  } else if (deliveryContext.channel === 'wework') {
+    result = await sendViaWework(checked.path, checked.filename, deliveryContext);
     if (result.success && deliveryContext.pendingWeworkImagePaths) {
       deliveryContext.pendingWeworkImagePaths = deliveryContext.pendingWeworkImagePaths.filter(p => p !== checked.path);
     }
-    return result;
+  } else {
+    result = { success: false, error: `暂不支持的渠道: ${deliveryContext.channel}` };
   }
-  return { success: false, error: `暂不支持的渠道: ${deliveryContext.channel}` };
+
+  if (dedupKey && result.success) {
+    recentDeliveries.set(dedupKey, {
+      expiresAt: Date.now() + DELIVERY_DEDUP_TTL_MS,
+      result,
+    });
+  }
+
+  return result;
 }
 
 export async function sendFileToCurrentChannel(input: { path: string }, deliveryContext?: DeliveryContext): Promise<DeliveryResult> {

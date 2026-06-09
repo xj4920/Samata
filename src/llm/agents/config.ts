@@ -345,6 +345,16 @@ export interface DeliveryContext {
   appId?: string;
   weworkClient?: any;
   weworkFrame?: any;
+  deferredDelivery?: {
+    runId: string;
+    isCurrent(): boolean;
+    enqueue(mode: 'file' | 'image', path: string): {
+      success: true;
+      channel: DeliveryContext['channel'];
+      filename: string;
+      queued: true;
+    } | { success: false; error: string };
+  };
   /** Filled by sandbox_exec: absolute paths to generated images for WeWork upload after reply */
   pendingWeworkImagePaths?: string[];
 }
