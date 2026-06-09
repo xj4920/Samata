@@ -2,9 +2,8 @@
  * 企业微信 Bot 独立入口
  *
  * 使用方式：
- * 1. 通过 DB bot_apps 表配置 wework 应用（/agent assign + /agent bot-app）
- * 2. 或配置环境变量 WEWORK_AIBOT_BOT_ID / WEWORK_AIBOT_SECRET（自动 seed 到 bot_apps）
- * 3. 启动服务：npx tsx src/wework-entry.ts
+ * 1. 通过 DB bot_apps 表配置 wework 应用（/agent bot-app + /agent assign）
+ * 2. 启动服务：npx tsx src/wework-entry.ts
  *
  * 环境变量：
  * - WEWORK_PORT: 健康检查 HTTP 端口（默认 3002）

@@ -595,17 +595,6 @@ export function initSchema(): void {
       }
     }
 
-    // Seed wework bot from env if configured
-    const botId = process.env.WEWORK_AIBOT_BOT_ID;
-    const secret = process.env.WEWORK_AIBOT_SECRET;
-    if (botId && secret) {
-      const exists = db.prepare('SELECT 1 FROM bot_apps WHERE id = ?').get(botId);
-      if (!exists) {
-        db.prepare(
-          'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(botId, 'wework', 'wework-bot', secret, '{}', 1, 1);
-      }
-    }
   });
 
   runOnce('agents-add-exec-cmd', () => {

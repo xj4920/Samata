@@ -93,6 +93,32 @@ describe('schema integrity', () => {
       expect(after.c).toBe(before.c);
     });
 
+    it('does not seed wework bot_apps from legacy WEWORK_AIBOT env vars', async () => {
+      const oldBotId = process.env.WEWORK_AIBOT_BOT_ID;
+      const oldSecret = process.env.WEWORK_AIBOT_SECRET;
+
+      try {
+        teardownDb();
+        process.env.WEWORK_AIBOT_BOT_ID = 'legacy-env-wework-bot';
+        process.env.WEWORK_AIBOT_SECRET = 'legacy-env-wework-secret';
+        ctx = await setupUnitDb();
+
+        const rows = ctx.db.prepare(`
+          SELECT id, name
+          FROM bot_apps
+          WHERE channel = 'wework'
+            AND (id = ? OR name = 'wework-bot')
+        `).all('legacy-env-wework-bot') as Array<{ id: string; name: string }>;
+
+        expect(rows).toEqual([]);
+      } finally {
+        if (oldBotId === undefined) delete process.env.WEWORK_AIBOT_BOT_ID;
+        else process.env.WEWORK_AIBOT_BOT_ID = oldBotId;
+        if (oldSecret === undefined) delete process.env.WEWORK_AIBOT_SECRET;
+        else process.env.WEWORK_AIBOT_SECRET = oldSecret;
+      }
+    });
+
     it('seeds ETF precompute scheduled tasks idempotently', async () => {
       const rows = ctx.db.prepare(`
         SELECT st.id, a.name AS agent_name, st.cron_expr, st.task_type, st.payload, st.channel, st.created_by

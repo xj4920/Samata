@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "清理 WeWork 环境变量历史 Seed 逻辑",
+      "link": "/plan/2026-06-09_wework-env-seed-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_wework-env-seed-cleanup.md",
+      "sortKey": "2026-06-09_wework-env-seed-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与配置"
+    },
+    {
       "title": "Agent Wiki 页面读取修复",
       "link": "/plan/2026-06-06_agent-wiki-read-page",
       "sourcePath": "docs/plan/2026-06-06_agent-wiki-read-page.md",
@@ -1253,6 +1265,26 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "otcclaw 19:00 定时任务改为常速规模同步",
+    "link": "/plan/2026-06-08_otcclaw-19-normal-trading-sync",
+    "sourcePath": "docs/plan/2026-06-08_otcclaw-19-normal-trading-sync.md",
+    "sortKey": "2026-06-08_otcclaw-19-normal-trading-sync.md",
+    "date": "2026-06-08",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Wiki 每日定时同步",
+    "link": "/plan/2026-06-06_wiki-sync-daily-cron",
+    "sourcePath": "docs/plan/2026-06-06_wiki-sync-daily-cron.md",
+    "sortKey": "2026-06-06_wiki-sync-daily-cron.md",
+    "date": "2026-06-06",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "Samata Server Startup Keepalive",
     "link": "/plan/2026-06-03_samata-server-startup-keepalive",
