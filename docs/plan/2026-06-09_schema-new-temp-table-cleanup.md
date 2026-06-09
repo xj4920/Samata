@@ -60,7 +60,8 @@ npm run docker:samata:build
 
 ## Commit Hash
 
-- 待提交后回填。
+- 实现提交：`d06884607ac7d6e083f5756da51809e90ec7bf28`
+- 留档回填提交：本段所在提交。
 
 ## 构建与运行影响
 
