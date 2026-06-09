@@ -49,6 +49,32 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "部署与配置"
     },
     {
+      "title": "Web 搜索直连 fallback 修复（2026-06-08）",
+      "link": "/plan/2026-06-08_web-search-direct-fallback",
+      "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
+      "sortKey": "2026-06-08_web-search-direct-fallback.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/web-and-browser"
+      ],
+      "topic": "工具系统"
+    },
+    {
+      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
+      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
+      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "调度与任务"
+    },
+    {
       "title": "Agent Wiki 页面读取修复",
       "link": "/plan/2026-06-06_agent-wiki-read-page",
       "sourcePath": "docs/plan/2026-06-06_agent-wiki-read-page.md",
@@ -524,6 +550,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
+      "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
+      "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
+      "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "sortKey": "2026-06-08_doctor-agent-chat-scheduled-task.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
+    },
+    {
       "title": "otcclaw 普通用户常速换手计算权限",
       "link": "/plan/2026-06-05_otcclaw-member-normal-turnover",
       "sourcePath": "docs/plan/2026-06-05_otcclaw-member-normal-turnover.md",
@@ -922,6 +961,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
     }
   ],
   "external-data": [
+    {
+      "title": "Web 搜索直连 fallback 修复（2026-06-08）",
+      "link": "/plan/2026-06-08_web-search-direct-fallback",
+      "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
+      "sortKey": "2026-06-08_web-search-direct-fallback.md",
+      "date": "2026-06-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools",
+        "/external-data/web-and-browser"
+      ],
+      "topic": "Web 访问"
+    },
     {
       "title": "Agent Wiki 页面读取修复",
       "link": "/plan/2026-06-06_agent-wiki-read-page",

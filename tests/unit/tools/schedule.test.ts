@@ -50,6 +50,37 @@ describe('schedule tools', () => {
       expect(tasks.some(t => t.name === 'ETF 预计算' && t.task_type === 'tool_call')).toBe(true);
     });
 
+    it('creates agent_chat tasks with a prompt payload', async () => {
+      const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
+      const agentId = await getAgentId('doctor');
+
+      const result = createScheduledTask({
+        agentId,
+        name: '每日健康播报',
+        cronExpr: '0 8 * * *',
+        taskType: 'agent_chat',
+        payload: JSON.stringify({ prompt: '请生成每日健康播报' }),
+        channel: 'feishu',
+        targetId: 'oc_group_chat',
+        appId: 'cli_app',
+        createdBy: 'test-user',
+      });
+
+      expect(result.success).toBe(true);
+      const tasks = listScheduledTasks(agentId);
+      expect(tasks.some(t => t.name === '每日健康播报' && t.task_type === 'agent_chat')).toBe(true);
+
+      const invalid = createScheduledTask({
+        agentId,
+        name: 'bad agent chat',
+        cronExpr: '0 8 * * *',
+        taskType: 'agent_chat',
+        payload: JSON.stringify({ message: '' }),
+        channel: 'feishu',
+      });
+      expect(invalid.success).toBe(false);
+    });
+
     it('accepts empty or force-only ETF tool_call input', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const agentId = await getAgentId('otcclaw');
