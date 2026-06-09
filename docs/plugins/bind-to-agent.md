@@ -12,4 +12,4 @@
 
 ## 操作入口
 
-Agent 绑定和工具配置可以通过 CLI 命令或数据库迁移完成。详细操作参考 [Plugin 绑定 Agent 操作指南](../plugin-bindto-agent-guide.md)。
+Agent 绑定和工具配置通过 CLI 管理能力写入运行时 DB；不要在 `src/db/schema.ts` 为业务插件新增绑定 migration。详细操作参考 [Plugin 绑定 Agent 操作指南](../plugin-bindto-agent-guide.md)。

@@ -550,6 +550,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
+      "title": "Agent-Tools 幂等绑定脚本与 Schema 清理",
+      "link": "/plan/2026-06-09_agent-tool-binding-script-schema-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_agent-tool-binding-script-schema-cleanup.md",
+      "sortKey": "2026-06-09_agent-tool-binding-script-schema-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/plugins/bind-to-agent",
+        "/permissions/tool-access"
+      ],
+      "topic": "工具权限"
+    },
+    {
       "title": "Doctor agent_chat 定时任务修复（2026-06-08）",
       "link": "/plan/2026-06-08_doctor-agent-chat-scheduled-task",
       "sourcePath": "docs/plan/2026-06-08_doctor-agent-chat-scheduled-task.md",
@@ -742,6 +755,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/agent-capability-model"
       ],
       "topic": "Skill 机制"
+    },
+    {
+      "title": "Agent-Tools 幂等绑定脚本与 Schema 清理",
+      "link": "/plan/2026-06-09_agent-tool-binding-script-schema-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_agent-tool-binding-script-schema-cleanup.md",
+      "sortKey": "2026-06-09_agent-tool-binding-script-schema-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/plugins/bind-to-agent",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 绑定"
     },
     {
       "title": "otcclaw 普通用户常速换手计算权限",

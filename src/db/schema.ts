@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
-import { CronExpressionParser } from 'cron-parser';
 import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 /** System tools beyond COMMON_SET granted to TIClaw agent */
@@ -51,23 +50,8 @@ const TICLAW_MEMBER_BLOCKED_TOOLS = [
 export function initSchema(): void {
   const db = getDb();
 
-  /** Business-tool block list for admin + alter-ego (`tools_mode=all`); keep in sync with ensure-admin-block-tools-v3 / ensure-alter-ego-all-block-v1. */
-  const ADMIN_AGENT_BLOCK_TOOLS: string[] = [
-    'query_clients',
-    'view_client',
-    'get_client_history',
-    'add_client',
-    'update_client',
-    'advance_client',
-    'rollback_client',
-    'delete_client',
-    'query_trades',
-    'trade_summary',
-    'plot_trades',
-    'list_customers',
-    'sync_fast_trading_summary',
-    'sync_normal_trading_summary',
-  ];
+  /** Platform-level block list for admin + alter-ego (`tools_mode=all`); business plugin tools are configured at runtime. */
+  const ADMIN_AGENT_BLOCK_TOOLS: string[] = [];
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -898,11 +882,8 @@ export function initSchema(): void {
       let blockTools: string[] = [];
 
       if (agent.name === 'otcclaw') {
-        // otcclaw: standard mode, allow = Client + Trade + knowledge agent mgmt + markdown + update_memory; block generate_video (from COMMON_SET)
+        // otcclaw: standard mode with platform-owned extras only. Business plugin tools are bound at runtime.
         allowTools = [
-          'query_clients', 'view_client', 'get_client_history', 'add_client', 'update_client',
-          'advance_client', 'rollback_client', 'delete_client',
-          'query_trades', 'trade_summary', 'plot_trades', 'list_customers',
           'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
           'markdown_to_image', 'update_memory',
         ];
@@ -1118,34 +1099,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('otcclaw-add-query-hedge-short', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
-    if (row) {
-      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      if (!current.includes('query_hedge_short')) {
-        current.push('query_hedge_short');
-        db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-          .run(JSON.stringify(current));
-      }
-    }
-  });
-
-  runOnce('user-blocklist-otcclaw-add-client-video', () => {
-    const row = db.prepare("SELECT user_tools_list FROM agents WHERE name = 'otcclaw'").get() as { user_tools_list: string | null } | undefined;
-    if (row) {
-      const current: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-      const toAdd = ['add_client', 'update_client', 'advance_client', 'rollback_client'];
-      let changed = false;
-      for (const tool of toAdd) {
-        if (!current.includes(tool)) { current.push(tool); changed = true; }
-      }
-      if (changed) {
-        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-          .run(JSON.stringify(current));
-      }
-    }
-  });
-
   runOnce('add-documents-table', () => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS documents (
@@ -1298,53 +1251,6 @@ export function initSchema(): void {
     const cols = db.pragma('table_info(clients)') as Array<{ name: string }>;
     if (!cols.some(c => c.name === 'pricing_range')) {
       db.exec('ALTER TABLE clients ADD COLUMN pricing_range TEXT');
-    }
-  });
-
-  runOnce('otcclaw-add-pricing-quote-tools', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
-    if (!row) return;
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const toAdd = ['import_pricing_quote', 'query_pricing_quote', 'list_pricing_quote_dates'];
-    for (const t of toAdd) {
-      if (!list.includes(t)) list.push(t);
-    }
-    db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-      .run(JSON.stringify(list));
-  });
-
-  /**
-   * import_pricing_schedule 历史遗漏：config/agents/otcclaw.md 与 src/runtime/file-hint.ts
-   * 都引导 LLM 使用该工具，但 tools_list 从未包含它，导致 agent admin 调用时命中
-   * "不在允许列表" 错误。顺带同步进 user blocklist，保持与 add_client/update_client 等写操作一致。
-   */
-  runOnce('otcclaw-add-import-pricing-schedule', () => {
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'"
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    let toolsChanged = false;
-    if (!list.includes('import_pricing_schedule')) {
-      list.push('import_pricing_schedule');
-      toolsChanged = true;
-    }
-
-    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let userChanged = false;
-    if (!userList.includes('import_pricing_schedule')) {
-      userList.push('import_pricing_schedule');
-      userChanged = true;
-    }
-
-    if (toolsChanged || userChanged) {
-      db.prepare(
-        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'"
-      ).run(
-        toolsChanged ? JSON.stringify(list) : row.tools_list,
-        userChanged ? JSON.stringify(userList) : row.user_tools_list,
-      );
     }
   });
 
@@ -1678,17 +1584,6 @@ export function initSchema(): void {
     db.prepare("UPDATE agents SET display_name = '衍语', updated_at = datetime('now') WHERE name = 'otcclaw' AND display_name = '衍语助手'").run();
   });
 
-  runOnce('otcclaw-add-export-trades-csv', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
-    if (!row) return;
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    if (!list.includes('export_trades_csv')) {
-      list.push('export_trades_csv');
-      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-        .run(JSON.stringify(list));
-    }
-  });
-
   runOnce('add-wrong-questions-tables', () => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS wrong_questions (
@@ -1960,17 +1855,6 @@ export function initSchema(): void {
     db.prepare("UPDATE agents SET tools_mode = 'standard', tools_list = ?, block_tools = NULL, updated_at = datetime('now') WHERE name = 'ticlaw'")
       .run(JSON.stringify(TICLAW_EXTRA_TOOLS));
     console.log('[ticlaw-standard-tools] Switched to standard mode');
-  });
-
-  runOnce('otcclaw-add-export-north-info-csv', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
-    if (!row) return;
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    if (!list.includes('export_north_info_csv')) {
-      list.push('export_north_info_csv');
-      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-        .run(JSON.stringify(list));
-    }
   });
 
   /**
@@ -2314,123 +2198,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('otcclaw-ticlaw-add-etf-monitor-tools', () => {
-    const newTools = ['calc_etf_trades', 'query_etf_summary'];
-    const writeTools = ['calc_etf_trades'];
-
-    for (const agentName of ['otcclaw', 'ticlaw']) {
-      const row = db.prepare(
-        "SELECT tools_list, user_tools_list FROM agents WHERE name = ?"
-      ).get(agentName) as { tools_list: string | null; user_tools_list: string | null } | undefined;
-      if (!row) continue;
-
-      const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-      let changed = false;
-
-      for (const t of newTools) {
-        if (!list.includes(t)) { list.push(t); changed = true; }
-      }
-      for (const t of writeTools) {
-        if (!userList.includes(t)) { userList.push(t); changed = true; }
-      }
-
-      if (changed) {
-        db.prepare(
-          "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
-        ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null, agentName);
-      }
-    }
-  });
-
-  runOnce('seed-etf-trades-precompute-scheduled-tasks-v1', () => {
-    const cronExpr = '0 18 * * 1-5';
-    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false });
-    const tasks = [
-      { id: 'etf-ticlaw-precalc', agentName: 'ticlaw', name: 'ETF 成交预计算（TIClaw）' },
-      { id: 'etf-otcclaw-precalc', agentName: 'otcclaw', name: 'ETF 成交预计算（衍语）' },
-    ];
-
-    for (const task of tasks) {
-      const agent = db.prepare("SELECT id FROM agents WHERE name = ?").get(task.agentName) as { id: string } | undefined;
-      if (!agent) continue;
-
-      const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
-      const existing = db.prepare(
-        'SELECT id, cron_expr, next_run_at FROM scheduled_tasks WHERE id = ?',
-      ).get(task.id) as { id: string; cron_expr: string; next_run_at: number | null } | undefined;
-
-      if (existing) {
-        const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
-        db.prepare(`
-          UPDATE scheduled_tasks
-          SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
-              channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
-              next_run_at = ?, created_by = ?
-          WHERE id = ?
-        `).run(agent.id, task.name, cronExpr, 'tool_call', payload, 'system', nextRunAt, 'system', task.id);
-      } else {
-        db.prepare(`
-          INSERT INTO scheduled_tasks (
-            id, agent_id, name, cron_expr, task_type, payload, channel,
-            target_id, app_id, next_run_at, created_by
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-        `).run(task.id, agent.id, task.name, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
-      }
-    }
-  });
-
-  runOnce('etf-precompute-scheduled-tasks-force-v1', () => {
-    const payload = JSON.stringify({ tool_name: 'calc_etf_trades', input: { force: true }, notify: false });
-    db.prepare(`
-      UPDATE scheduled_tasks
-      SET payload = ?, locked_until = NULL
-      WHERE id IN ('etf-ticlaw-precalc', 'etf-otcclaw-precalc')
-        AND task_type = 'tool_call'
-    `).run(payload);
-  });
-
-  runOnce('otcclaw-add-sbl-data-tools', () => {
-    const newTools = ['sync_sbl_data', 'analyze_sbl_usage'];
-
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
-
-    for (const t of newTools) {
-      if (!list.includes(t)) { list.push(t); changed = true; }
-    }
-    const syncBlockIdx = userList.indexOf('sync_sbl_data');
-    if (syncBlockIdx !== -1) { userList.splice(syncBlockIdx, 1); changed = true; }
-
-    if (changed) {
-      db.prepare(
-        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
-    }
-  });
-
-  runOnce('otcclaw-unblock-sync-sbl-data', () => {
-    const row = db.prepare(
-      "SELECT user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { user_tools_list: string | null } | undefined;
-    if (!row?.user_tools_list) return;
-
-    const userList: string[] = JSON.parse(row.user_tools_list);
-    const filtered = userList.filter(t => t !== 'sync_sbl_data');
-    if (filtered.length !== userList.length) {
-      db.prepare(
-        "UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-      ).run(filtered.length > 0 ? JSON.stringify(filtered) : null);
-    }
-  });
-
   runOnce('ticlaw-add-titans-code-search-and-harden-users-v1', () => {
     const row = db.prepare(
       "SELECT tools_list, user_tools_list FROM agents WHERE name = 'ticlaw'",
@@ -2476,133 +2243,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('otcclaw-add-qfii-latest-valuation-report-query-v1', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'otcclaw'").get() as { tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    if (current.includes('query_qfii_latest_valuation_report')) return;
-    current.push('query_qfii_latest_valuation_report');
-    db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'")
-      .run(JSON.stringify(current));
-  });
-
-  runOnce('otcclaw-add-corporate-action-alert-tools-v1', () => {
-    const tools = [
-      'sync_corporate_action_alerts',
-      'check_corporate_action_alerts',
-      'query_corporate_action_alerts',
-    ];
-    const writeTools = [
-      'sync_corporate_action_alerts',
-      'check_corporate_action_alerts',
-    ];
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
-
-    for (const tool of tools) {
-      if (!toolsList.includes(tool)) {
-        toolsList.push(tool);
-        changed = true;
-      }
-    }
-    for (const tool of writeTools) {
-      if (!userToolsList.includes(tool)) {
-        userToolsList.push(tool);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-
-    db.prepare(
-      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
-  });
-
-  runOnce('otcclaw-add-normal-trading-summary-tools-v1', () => {
-    const tools = [
-      'sync_normal_trading_summary',
-      'query_normal_trading_summary',
-      'calc_normal_trading_annual_turnover',
-    ];
-    const writeTools = [
-      'sync_normal_trading_summary',
-    ];
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
-
-    for (const tool of tools) {
-      if (!toolsList.includes(tool)) {
-        toolsList.push(tool);
-        changed = true;
-      }
-    }
-    for (const tool of writeTools) {
-      if (!userToolsList.includes(tool)) {
-        userToolsList.push(tool);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-
-    db.prepare(
-      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
-  });
-
-  runOnce('otcclaw-unblock-normal-trading-turnover-calc-v1', () => {
-    const row = db.prepare(
-      "SELECT user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { user_tools_list: string | null } | undefined;
-    if (!row?.user_tools_list) return;
-
-    const userToolsList: string[] = JSON.parse(row.user_tools_list);
-    const nextUserToolsList = userToolsList.filter((tool) => tool !== 'calc_normal_trading_annual_turnover');
-    if (nextUserToolsList.length === userToolsList.length) return;
-
-    db.prepare(
-      "UPDATE agents SET user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-    ).run(JSON.stringify(nextUserToolsList));
-  });
-
-  runOnce('otcclaw-add-fast-trading-summary-sync-tool-v1', () => {
-    const tool = 'sync_fast_trading_summary';
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'otcclaw'",
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const toolsList: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userToolsList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
-
-    if (!toolsList.includes(tool)) {
-      toolsList.push(tool);
-      changed = true;
-    }
-    if (!userToolsList.includes(tool)) {
-      userToolsList.push(tool);
-      changed = true;
-    }
-    if (!changed) return;
-
-    db.prepare(
-      "UPDATE agents SET tools_list = ?, user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now') WHERE name = 'otcclaw'",
-    ).run(JSON.stringify(toolsList), JSON.stringify(userToolsList));
-  });
-
   runOnce('otcclaw-remove-legacy-hedge-ratio-history-migration-v1', () => {
     const tool = ['migrate', 'hedge', 'ratio', 'in' + 'flux', 'history'].join('_');
     const row = db.prepare(
@@ -2644,80 +2284,4 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('seed-fast-trading-summary-sync-scheduled-task-v1', () => {
-    const cronExpr = '30 18 * * *';
-    const payload = JSON.stringify({ tool_name: 'sync_fast_trading_summary', input: {}, notify: false });
-    const agent = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
-    if (!agent) return;
-
-    const taskId = 'fast-trading-summary-sync-otcclaw';
-    const taskName = '极速 summary 同步（衍语）';
-    const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
-    const existing = db.prepare(
-      'SELECT id, cron_expr, next_run_at FROM scheduled_tasks WHERE id = ?',
-    ).get(taskId) as { id: string; cron_expr: string; next_run_at: number | null } | undefined;
-
-    if (existing) {
-      const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
-      db.prepare(`
-        UPDATE scheduled_tasks
-        SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
-            channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
-            next_run_at = ?, created_by = ?, locked_until = NULL
-        WHERE id = ?
-      `).run(agent.id, taskName, cronExpr, 'tool_call', payload, 'system', nextRunAt, 'system', taskId);
-    } else {
-      db.prepare(`
-        INSERT INTO scheduled_tasks (
-          id, agent_id, name, cron_expr, task_type, payload, channel,
-          target_id, app_id, next_run_at, created_by
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-      `).run(taskId, agent.id, taskName, cronExpr, 'tool_call', payload, 'system', nextRun, 'system');
-    }
-  });
-
-  runOnce('otcclaw-19-normal-trading-summary-sync-scheduled-task-v1', () => {
-    const cronExpr = '0 19 * * 1-5';
-    const payload = JSON.stringify({ tool_name: 'sync_normal_trading_summary', input: {}, notify: false });
-    const agent = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
-    if (!agent) return;
-
-    const taskId = '283ce632-45ab-468a-823b-90244bb12cad';
-    const taskName = '北向常速业务规模同步';
-    const nextRun = CronExpressionParser.parse(cronExpr, { tz: 'Asia/Shanghai' }).next().getTime();
-    const existing = db.prepare(
-      'SELECT id, cron_expr, next_run_at, created_by FROM scheduled_tasks WHERE id = ?',
-    ).get(taskId) as { id: string; cron_expr: string; next_run_at: number | null; created_by: string | null } | undefined;
-
-    if (existing) {
-      const nextRunAt = existing.cron_expr === cronExpr && existing.next_run_at ? existing.next_run_at : nextRun;
-      db.prepare(`
-        UPDATE scheduled_tasks
-        SET agent_id = ?, name = ?, cron_expr = ?, task_type = ?, payload = ?,
-            channel = ?, target_id = NULL, app_id = NULL, enabled = 1,
-            next_run_at = ?, last_run_at = NULL, last_result = NULL,
-            created_by = ?, locked_until = NULL
-        WHERE id = ?
-      `).run(
-        agent.id,
-        taskName,
-        cronExpr,
-        'tool_call',
-        payload,
-        'wework',
-        nextRunAt,
-        existing.created_by ?? 'system',
-        taskId,
-      );
-    } else {
-      db.prepare(`
-        INSERT INTO scheduled_tasks (
-          id, agent_id, name, cron_expr, task_type, payload, channel,
-          target_id, app_id, next_run_at, created_by
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-      `).run(taskId, agent.id, taskName, cronExpr, 'tool_call', payload, 'wework', nextRun, 'system');
-    }
-  });
 }

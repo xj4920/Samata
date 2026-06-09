@@ -2,6 +2,8 @@
 
 插件创建完成并被 Samata 加载后，如果其 `scope` 为 `agent-bound`，还需要将工具名显式加入目标 agent 的 `tools_list` 才能生效。
 
+Agent 与工具绑定属于运行时配置，不再通过 `src/db/schema.ts` migration 写入平台代码。标准入口是管理员在 CLI/system-admin 语义下运行绑定脚本；脚本内部走现有 `saveAgent()` 权限与写库逻辑。
+
 ## 1. 前置条件确认
 
 ### 1.1 插件目录已配置
@@ -16,8 +18,8 @@ SAMATA_PLUGINS_DIR=../samata-plugins,../samata-plugin-work,../samata-plugin-priv
 
 启动服务后日志应出现：
 
-```
-✅ Plugin [etf-monitor]: 2 tools loaded
+```text
+Plugin [etf-monitor]: 2 tools loaded
 ```
 
 若未出现，检查插件目录是否有 `index.ts` 且 `export default` 了合法的 `PluginModule`。
@@ -26,114 +28,83 @@ SAMATA_PLUGINS_DIR=../samata-plugins,../samata-plugin-work,../samata-plugin-priv
 
 打开插件 `index.ts`，查看 `scope` 字段：
 
-- **`universal`**（默认）— 自动对所有 `standard` 模式 agent 可见，**无需后续步骤**
-- **`agent-bound`** — 必须执行下面的配置步骤
+- `universal`：自动对所有 `standard` 模式 agent 可见，无需绑定。
+- `agent-bound`：必须执行下面的绑定步骤。
 
-## 2. 添加 Migration（标准方式，进 git）
+## 2. 标准绑定方式
 
-在 `src/db/schema.ts` 文件**末尾**追加一个 `runOnce(...)` 幂等 migration。
+单次绑定：
 
-### 模板
-
-```typescript
-runOnce('<agent>-add-<plugin>-tools', () => {
-  const row = db.prepare(
-    "SELECT tools_list, user_tools_list FROM agents WHERE name = '<agent>'"
-  ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-  if (!row) return;
-
-  const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-  const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-  let changed = false;
-
-  // 要添加的工具名（从插件的 toolDefinitions 中获取）
-  const newTools = ['tool_name_1', 'tool_name_2'];
-  // 其中的写操作工具（需要限制普通成员调用）
-  const writeTools = ['tool_name_1'];
-
-  for (const t of newTools) {
-    if (!list.includes(t)) { list.push(t); changed = true; }
-  }
-  for (const t of writeTools) {
-    if (!userList.includes(t)) { userList.push(t); changed = true; }
-  }
-
-  if (changed) {
-    db.prepare(
-      "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = '<agent>'"
-    ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
-  }
-});
+```bash
+npx tsx scripts/bind-agent-tools.ts \
+  --agent otcclaw \
+  --add calc_etf_trades,query_etf_summary \
+  --member-block calc_etf_trades \
+  --user admin
 ```
 
-### 实际示例：etf-monitor 绑定到 otcclaw 和 ticlaw
+常用参数：
 
-```typescript
-runOnce('otcclaw-ticlaw-add-etf-monitor-tools', () => {
-  const newTools = ['calc_etf_trades', 'query_etf_summary'];
-  const writeTools = ['calc_etf_trades']; // 会写 DB，限制普通成员
+- `--add`：加入 `tools_list`，让 agent admin 可见。
+- `--remove`：从 `tools_list` 移除。
+- `--block`：加入 `block_tools`，agent admin 也不可见。
+- `--unblock`：从 `block_tools` 移除。
+- `--member-block`：加入 `user_tools_list`，并确保 `user_tools_mode='blocklist'`，用于限制普通成员。
+- `--member-unblock`：从 `user_tools_list` 移除。
+- `--dry-run`：只预览，不写 DB。
+- `--json`：输出 JSON，方便自动化检查。
 
-  for (const agentName of ['otcclaw', 'ticlaw']) {
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = ?"
-    ).get(agentName) as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) continue;
+脚本是幂等的：重复执行不会重复追加工具，也不会在无变化时调用 `saveAgent()` 写库。
 
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-    let changed = false;
+## 3. 批量绑定
 
-    for (const t of newTools) {
-      if (!list.includes(t)) { list.push(t); changed = true; }
+批量配置文件放在本地忽略路径，例如 `config/agent-tool-bindings.local.json`：
+
+```json
+{
+  "bindings": [
+    {
+      "agent": "otcclaw",
+      "add": ["calc_etf_trades", "query_etf_summary"],
+      "memberBlock": ["calc_etf_trades"]
     }
-    for (const t of writeTools) {
-      if (!userList.includes(t)) { userList.push(t); changed = true; }
-    }
-
-    if (changed) {
-      db.prepare(
-        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
-      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null, agentName);
-    }
-  }
-});
+  ]
+}
 ```
 
-### 判断是否加 user_tools_list
+执行：
 
-- **写操作**（会修改数据库的工具）→ 加入 `user_tools_list` blocklist，仅 agent admin 可调用
-- **纯只读**（查询/展示）→ 不加，普通成员也可用
+```bash
+npx tsx scripts/bind-agent-tools.ts --config config/agent-tool-bindings.local.json --user admin
+```
 
-## 3. 生效
+`config/agent-tool-bindings*.json` 已被 `.gitignore` 忽略，避免把私有 work 工具清单提交到 Samata 平台仓库。
 
-两种方式任选：
+## 4. 判断是否加入 member blocklist
 
-- 重启服务：`npm run server`
-- CLI 执行：`/reload_app`（热重载，无需重启）
+- 写操作、同步、导入、删除、高成本刷新：加入 `--member-block`，仅 agent admin 可调用。
+- 只读查询、计算只读结果：通常只放入 `--add`，普通成员可用。
+- agent admin 也必须禁用的工具：加入 `--block`。
 
-### 验证
+## 5. 验证
+
+```bash
+npx tsx scripts/bind-agent-tools.ts --agent otcclaw --add query_etf_summary --dry-run --json
+npm run cli
+```
+
+在 CLI 中切换到目标 agent 后执行 `get_agent` 或 `/agent info`，确认可见工具符合预期。也可以只读查询 SQLite：
 
 ```sql
-SELECT tools_list FROM agents WHERE name = 'otcclaw';
--- 确认 JSON 数组中包含新增的 tool name
+SELECT tools_list, block_tools, user_tools_mode, user_tools_list
+FROM agents
+WHERE name = 'otcclaw';
 ```
 
-## 4. 调试方式（不进 git）
+## Checklist
 
-适合开发阶段快速测试，直接用 CLI 修改 DB：
-
-```
-/agent otcclaw tools add calc_etf_trades,query_etf_summary
-```
-
-注意：此方式不写入代码，重新跑 migration 不会保留（但也不会被覆盖，除非有新 migration 重写 `tools_list`）。
-
-## 5. Checklist
-
-- [ ] 插件 `scope` 确认为 `agent-bound`
-- [ ] `tools_list` migration 已添加到 `src/db/schema.ts`
-- [ ] 写操作工具已加入 `user_tools_list` blocklist
-- [ ] 重启/reload 后验证 SQL 结果正确
-- [ ] agent admin 和普通成员各测试一次，确认权限符合预期
-
-详细权限规范参见 `CLAUDE.md` 的「新增 Agent Tool 时的权限矩阵规范」章节。
+- [ ] 插件 `scope` 确认为 `agent-bound`。
+- [ ] 工具名来自插件 `toolDefinitions`。
+- [ ] 使用 `scripts/bind-agent-tools.ts` 完成绑定。
+- [ ] 写操作工具已加入 `memberBlock`。
+- [ ] agent admin 和普通成员各测试一次，确认权限符合预期。

@@ -249,16 +249,16 @@ Agent User (agent_members.role='user' 或无 membership)
 
 1. **定位业务归属**：全 agent 通用还是某个 agent 专属？
    - 只读类 → 加入 `COMMON_SET`（`src/llm/agents/config.ts`）
-   - agent 专属 → 通过 migration 补进该 agent 的 `tools_list`
+   - agent 专属 → 通过 CLI 绑定脚本补进该 agent 的 `tools_list`
 
 2. **区分读写性质**：
    - 写操作 → 必须加入该 agent 的 `user_tools_list` blocklist
    - 只读 → 不加 user blocklist
    - 高危 → 仅 system admin 可用
 
-3. **写 migration**：在 `src/db/schema.ts` 末尾新增幂等 `runOnce`，补进 `tools_list` / `user_tools_list`
+3. **运行绑定脚本**：使用 `scripts/bind-agent-tools.ts` 幂等补进 `tools_list` / `user_tools_list`；不要为业务插件在 `src/db/schema.ts` 新增绑定 migration
 
-4. **验证**：`/reload_app` 后用 SQL 确认两列已更新，再用 admin/普通成员各测试一次
+4. **验证**：用 SQL 或 `get_agent` 确认两列已更新，再用 admin/普通成员各测试一次
 
 ---
 

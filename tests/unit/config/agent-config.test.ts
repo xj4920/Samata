@@ -24,6 +24,13 @@ describe('getAgentTools', () => {
     });
   }
 
+  async function bindOtcclawTools(addTools: string[], memberBlockTools: string[] = []) {
+    const { applyAgentToolBinding } = await import('../../../src/llm/agents/tool-binding.js');
+    return withContext({ channel: 'cli', role: 'admin', agentName: 'otcclaw' }, () =>
+      applyAgentToolBinding({ agentName: 'otcclaw', addTools, memberBlockTools }),
+    );
+  }
+
   describe('standard mode (otcclaw)', () => {
     it('includes COMMON_SET tools', async () => {
       const names = await getToolNames('otcclaw');
@@ -33,16 +40,42 @@ describe('getAgentTools', () => {
       expect(names).toContain('web_search');
     });
 
-    it('includes agent-specific tools from tools_list', async () => {
+    it('includes platform-specific tools from tools_list without work plugin seeds', async () => {
+      const names = await getToolNames('otcclaw');
+      expect(names).toContain('sandbox_exec');
+      expect(names).not.toContain(legacyHedgeMigrationTool);
+      expect(names).not.toContain('query_clients');
+      expect(names).not.toContain('query_trades');
+      expect(names).not.toContain('sync_sbl_data');
+      expect(names).not.toContain('analyze_sbl_usage');
+      expect(names).not.toContain('query_qfii_latest_valuation_report');
+      expect(names).not.toContain('sync_normal_trading_summary');
+      expect(names).not.toContain('query_normal_trading_summary');
+      expect(names).not.toContain('calc_normal_trading_annual_turnover');
+      expect(names).not.toContain('sync_fast_trading_summary');
+    });
+
+    it('includes work plugin tools after runtime binding', async () => {
+      await bindOtcclawTools([
+        'query_clients',
+        'query_trades',
+        'trade_summary',
+        'sync_sbl_data',
+        'analyze_sbl_usage',
+        'query_qfii_latest_valuation_report',
+        'sync_normal_trading_summary',
+        'query_normal_trading_summary',
+        'calc_normal_trading_annual_turnover',
+        'sync_fast_trading_summary',
+      ]);
+
       const names = await getToolNames('otcclaw');
       expect(names).toContain('query_clients');
       expect(names).toContain('query_trades');
       expect(names).toContain('trade_summary');
-      expect(names).toContain('sandbox_exec');
       expect(names).toContain('sync_sbl_data');
       expect(names).toContain('analyze_sbl_usage');
       expect(names).toContain('query_qfii_latest_valuation_report');
-      expect(names).not.toContain(legacyHedgeMigrationTool);
       expect(names).toContain('sync_normal_trading_summary');
       expect(names).toContain('query_normal_trading_summary');
       expect(names).toContain('calc_normal_trading_annual_turnover');
@@ -99,10 +132,10 @@ describe('getAgentTools', () => {
       expect(names).toContain('sandbox_exec');
     });
 
-    it('respects blockTools — excludes client/trade tools', async () => {
+    it('does not hardcode work plugin blocks in platform schema', async () => {
       const names = await getToolNames('alter-ego');
-      expect(names).not.toContain('query_clients');
-      expect(names).not.toContain('query_trades');
+      expect(names).toContain('query_clients');
+      expect(names).toContain('query_trades');
     });
   });
 
@@ -158,6 +191,20 @@ describe('getAgentTools', () => {
 
   describe('user-level filtering (non-admin)', () => {
     it('member cannot use blocklisted write tools', async () => {
+      await bindOtcclawTools(
+        [
+          'add_client',
+          'sync_sbl_data',
+          'analyze_sbl_usage',
+          'query_qfii_latest_valuation_report',
+          'sync_normal_trading_summary',
+          'query_normal_trading_summary',
+          'calc_normal_trading_annual_turnover',
+          'sync_fast_trading_summary',
+        ],
+        ['add_client', 'sync_normal_trading_summary', 'sync_fast_trading_summary'],
+      );
+
       const adminNames = await getToolNames('otcclaw', true);
       const memberNames = await getToolNames('otcclaw', false);
 
@@ -178,6 +225,16 @@ describe('getAgentTools', () => {
     });
 
     it('otcclaw member can calculate normal trading turnover without sync tools', async () => {
+      await bindOtcclawTools(
+        [
+          'sync_normal_trading_summary',
+          'query_normal_trading_summary',
+          'calc_normal_trading_annual_turnover',
+          'sync_fast_trading_summary',
+        ],
+        ['sync_normal_trading_summary', 'sync_fast_trading_summary'],
+      );
+
       const names = await getToolNames('otcclaw', false);
 
       expect(names).toContain('calc_normal_trading_annual_turnover');

@@ -26,6 +26,7 @@ data/samata.db-wal
 # Local config (machine-specific, contains secrets/business data)
 config/mcp-servers.json
 config/monitor.json
+config/agent-tool-bindings*.json
 
 # Temp test scripts
 scripts/test_*.mjs

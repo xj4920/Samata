@@ -9,6 +9,14 @@ describe('schedule tools', () => {
     return getAgent(name).id;
   }
 
+  async function bindAgentTools(agentName: string, tools: string[]): Promise<void> {
+    const { applyAgentToolBinding } = await import('../../../src/llm/agents/tool-binding.js');
+    const result = await withContext({ channel: 'cli', role: 'admin', agentName }, () =>
+      applyAgentToolBinding({ agentName, addTools: tools }),
+    );
+    expect(result.success).toBe(true);
+  }
+
   describe('command layer', () => {
     it('creates and lists tasks', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
@@ -311,6 +319,7 @@ describe('schedule tools', () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
       const agentId = await getAgentId('otcclaw');
+      await bindAgentTools('otcclaw', ['calc_etf_trades']);
 
       const created = createScheduledTask({
         agentId,
@@ -342,6 +351,7 @@ describe('schedule tools', () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
       const agentId = await getAgentId('otcclaw');
+      await bindAgentTools('otcclaw', ['sync_fast_trading_summary']);
 
       const created = createScheduledTask({
         agentId,
@@ -373,6 +383,7 @@ describe('schedule tools', () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
       const agentId = await getAgentId('otcclaw');
+      await bindAgentTools('otcclaw', ['sync_normal_trading_summary']);
 
       const created = createScheduledTask({
         agentId,
