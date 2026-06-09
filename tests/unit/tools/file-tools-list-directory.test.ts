@@ -6,6 +6,7 @@ describe('list_directory allowlist guard', () => {
 
   beforeEach(async () => {
     ctx = await setupUnitDb();
+    seedTiclawFixture();
   });
 
   afterEach(() => {
@@ -16,6 +17,23 @@ describe('list_directory allowlist guard', () => {
     const { handleTool } = await import('../../../src/tools/file-tools.js');
     return withContext({ channel, role, agentName }, () =>
       handleTool('list_directory', { path }),
+    );
+  }
+
+  function seedTiclawFixture() {
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO agents (
+        id, name, display_name, description, tools_mode, tools_list, created_by
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'agent-ticlaw',
+      'ticlaw',
+      'TIClaw',
+      'Test TIClaw fixture',
+      'standard',
+      JSON.stringify(['read_file', 'list_directory']),
+      'admin-001',
     );
   }
 

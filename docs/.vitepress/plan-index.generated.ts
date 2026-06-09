@@ -49,6 +49,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "部署与配置"
     },
     {
+      "title": "清理 schema.ts 硬编码 Seed",
+      "link": "/plan/2026-06-09_schema-hardcoded-seed-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_schema-hardcoded-seed-cleanup.md",
+      "sortKey": "2026-06-09_schema-hardcoded-seed-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "数据库初始化"
+    },
+    {
       "title": "Web 搜索直连 fallback 修复（2026-06-08）",
       "link": "/plan/2026-06-08_web-search-direct-fallback",
       "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
@@ -548,6 +561,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/permissions/resource-scopes"
       ],
       "topic": "资源作用域"
+    },
+    {
+      "title": "清理 schema.ts 硬编码 Seed",
+      "link": "/plan/2026-06-09_schema-hardcoded-seed-cleanup",
+      "sourcePath": "docs/plan/2026-06-09_schema-hardcoded-seed-cleanup.md",
+      "sortKey": "2026-06-09_schema-hardcoded-seed-cleanup.md",
+      "date": "2026-06-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
     },
     {
       "title": "Agent-Tools 幂等绑定脚本与 Schema 清理",

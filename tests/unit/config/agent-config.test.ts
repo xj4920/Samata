@@ -31,6 +31,48 @@ describe('getAgentTools', () => {
     );
   }
 
+  function seedTiclawFixture() {
+    const tools = [
+      'titans_code_sync',
+      'titans_code_grep',
+      'titans_code_read',
+      'titans_code_list',
+      'exec_cmd',
+      'list_directory',
+      'write_file',
+      'edit_file',
+      'reload_app',
+    ];
+    const blocked = [
+      'exec_cmd',
+      'list_directory',
+      'write_file',
+      'edit_file',
+      'reload_app',
+    ];
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO agents (
+        id, name, display_name, description, tools_mode, tools_list,
+        user_tools_mode, user_tools_list, created_by
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'agent-ticlaw',
+      'ticlaw',
+      'TIClaw',
+      'Test TIClaw fixture',
+      'standard',
+      JSON.stringify(tools),
+      'blocklist',
+      JSON.stringify(blocked),
+      'admin-001',
+    );
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role)
+      VALUES (?, ?, ?, ?)
+    `).run('agent-ticlaw-test-member', 'agent-ticlaw', 'test-user', 'admin');
+  }
+
   describe('standard mode (otcclaw)', () => {
     it('includes COMMON_SET tools', async () => {
       const names = await getToolNames('otcclaw');
@@ -144,6 +186,7 @@ describe('getAgentTools', () => {
     const logyiTool = { name: 'mcp_logyi_search_logs', description: 'logyi', input_schema: { type: 'object', properties: {} } };
 
     it('exposes scoped MCP tools only to the configured agent in standard mode', async () => {
+      seedTiclawFixture();
       setMockMcpTools([devtoolsTool, logyiTool], {
         ticlaw: [devtoolsTool, logyiTool],
         otcclaw: [devtoolsTool],
@@ -244,6 +287,7 @@ describe('getAgentTools', () => {
     });
 
     it('ticlaw member keeps titans/logyi tools but not high-risk native tools', async () => {
+      seedTiclawFixture();
       const logyiTool = { name: 'mcp_logyi_search_logs', description: 'logyi', input_schema: { type: 'object', properties: {} } };
       setMockMcpTools([logyiTool], { ticlaw: [logyiTool] });
 

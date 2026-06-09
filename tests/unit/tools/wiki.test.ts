@@ -1,12 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useUnitDb, withContext } from '../../helpers/unit-harness.js';
 
 describe('wiki tools', () => {
-  useUnitDb();
+  const unit = useUnitDb();
 
   const createdFiles: string[] = [];
+
+  beforeEach(() => {
+    seedTiclawFixture();
+  });
 
   afterEach(() => {
     for (const file of createdFiles.splice(0)) {
@@ -19,6 +23,23 @@ describe('wiki tools', () => {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, content, 'utf-8');
     createdFiles.push(filePath);
+  }
+
+  function seedTiclawFixture() {
+    unit.db.prepare(`
+      INSERT OR IGNORE INTO agents (
+        id, name, display_name, description, tools_mode, tools_list, created_by
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'agent-ticlaw',
+      'ticlaw',
+      'TIClaw',
+      'Test TIClaw fixture',
+      'standard',
+      JSON.stringify(['read_wiki_page', 'file_to_wiki']),
+      'admin-001',
+    );
   }
 
   it('reads a wiki page for the current agent', async () => {

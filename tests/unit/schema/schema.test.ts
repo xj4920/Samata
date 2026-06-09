@@ -132,6 +132,78 @@ describe('schema integrity', () => {
       `).get() as { c: number };
       expect(row.c).toBe(0);
     });
+
+    it('does not seed hardcoded Feishu bot apps', () => {
+      const feishuApps = ctx.db.prepare('SELECT COUNT(*) as c FROM feishu_apps').get() as { c: number };
+      const botApps = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM bot_apps
+        WHERE channel = 'feishu'
+          OR id IN ('cli_a93212c0b7b9dcc5', 'cli_a9329f3af5b8dcc9')
+          OR name IN ('otcclaw-bot', 'tutor-bot')
+      `).get() as { c: number };
+
+      expect(feishuApps.c).toBe(0);
+      expect(botApps.c).toBe(0);
+    });
+
+    it('does not seed hardcoded TIClaw or WeWork test bot records', () => {
+      const botApps = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM bot_apps
+        WHERE channel = 'wework'
+          AND (
+            id IN ('aibVpgqdRX0aRtfu0351LN-Ehtu9BVzSmMo', 'aib-l7p7MyNNEpadH2ELbHpZ0ozjczqiaWE')
+            OR name IN ('ticlaw-bot', 'otcclaw-test-bot')
+          )
+      `).get() as { c: number };
+      const assignments = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM agent_assignments
+        WHERE channel = 'wework'
+          AND app_id IN ('aibVpgqdRX0aRtfu0351LN-Ehtu9BVzSmMo', 'aib-l7p7MyNNEpadH2ELbHpZ0ozjczqiaWE')
+      `).get() as { c: number };
+
+      expect(botApps.c).toBe(0);
+      expect(assignments.c).toBe(0);
+    });
+
+    it('does not seed private or person-specific agents', () => {
+      const row = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM agents
+        WHERE name IN ('ticlaw', 'falcon', 'potato', 'man')
+      `).get() as { c: number };
+
+      expect(row.c).toBe(0);
+    });
+
+    it('does not seed hardcoded Feishu users or aliases', () => {
+      const userIds = [
+        'feishu_ou_d0076758ea8560d436638a7c78a8d26f',
+        'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a',
+        'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230',
+        'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
+        'feishu_ou_b5fcfc05455cdca7c4f934b8443bbf9c',
+        'feishu_ou_dad1044cedcb817cd0a4f96f7183b603',
+      ];
+      const placeholders = userIds.map(() => '?').join(', ');
+      const users = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM users
+        WHERE id IN (${placeholders})
+      `).get(...userIds) as { c: number };
+      const aliases = ctx.db.prepare(`
+        SELECT COUNT(*) as c
+        FROM user_aliases
+        WHERE canonical_user_id IN (${placeholders})
+           OR alias_user_id IN (${placeholders})
+           OR alias_user_id IN ('wework_gzxujun', 'wework_user_gzxujun', 'wework_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ', 'wework_user_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ')
+      `).get(...userIds, ...userIds) as { c: number };
+
+      expect(users.c).toBe(0);
+      expect(aliases.c).toBe(0);
+    });
   });
 
   describe('default users', () => {

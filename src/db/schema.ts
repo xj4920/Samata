@@ -539,17 +539,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('seed-default-feishu-apps', () => {
-    const feishuAppsCount = db.prepare('SELECT COUNT(*) as c FROM feishu_apps').get() as { c: number };
-    if (feishuAppsCount.c === 0) {
-      const insApp = db.prepare(
-        'INSERT OR IGNORE INTO feishu_apps (app_id, app_name, app_secret, verification_token, encrypt_key, show_thinking) VALUES (?, ?, ?, ?, ?, ?)'
-      );
-      insApp.run('cli_a93212c0b7b9dcc5', 'otcclaw-bot', 'Ngdd5bLmxpgawK9ol3qRsbT4Navnq4Xa', '', '', 1);
-      insApp.run('cli_a9329f3af5b8dcc9', 'tutor-bot', 'l69uf6jF04uEY6Urcn8Tjff0ytTxVSgy', '', '', 1);
-    }
-  });
-
   runOnce('populate-knowledge-agents', () => {
     const kaCount = db.prepare('SELECT COUNT(*) as c FROM knowledge_agents').get() as { c: number };
     if (kaCount.c === 0) {
@@ -656,17 +645,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('add-feishu-admin-users', () => {
-    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run('feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'feishu_d26f');
-    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run('feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'feishu_b00a');
-    db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '8f72afd2-3e8a-435b-8595-3bdbc653cff9', 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', 'admin')")
-      .run(uuid());
-    db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, '575518a8-1f3d-4754-8815-243ef2ff3ea9', 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', 'admin')")
-      .run(uuid());
-  });
-
   runOnce('seed-browser-agent', () => {
     const browserAgent = db.prepare("SELECT id FROM agents WHERE name='browser'").get();
     if (!browserAgent) {
@@ -707,20 +685,6 @@ export function initSchema(): void {
   runOnce('agents-backfill-preset', () => {
     db.prepare("UPDATE agents SET preset='common'    WHERE name IN ('doctor','tutor') AND preset IS NULL").run();
     db.prepare("UPDATE agents SET preset='alter_ego' WHERE name='alter-ego'           AND preset IS NULL").run();
-  });
-
-  runOnce('add-doctor-admin-user', () => {
-    const userId = 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230';
-    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run(userId, 'feishu_3230');
-    const doctorAgent = db.prepare("SELECT id FROM agents WHERE name='doctor'").get() as { id: string } | undefined;
-    if (doctorAgent) {
-      const exists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?").get(doctorAgent.id, userId);
-      if (!exists) {
-        db.prepare("INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, 'admin')")
-          .run(uuid(), doctorAgent.id, userId);
-      }
-    }
   });
 
   runOnce('agents-add-user-tools-columns', () => {
@@ -775,20 +739,6 @@ export function initSchema(): void {
       if (changed) {
         db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE id=?")
           .run(JSON.stringify(current), agent.id);
-      }
-    }
-  });
-
-  runOnce('add-alter-ego-admin-36f292', () => {
-    const userId = 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292';
-    db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, 'user')")
-      .run(userId, 'feishu_36f292');
-    const agent = db.prepare("SELECT id FROM agents WHERE name='alter-ego'").get() as { id: string } | undefined;
-    if (agent) {
-      const exists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?").get(agent.id, userId);
-      if (!exists) {
-        db.prepare("INSERT INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, 'admin')")
-          .run(uuid(), agent.id, userId);
       }
     }
   });
@@ -919,32 +869,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('seed-falcon-potato-man-agents', () => {
-    const ins = db.prepare(
-      'INSERT OR IGNORE INTO agents (id, name, display_name, description, tools_mode, tools_list, block_tools, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
-
-    // falcon: monitoring agent, block heavy tools from COMMON_SET
-    const falconBlock = JSON.stringify(['generate_image', 'generate_video', 'save_skill']);
-    ins.run('agent-falcon', 'falcon', '消息监控', '监控推送、消息提醒', 'standard', null, falconBlock, 'admin-001');
-    insMember.run(uuid(), 'agent-falcon', 'admin-001', 'admin');
-
-    // potato: common assistant for 丁丁
-    ins.run('agent-potato', 'potato', '丁丁助理', '丁丁的个人助理', 'standard', null, null, 'admin-001');
-    insMember.run(uuid(), 'agent-potato', 'admin-001', 'admin');
-
-    // man: common assistant for 黄老师
-    ins.run('agent-man', 'man', '黄老师助理', '黄老师的个人助理', 'standard', null, null, 'admin-001');
-    insMember.run(uuid(), 'agent-man', 'admin-001', 'admin');
-  });
-
-  /** Design: falcon block_tools = generate_image, generate_video, save_skill. INSERT OR IGNORE does not repair existing rows. */
-  runOnce('ensure-falcon-block-tools-v2', () => {
-    const falconBlock = JSON.stringify(['generate_image', 'generate_video', 'save_skill']);
-    db.prepare(`UPDATE agents SET block_tools = ?, updated_at = datetime('now') WHERE name = 'falcon'`).run(falconBlock);
-  });
-
   runOnce('seed-system-admin-agent', () => {
     const adminBlock = JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS);
     const ins = db.prepare(
@@ -1015,76 +939,6 @@ export function initSchema(): void {
     db.prepare(
       `UPDATE agents SET user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now')`
     ).run(json);
-  });
-
-  // Recovery: the 'agents-allow-standard-tools-mode' migration had foreign_keys ON
-  // when it DROP'd agents table, causing CASCADE deletion of agent_members,
-  // agent_assignments, knowledge_agents, and memory rows.
-  runOnce('recover-cascade-deleted-data', () => {
-    // 1. Re-seed agent_members (creator = admin for each agent)
-    const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string; created_by: string }[];
-    const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
-    for (const agent of agents) {
-      const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, agent.created_by);
-      if (!exists) {
-        insMember.run(uuid(), agent.id, agent.created_by, 'admin');
-      }
-    }
-
-    // Re-add known feishu user → agent memberships (from prior runOnce seeds)
-    const knownMemberships: Array<{ userId: string; agentNames: string[] }> = [
-      { userId: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f', agentNames: ['tutor', 'otcclaw'] },
-      { userId: 'feishu_ou_3a73e2e1bb61a5da577ba79eec33b00a', agentNames: ['otcclaw'] },
-      { userId: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', agentNames: ['doctor'] },
-      { userId: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292', agentNames: ['alter-ego'] },
-    ];
-    for (const m of knownMemberships) {
-      for (const agentName of m.agentNames) {
-        const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
-        if (agent) {
-          const exists = db.prepare('SELECT 1 FROM agent_members WHERE agent_id=? AND user_id=?').get(agent.id, m.userId);
-          if (!exists) {
-            insMember.run(uuid(), agent.id, m.userId, 'admin');
-          }
-        }
-      }
-    }
-
-    // 2. Re-seed agent_assignments from bot_apps by name convention
-    const apps = db.prepare('SELECT id, channel, name FROM bot_apps').all() as { id: string; channel: string; name: string }[];
-    const insAssign = db.prepare(
-      'INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)'
-    );
-    function inferAgentName(appName: string): string | null {
-      if (appName.endsWith('-bot')) return appName.slice(0, -4);
-      return null;
-    }
-    for (const app of apps) {
-      const agentName = inferAgentName(app.name);
-      if (!agentName) {
-        console.warn(`[recover] Cannot infer agent for ${app.channel} app "${app.name}" (${app.id}), run /agent assign manually`);
-        continue;
-      }
-      const agent = db.prepare('SELECT id FROM agents WHERE name=?').get(agentName) as { id: string } | undefined;
-      if (!agent) continue;
-      const exists = db.prepare('SELECT 1 FROM agent_assignments WHERE channel=? AND app_id=?').get(app.channel, app.id);
-      if (!exists) {
-        insAssign.run(uuid(), agent.id, app.channel, app.id);
-      }
-    }
-
-    // 3. Re-link knowledge → otcclaw agent (original seed linked all knowledge to otcclaw)
-    const otcclaw = db.prepare("SELECT id FROM agents WHERE name='otcclaw'").get() as { id: string } | undefined;
-    if (otcclaw) {
-      const allKnowledge = db.prepare('SELECT id FROM knowledge').all() as { id: string }[];
-      const insKA = db.prepare('INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)');
-      for (const k of allKnowledge) {
-        const exists = db.prepare('SELECT 1 FROM knowledge_agents WHERE knowledge_id=? AND agent_id=?').get(k.id, otcclaw.id);
-        if (!exists) {
-          insKA.run(uuid(), k.id, otcclaw.id);
-        }
-      }
-    }
   });
 
   runOnce('user-blocklist-add-extract-wework-qa', () => {
@@ -1786,49 +1640,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('seed-ticlaw-agent', () => {
-    const botId = 'aibVpgqdRX0aRtfu0351LN-Ehtu9BVzSmMo';
-
-    // Agent — use name-based lookup so we don't depend on a hardcoded id
-    let agentId: string;
-    const agentRow = db.prepare("SELECT id FROM agents WHERE name = 'ticlaw'").get() as { id: string } | undefined;
-    if (agentRow) {
-      agentId = agentRow.id;
-    } else {
-      agentId = 'agent-ticlaw';
-      db.prepare(
-        'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(agentId, 'ticlaw', 'TIClaw', 'Titans系统全能助理，知晓一切业务需求细节，了解系统架构，能清晰将代码与需求关联起来，并能敏锐觉察可能存在的系统缺陷', 'standard', JSON.stringify(TICLAW_EXTRA_TOOLS), 'admin-001');
-      console.log('[seed-ticlaw-agent] Agent created');
-    }
-
-    // Bot app
-    const botExists = db.prepare("SELECT 1 FROM bot_apps WHERE id = ?").get(botId);
-    if (!botExists) {
-      db.prepare(
-        'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(botId, 'wework', 'ticlaw-bot', 'YsXcl1XvqQ2NlV3YXRAsArKOYgctrUXkEKF86G0YiG2', '{}', 1, 1);
-      console.log('[seed-ticlaw-agent] Bot app created');
-    }
-
-    // Agent membership for admin
-    const memberExists = db.prepare("SELECT 1 FROM agent_members WHERE agent_id = ? AND user_id = 'admin-001'").get(agentId);
-    if (!memberExists) {
-      db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
-        .run(uuid(), agentId, 'admin-001', 'admin');
-    }
-
-    // Agent assignment: bind agent to bot
-    const assignExists = db.prepare("SELECT 1 FROM agent_assignments WHERE agent_id = ? AND channel = 'wework'").get(agentId);
-    if (!assignExists) {
-      db.prepare("INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)")
-        .run(uuid(), agentId, 'wework', botId);
-      console.log('[seed-ticlaw-agent] Agent bound to WeWork bot');
-    }
-
-    console.log('[seed-ticlaw-agent] Done');
-  });
-
   runOnce('fix-ticlaw-agent-id', () => {
     // Fix any pre-existing ticlaw agent that may have a UUID id (from a partial earlier run)
     // Normalise to 'agent-ticlaw' so future migrations can reference it predictably.
@@ -1990,10 +1801,6 @@ export function initSchema(): void {
       ['wework_shanchuwen', '单楚文'],
       ['wework_wangxingqiang', '王兴强'],
       ['wework_weikunhuang', '黄伟琨'],
-      ['feishu_ou_0e6cf7a054dc5629fa4bb4209236f292', '许骏'],
-      ['feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230', '许骏'],
-      ['feishu_ou_b5fcfc05455cdca7c4f934b8443bbf9c', '丁丁'],
-      ['feishu_ou_dad1044cedcb817cd0a4f96f7183b603', '多米'],
     ];
     const stmt = db.prepare("UPDATE users SET display_name = ? WHERE id = ? AND display_name IS NULL");
     for (const [id, name] of knownNames) {
@@ -2037,83 +1844,6 @@ export function initSchema(): void {
     for (const row of aliases) {
       if (userExists.get(row.canonical) && userExists.get(row.alias)) {
         ins.run(row.canonical, row.alias, row.note);
-      }
-    }
-  });
-
-  runOnce('seed-known-user-aliases-v2', () => {
-    const aliases: Array<{ canonical: string; alias: string; note: string }> = [
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'feishu_ou_d0076758ea8560d436638a7c78a8d26f',
-        note: 'known same person across feishu bot open_ids',
-      },
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'feishu_ou_7e6c4bfcb6a25a9909bd2fe4e7ad3230',
-        note: 'known same person across feishu bot open_ids',
-      },
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'wework_gzxujun',
-        note: 'known same person across feishu and wework',
-      },
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'wework_user_gzxujun',
-        note: 'known same person across feishu and wework',
-      },
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'wework_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ',
-        note: 'known same person across feishu and external wework',
-      },
-      {
-        canonical: 'feishu_ou_0e6cf7a054dc5629fa4bb4209236f292',
-        alias: 'wework_user_wofvtgBgAAnfJpH24lr99a5QoP3QinaQ',
-        note: 'known same person across feishu and external wework',
-      },
-    ];
-    const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?');
-    const upsert = db.prepare(`
-      INSERT INTO user_aliases (canonical_user_id, alias_user_id, note)
-      VALUES (?, ?, ?)
-      ON CONFLICT(alias_user_id) DO UPDATE SET
-        canonical_user_id = excluded.canonical_user_id,
-        note = excluded.note
-    `);
-    for (const row of aliases) {
-      if (userExists.get(row.canonical)) {
-        upsert.run(row.canonical, row.alias, row.note);
-      }
-    }
-  });
-
-  // --- 测试环境：关闭生产 wework bot，新增测试 bot 绑定 otcclaw ---
-
-  runOnce('wework-test-bot-setup', () => {
-    // 1. 关闭现有 wework bot 的 auto_start（生产 otcclaw + ticlaw）
-    db.prepare("UPDATE bot_apps SET auto_start = 0 WHERE channel = 'wework'").run();
-
-    // 2. 注册测试 bot
-    const testBotId = 'aib-l7p7MyNNEpadH2ELbHpZ0ozjczqiaWE';
-    const testSecret = '4qra3bvf4bCZW8VAL6yWnPMhNupyRSQc6HAMCGneZd2';
-    const exists = db.prepare('SELECT 1 FROM bot_apps WHERE id = ?').get(testBotId);
-    if (!exists) {
-      db.prepare(
-        'INSERT INTO bot_apps (id, channel, name, secret, config, show_thinking, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(testBotId, 'wework', 'otcclaw-test-bot', testSecret, '{}', 1, 1);
-    } else {
-      db.prepare('UPDATE bot_apps SET auto_start = 1 WHERE id = ?').run(testBotId);
-    }
-
-    // 3. 绑定测试 bot → otcclaw agent
-    const agentRow = db.prepare("SELECT id FROM agents WHERE name = 'otcclaw'").get() as { id: string } | undefined;
-    if (agentRow) {
-      const assignExists = db.prepare("SELECT 1 FROM agent_assignments WHERE channel = 'wework' AND app_id = ?").get(testBotId);
-      if (!assignExists) {
-        db.prepare("INSERT INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)")
-          .run(uuid(), agentRow.id, 'wework', testBotId);
       }
     }
   });
