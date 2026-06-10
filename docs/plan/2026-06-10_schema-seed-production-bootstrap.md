@@ -89,7 +89,8 @@ git diff --check
 
 ## Commit Hash
 
-- 待提交后回填。
+- 实现提交：`6d22e60a7faa7334dd005aad707e8c47f06848aa`
+- 留档回填提交：本段所在提交。
 
 ## 构建与运行影响
 
