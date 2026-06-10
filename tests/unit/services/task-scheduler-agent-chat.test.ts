@@ -59,11 +59,20 @@ describe('task scheduler agent_chat tasks', () => {
       appId: 'cli_app',
     });
 
-    expect(mockDeliverMessage).toHaveBeenCalledWith(
+    expect(mockDeliverMessage).toHaveBeenNthCalledWith(
+      1,
       'feishu',
       'oc_group_chat',
       'cli_app',
       '每日健康播报结果',
+      '[task-scheduler]',
+    );
+    expect(mockDeliverMessage).toHaveBeenNthCalledWith(
+      2,
+      'wework:wework-bot',
+      'gzxujun',
+      null,
+      expect.stringMatching(/^\d{2}：\d{2}：\d{2} ： \[[^\]]+\], 每日健康播报, 执行完成， null$/),
       '[task-scheduler]',
     );
 
@@ -72,6 +81,51 @@ describe('task scheduler agent_chat tasks', () => {
     ).get(task.id) as { last_run_at: number | null; last_result: string | null; next_run_at: number | null };
     expect(row.last_run_at).toBeGreaterThan(0);
     expect(row.last_result).toBe('每日健康播报结果');
+    expect(row.next_run_at).toBeGreaterThan(Date.now());
+  });
+
+  it('notifies failures without blocking task advancement', async () => {
+    mockRunAgenticChat.mockRejectedValue(new Error('模型失败'));
+    mockDeliverMessage.mockResolvedValue(true);
+
+    const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+    const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
+    const { getAgent } = await import('../../../src/llm/agents/config.js');
+
+    const agent = getAgent('standard-test');
+    const created = createScheduledTask({
+      agentId: agent.id,
+      name: '失败播报',
+      cronExpr: '0 8 * * *',
+      taskType: 'agent_chat',
+      payload: JSON.stringify({ prompt: '请生成失败播报' }),
+      channel: 'feishu',
+      targetId: 'oc_group_chat',
+      appId: 'cli_app',
+      createdBy: 'test-user',
+    });
+    expect(created.success).toBe(true);
+
+    const idPrefix = (created as any).id;
+    const task = unit.db.prepare('SELECT id FROM scheduled_tasks WHERE id LIKE ?').get(`${idPrefix}%`) as { id: string };
+    unit.db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(Date.now() - 1000, task.id);
+
+    await checkAndExecute();
+
+    expect(mockDeliverMessage).toHaveBeenCalledTimes(1);
+    expect(mockDeliverMessage).toHaveBeenCalledWith(
+      'wework:wework-bot',
+      'gzxujun',
+      null,
+      expect.stringMatching(/^\d{2}：\d{2}：\d{2} ： \[[^\]]+\], 失败播报, 执行失败， 模型失败$/),
+      '[task-scheduler]',
+    );
+
+    const row = unit.db.prepare(
+      'SELECT last_run_at, last_result, next_run_at FROM scheduled_tasks WHERE id = ?',
+    ).get(task.id) as { last_run_at: number | null; last_result: string | null; next_run_at: number | null };
+    expect(row.last_run_at).toBeGreaterThan(0);
+    expect(row.last_result).toBe('error: 模型失败');
     expect(row.next_run_at).toBeGreaterThan(Date.now());
   });
 });

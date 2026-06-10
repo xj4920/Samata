@@ -1,8 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUnitDb } from '../../helpers/unit-harness.js';
+
+const mockSendMessage = vi.hoisted(() => vi.fn());
+const mockGetConnectedWsClient = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../src/wework/bot.js', () => ({
+  getConnectedWsClient: mockGetConnectedWsClient,
+}));
 
 describe('deliver service', () => {
   const unit = useUnitDb();
+
+  beforeEach(() => {
+    mockSendMessage.mockReset();
+    mockGetConnectedWsClient.mockReset();
+  });
 
   it('sends Feishu oc_ targets as chat_id', async () => {
     unit.db.prepare(
@@ -18,5 +30,19 @@ describe('deliver service', () => {
     expect(sendSpy).toHaveBeenCalledWith('oc_group_chat', 'chat_id', 'text', { text: 'hello' });
 
     sendSpy.mockRestore();
+  });
+
+  it('sends Wework notifications through the selected bot', async () => {
+    mockGetConnectedWsClient.mockReturnValue({ sendMessage: mockSendMessage });
+    mockSendMessage.mockResolvedValue({});
+
+    const { deliverMessage } = await import('../../../src/services/deliver.js');
+
+    expect(await deliverMessage('wework:wework-bot', 'gzxujun', null, '任务完成')).toBe(true);
+    expect(mockGetConnectedWsClient).toHaveBeenCalledWith('wework-bot');
+    expect(mockSendMessage).toHaveBeenCalledWith('gzxujun', {
+      msgtype: 'markdown',
+      markdown: { content: '任务完成' },
+    });
   });
 });

@@ -16,6 +16,8 @@ const TAG = '[task-scheduler]';
 const SYSTEM_USER: User = { id: 'system', username: 'system', role: 'admin' };
 const DEFAULT_TASK_LOCK_MS = 10 * 60 * 1000;
 const TOOL_CALL_TASK_LOCK_MS = 6 * 60 * 60 * 1000;
+const TASK_NOTIFY_CHANNEL = process.env.SCHEDULED_TASK_NOTIFY_CHANNEL || 'wework:wework-bot';
+const TASK_NOTIFY_TARGET_ID = process.env.SCHEDULED_TASK_NOTIFY_TARGET_ID || 'gzxujun';
 
 function getLockMs(task: ScheduledTask): number {
   return task.task_type === 'tool_call' || task.task_type === 'agent_chat'
@@ -134,6 +136,32 @@ async function executeAgentChat(task: ScheduledTask): Promise<string | null> {
   return ok ? message.slice(0, 4000) : `delivery_failed: ${message.slice(0, 3983)}`;
 }
 
+function formatScheduledTaskTime(task: ScheduledTask): string {
+  const time = new Date(task.next_run_at ?? Date.now()).toLocaleTimeString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return time.replace(/:/g, '：');
+}
+
+async function notifyTaskFinished(
+  task: ScheduledTask,
+  status: '执行完成' | '执行失败',
+  detail: string,
+): Promise<void> {
+  if (!TASK_NOTIFY_TARGET_ID) return;
+  const message = `${formatScheduledTaskTime(task)} ： [${task.id}], ${task.name}, ${status}， ${detail || 'null'}`;
+  try {
+    const ok = await deliverMessage(TASK_NOTIFY_CHANNEL, TASK_NOTIFY_TARGET_ID, null, message, TAG);
+    if (!ok) log.warn(`${TAG} 定时任务状态通知失败: ${task.id}`);
+  } catch (err: any) {
+    log.warn(`${TAG} 定时任务状态通知异常 ${task.id}: ${err?.message ?? err}`);
+  }
+}
+
 export async function checkAndExecute(): Promise<void> {
   let tasks: ScheduledTask[];
   try {
@@ -164,14 +192,17 @@ export async function checkAndExecute(): Promise<void> {
 
       const nextRun = computeNextRun(task.cron_expr);
       markTaskExecuted(task.id, result, nextRun);
+      await notifyTaskFinished(task, '执行完成', 'null');
       log.file(`${TAG} 已执行: ${task.id.slice(0, 8)} (${task.name}) → next ${new Date(nextRun).toISOString()}`);
     } catch (err: any) {
-      log.error(`${TAG} 执行失败 ${task.id.slice(0, 8)}: ${err.message}`);
+      const errorMessage = err?.message ?? String(err);
+      log.error(`${TAG} 执行失败 ${task.id.slice(0, 8)}: ${errorMessage}`);
       // Still advance next_run_at to avoid stuck retries
       try {
         const nextRun = computeNextRun(task.cron_expr);
-        markTaskExecuted(task.id, `error: ${err.message}`, nextRun);
+        markTaskExecuted(task.id, `error: ${errorMessage}`, nextRun);
       } catch { /* ignore */ }
+      await notifyTaskFinished(task, '执行失败', errorMessage);
     }
   }
 }

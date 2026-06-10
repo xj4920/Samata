@@ -74,6 +74,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "空白项目启动"
     },
     {
+      "title": "otcclaw/ticlaw 定时任务对齐与执行通知",
+      "link": "/plan/2026-06-10_otcclaw-scheduled-task-alignment",
+      "sourcePath": "docs/plan/2026-06-10_otcclaw-scheduled-task-alignment.md",
+      "sortKey": "2026-06-10_otcclaw-scheduled-task-alignment.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "调度与任务"
+    },
+    {
       "title": "清理空迁移与 migrations 账本",
       "link": "/plan/2026-06-10_cleanup-empty-migrations",
       "sourcePath": "docs/plan/2026-06-10_cleanup-empty-migrations.md",

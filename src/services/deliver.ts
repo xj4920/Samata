@@ -27,11 +27,11 @@ export async function deliverTelegram(targetId: string, message: string): Promis
   await api.sendMessage(Number(targetId), message);
 }
 
-export async function deliverWework(targetId: string, message: string): Promise<void> {
-  const { getFirstConnectedWsClient } = await import('../wework/bot.js');
-  const ws = getFirstConnectedWsClient();
+export async function deliverWework(targetId: string, message: string, botIdOrName?: string): Promise<void> {
+  const { getConnectedWsClient } = await import('../wework/bot.js');
+  const ws = getConnectedWsClient(botIdOrName);
   if (!ws) {
-    log.error('[deliver] 无可用企微连接，无法发送');
+    log.error(botIdOrName ? `[deliver] 无可用企微连接: ${botIdOrName}` : '[deliver] 无可用企微连接，无法发送');
     return;
   }
   await ws.sendMessage(targetId, { msgtype: 'markdown', markdown: { content: message } });
@@ -54,7 +54,10 @@ export async function deliverMessage(
     } else if (channel === 'telegram' && targetId) {
       await deliverTelegram(targetId, message);
     } else if (channel === 'wework' && targetId) {
-      await deliverWework(targetId, message);
+      await deliverWework(targetId, message, appId ?? undefined);
+    } else if (channel.startsWith('wework:') && targetId) {
+      const [, botIdOrName] = channel.split(':', 2);
+      await deliverWework(targetId, message, botIdOrName);
     } else {
       log.print(`⏰ ${tag} ${message}`);
     }
