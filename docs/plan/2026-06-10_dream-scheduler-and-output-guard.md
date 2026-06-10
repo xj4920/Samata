@@ -81,4 +81,4 @@ NODE
 
 ## Commit
 
-- commit hash: 待提交后回填
+- implementation commit hash: `4d0c37c`
