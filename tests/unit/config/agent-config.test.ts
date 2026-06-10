@@ -142,7 +142,7 @@ describe('getAgentTools', () => {
   });
 
   describe('standard mode (doctor)', () => {
-    it('does not include private health plugin tools from platform schema', async () => {
+    it('does not include private plugin tools from platform schema', async () => {
       const names = await getToolNames('doctor');
       expect(names).toContain('update_memory');
       expect(names).not.toContain('query_clients');

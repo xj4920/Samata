@@ -29,7 +29,7 @@ export function seedTestAgents(db: Database.Database) {
       id: 'agent-doctor',
       name: 'doctor',
       displayName: '家庭医生',
-      description: 'Test health assistant fixture',
+      description: 'Test standard assistant fixture',
       toolsMode: 'standard',
       toolsList: ['update_memory'],
       blockTools: [],
