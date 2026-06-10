@@ -9,7 +9,7 @@ describe('wework session identity', () => {
 
     unit.db.prepare(
       `INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)`,
-    ).run('assign-wework-test', 'agent-alter-ego', 'wework', 'test-bot');
+    ).run('assign-wework-test', 'agent-admin', 'wework', 'test-bot');
     unit.db.prepare(
       `INSERT OR IGNORE INTO users (id, username, role, display_name) VALUES (?, ?, ?, ?)`,
     ).run('wework_zhangsan', 'legacy_zhangsan', 'user', '张三');
@@ -30,7 +30,7 @@ describe('wework session identity', () => {
 
     unit.db.prepare(
       `INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)`,
-    ).run('assign-wework-group-test', 'agent-alter-ego', 'wework', 'test-bot');
+    ).run('assign-wework-group-test', 'agent-admin', 'wework', 'test-bot');
 
     const sessions = new Map();
     const direct = getSession('test-bot', sessions, 'zhangsan', 'wework_zhangsan');
@@ -47,7 +47,7 @@ describe('wework session identity', () => {
 
     unit.db.prepare(
       `INSERT OR IGNORE INTO agent_assignments (id, agent_id, channel, app_id) VALUES (?, ?, ?, ?)`,
-    ).run('assign-wework-bound-user-test', 'agent-alter-ego', 'wework', 'test-bot');
+    ).run('assign-wework-bound-user-test', 'agent-admin', 'wework', 'test-bot');
     unit.db.prepare(
       `INSERT OR IGNORE INTO users (id, username, role, display_name) VALUES (?, ?, ?, ?)`,
     ).run('user-duoduo', 'duoduo', 'user', '多多');

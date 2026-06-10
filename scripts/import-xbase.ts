@@ -3,20 +3,19 @@
  * Phase 3: Bulk import Xbase directory into Samata documents via CLI API.
  *
  * Usage:
- *   npx tsx scripts/import-xbase.ts <xbase_dir> [--agent alter-ego]
+ *   npx tsx scripts/import-xbase.ts <xbase_dir> --agent <agent_name>
  *
  * Env:
  *   SAMATA_CLI_URL  (default http://127.0.0.1:3457)
  *   SAMATA_USER     (default admin username from env)
- *   SAMATA_AGENT    (default alter-ego)
+ *   SAMATA_AGENT    (optional default target agent)
  *
- * Progress: data/import-xbase-state.json (resume on re-run)
+ * Progress: data/import-xbase-state.<agent>.json (resume on re-run)
  */
 import fs from 'fs';
 import path from 'path';
 
 const EXTENSIONS = new Set(['.md', '.docx', '.pdf', '.txt', '.xlsx', '.csv', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.html', '.htm']);
-const STATE_FILE = path.resolve(process.cwd(), 'data/import-xbase-state.json');
 
 interface State {
   completed: string[];
@@ -25,20 +24,39 @@ interface State {
 
 interface CliSession {
   sessionId: string;
+  agentName: string;
+  agentDisplayName?: string;
 }
 
-function loadState(): State {
-  if (!fs.existsSync(STATE_FILE)) return { completed: [], failed: {} };
+function usage(): string {
+  return [
+    'Usage:',
+    '  npx tsx scripts/import-xbase.ts <xbase_dir> --agent <agent_name>',
+    '',
+    'Env:',
+    '  SAMATA_CLI_URL  default http://127.0.0.1:3457',
+    '  SAMATA_USER     default admin',
+    '  SAMATA_AGENT    optional default target agent',
+  ].join('\n');
+}
+
+function stateFileForAgent(agentName: string): string {
+  const safeName = agentName.replace(/[^A-Za-z0-9_-]+/g, '_');
+  return path.resolve(process.cwd(), `data/import-xbase-state.${safeName}.json`);
+}
+
+function loadState(stateFile: string): State {
+  if (!fs.existsSync(stateFile)) return { completed: [], failed: {} };
   try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) as State;
+    return JSON.parse(fs.readFileSync(stateFile, 'utf-8')) as State;
   } catch {
     return { completed: [], failed: {} };
   }
 }
 
-function saveState(state: State): void {
-  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
+function saveState(stateFile: string, state: State): void {
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf-8');
 }
 
 function collectFiles(root: string): string[] {
@@ -72,12 +90,24 @@ async function api<T>(baseUrl: string, method: string, apiPath: string, body?: u
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(usage());
+    process.exit(0);
+  }
+
   const xbaseDir = args.find(a => !a.startsWith('--'));
   const agentFlag = args.find(a => a.startsWith('--agent='))?.split('=')[1]
     || (args.includes('--agent') ? args[args.indexOf('--agent') + 1] : undefined);
 
   if (!xbaseDir) {
-    console.error('Usage: npx tsx scripts/import-xbase.ts <xbase_dir> [--agent alter-ego]');
+    console.error(usage());
+    process.exit(1);
+  }
+
+  const agentName = agentFlag || process.env.SAMATA_AGENT;
+  if (!agentName) {
+    console.error('Missing target agent. Provide --agent <agent_name> or SAMATA_AGENT.');
+    console.error(usage());
     process.exit(1);
   }
 
@@ -89,10 +119,10 @@ async function main() {
 
   const baseUrl = process.env.SAMATA_CLI_URL || 'http://127.0.0.1:3457';
   const username = process.env.SAMATA_USER || 'admin';
-  const agentName = agentFlag || process.env.SAMATA_AGENT || 'alter-ego';
+  const stateFile = stateFileForAgent(agentName);
 
   const files = collectFiles(resolvedRoot);
-  const state = loadState();
+  const state = loadState(stateFile);
   const completedSet = new Set(state.completed);
 
   console.log(`Xbase: ${resolvedRoot}`);
@@ -110,6 +140,12 @@ async function main() {
   );
   if (!ok || !session?.sessionId) {
     console.error('Failed to create CLI session');
+    process.exit(1);
+  }
+  if (session.agentName !== agentName) {
+    await api(baseUrl, 'DELETE', '/api/cli/session', { sessionId: session.sessionId }).catch(() => {});
+    console.error(`Target agent not available: requested=${agentName}, resolved=${session.agentName || '<empty>'}`);
+    console.error('Refusing to import documents into a different agent.');
     process.exit(1);
   }
 
@@ -154,11 +190,11 @@ async function main() {
 
       state.completed.push(filePath);
       delete state.failed[filePath];
-      saveState(state);
+      saveState(stateFile, state);
     } catch (e: any) {
       failed++;
       state.failed[filePath] = e.message;
-      saveState(state);
+      saveState(stateFile, state);
       console.log(`  ERROR: ${e.message}`);
     }
   }
@@ -181,7 +217,7 @@ async function main() {
   await api(baseUrl, 'DELETE', '/api/cli/session', { sessionId: session.sessionId }).catch(() => {});
 
   console.log(`\nDone: imported=${imported} skipped=${skipped} failed=${failed}`);
-  console.log(`State: ${STATE_FILE}`);
+  console.log(`State: ${stateFile}`);
 }
 
 main().catch(err => {

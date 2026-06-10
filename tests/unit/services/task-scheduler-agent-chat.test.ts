@@ -28,7 +28,7 @@ describe('task scheduler agent_chat tasks', () => {
     const { checkAndExecute } = await import('../../../src/services/task-scheduler.js');
     const { getAgent } = await import('../../../src/llm/agents/config.js');
 
-    const agent = getAgent('doctor');
+    const agent = getAgent('standard-test');
     const created = createScheduledTask({
       agentId: agent.id,
       name: '每日健康播报',
@@ -52,7 +52,7 @@ describe('task scheduler agent_chat tasks', () => {
     const [, prompt, user, options] = mockRunAgenticChat.mock.calls[0];
     expect(prompt).toBe('请生成每日健康播报');
     expect(user.id).toBe('test-user');
-    expect(options.agentConfig.name).toBe('doctor');
+    expect(options.agentConfig.name).toBe('standard-test');
     expect(options.deliveryContext).toEqual({
       channel: 'feishu',
       targetId: 'oc_group_chat',

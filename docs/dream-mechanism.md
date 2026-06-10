@@ -163,7 +163,7 @@ Dream 采用增量合并策略：
 | 决策 | 理由 |
 |------|------|
 | 文件存储而非 DB | dream 是 prompt 的一部分，纯文本易 git 管理和人工审阅 |
-| per-agent 隔离 | otcclaw 的金融工具经验不应污染 tutor 的教育工具经验 |
+| per-agent 隔离 | otcclaw 的金融工具经验不应污染 ticlaw 的研发工具经验 |
 | 独立 LLM 配置 | dream 分析可用低成本模型，不必与对话用同一个 |
 | 质量校验门控 | 宁可不写也不写垃圾，保证经验库质量 |
 | 按日期子目录 | `data/dreams/otcclaw/2026-05-12.md` 方便追溯和 diff |

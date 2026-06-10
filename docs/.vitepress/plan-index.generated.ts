@@ -49,6 +49,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "数据库初始化"
     },
     {
+      "title": "Schema Seed 清理与生产 Bootstrap 脚本",
+      "link": "/plan/2026-06-10_schema-seed-production-bootstrap",
+      "sourcePath": "docs/plan/2026-06-10_schema-seed-production-bootstrap.md",
+      "sortKey": "2026-06-10_schema-seed-production-bootstrap.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "数据库初始化与生产自举"
+    },
+    {
       "title": "清理 WeWork 环境变量历史 Seed 逻辑",
       "link": "/plan/2026-06-09_wework-env-seed-cleanup",
       "sourcePath": "docs/plan/2026-06-09_wework-env-seed-cleanup.md",
@@ -585,6 +598,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/permissions/resource-scopes"
       ],
       "topic": "资源作用域"
+    },
+    {
+      "title": "Schema Seed 清理与生产 Bootstrap 脚本",
+      "link": "/plan/2026-06-10_schema-seed-production-bootstrap",
+      "sourcePath": "docs/plan/2026-06-10_schema-seed-production-bootstrap.md",
+      "sortKey": "2026-06-10_schema-seed-production-bootstrap.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 工具权限"
     },
     {
       "title": "清理 schema.ts 硬编码 Seed",

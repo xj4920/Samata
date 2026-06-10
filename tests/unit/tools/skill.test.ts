@@ -42,9 +42,9 @@ describe('skill tools', () => {
 
     it('deletes skill', async () => {
       const { saveSkill, deleteSkill, getAllSkills } = await import('../../../src/commands/skill.js');
-      const agentId = await getAgentId('doctor');
+      const agentId = await getAgentId('standard-test');
 
-      await withContext({ agentName: 'doctor' }, () => {
+      await withContext({ agentName: 'standard-test' }, () => {
         saveSkill('ephemeral', '临时技能', agentId);
         const result = deleteSkill('ephemeral', agentId);
         expect(result.success).toBe(true);
@@ -56,8 +56,8 @@ describe('skill tools', () => {
 
     it('deleting nonexistent skill fails', async () => {
       const { deleteSkill } = await import('../../../src/commands/skill.js');
-      const agentId = await getAgentId('doctor');
-      const result = await withContext({ agentName: 'doctor' }, () =>
+      const agentId = await getAgentId('standard-test');
+      const result = await withContext({ agentName: 'standard-test' }, () =>
         deleteSkill('no-such-skill', agentId),
       );
       expect(result.success).toBe(false);
@@ -66,14 +66,14 @@ describe('skill tools', () => {
     it('skills are agent-scoped', async () => {
       const { saveSkill, getAllSkills } = await import('../../../src/commands/skill.js');
       const otcId = await getAgentId('otcclaw');
-      const docId = await getAgentId('doctor');
+      const secondAgentId = await getAgentId('standard-test');
 
       await withContext({ agentName: 'otcclaw' }, () =>
         saveSkill('agent-specific', '仅OTC', otcId),
       );
 
       expect(getAllSkills(otcId).length).toBe(1);
-      expect(getAllSkills(docId).length).toBe(0);
+      expect(getAllSkills(secondAgentId).length).toBe(0);
     });
   });
 });

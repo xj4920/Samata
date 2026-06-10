@@ -21,7 +21,7 @@ describe('prompt identity context', () => {
       'user-duoduo', 'duoduo', 'user', '多多',
     );
 
-    const agent = getAgent('doctor');
+    const agent = getAgent('standard-test');
     const user = { id: 'user-duoduo', username: 'duoduo', role: 'user' as const, display_name: '多多' };
     const prompt = runWithExecutionContext(
       { channel: 'feishu', user, agent },

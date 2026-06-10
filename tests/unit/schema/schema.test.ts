@@ -33,16 +33,15 @@ describe('schema integrity', () => {
   });
 
   describe('agent seed data', () => {
-    it('core platform agents exist', () => {
+    it('only the admin platform agent is bootstrapped by default', () => {
       const agents = ctx.db.prepare('SELECT name FROM agents ORDER BY name').all() as { name: string }[];
       const names = agents.map(a => a.name);
-      expect(names).toContain('otcclaw');
-      expect(names).toContain('admin');
+      expect(names).toEqual(['admin']);
     });
 
-    it('otcclaw has standard tools_mode', () => {
-      const row = ctx.db.prepare('SELECT tools_mode FROM agents WHERE name=?').get('otcclaw') as any;
-      expect(row.tools_mode).toBe('standard');
+    it('admin has all tools mode', () => {
+      const row = ctx.db.prepare('SELECT tools_mode FROM agents WHERE name=?').get('admin') as any;
+      expect(row.tools_mode).toBe('all');
     });
 
     it('agent IDs follow naming convention', () => {
@@ -53,7 +52,7 @@ describe('schema integrity', () => {
     });
   });
 
-  describe('runOnce idempotency', () => {
+  describe('schema idempotency', () => {
     it('user_aliases only constrains canonical_user_id', () => {
       const fks = ctx.db.prepare('PRAGMA foreign_key_list(user_aliases)').all() as { from: string; table: string }[];
       expect(fks.some(fk => fk.from === 'canonical_user_id' && fk.table === 'users')).toBe(true);
@@ -133,7 +132,7 @@ describe('schema integrity', () => {
         FROM bot_apps
         WHERE channel = 'feishu'
           OR id IN ('cli_a93212c0b7b9dcc5', 'cli_a9329f3af5b8dcc9')
-          OR name IN ('otcclaw-bot', 'tutor-bot')
+          OR name = 'otcclaw-bot'
       `).get() as { c: number };
 
       expect(feishuApps.c).toBe(0);
@@ -161,11 +160,11 @@ describe('schema integrity', () => {
       expect(assignments.c).toBe(0);
     });
 
-    it('does not seed optional, private, or person-specific agents', () => {
+    it('does not seed production business agents', () => {
       const row = ctx.db.prepare(`
         SELECT COUNT(*) as c
         FROM agents
-        WHERE name IN ('alter-ego', 'doctor', 'tutor', 'browser', 'ticlaw', 'falcon', 'potato', 'man')
+        WHERE name IN ('ticlaw', 'otcclaw')
       `).get() as { c: number };
 
       expect(row.c).toBe(0);
@@ -204,6 +203,11 @@ describe('schema integrity', () => {
       const user = ctx.db.prepare("SELECT role FROM users WHERE username='admin'").get() as any;
       expect(user).toBeDefined();
       expect(user.role).toBe('admin');
+    });
+
+    it('legacy default user is not seeded', () => {
+      const user = ctx.db.prepare("SELECT id FROM users WHERE id='user-001'").get();
+      expect(user).toBeUndefined();
     });
   });
 });

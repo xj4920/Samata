@@ -26,9 +26,21 @@ export function seedTestAgents(db: Database.Database) {
 
   const fixtures = [
     {
-      id: 'agent-doctor',
-      name: 'doctor',
-      displayName: '家庭医生',
+      id: 'agent-otcclaw',
+      name: 'otcclaw',
+      displayName: 'OTCClaw',
+      description: 'Test OTC fixture',
+      toolsMode: 'standard',
+      toolsList: ['sandbox_exec'],
+      blockTools: ['generate_video'],
+      preset: null,
+      userToolsMode: 'inherit',
+      userToolsList: [],
+    },
+    {
+      id: 'agent-standard-test',
+      name: 'standard-test',
+      displayName: '标准测试',
       description: 'Test standard assistant fixture',
       toolsMode: 'standard',
       toolsList: ['update_memory'],
@@ -38,10 +50,10 @@ export function seedTestAgents(db: Database.Database) {
       userToolsList: [],
     },
     {
-      id: 'agent-tutor',
-      name: 'tutor',
-      displayName: '教育辅导',
-      description: 'Test tutor fixture',
+      id: 'agent-learning-test',
+      name: 'learning-test',
+      displayName: '学习测试',
+      description: 'Test learning fixture',
       toolsMode: 'standard',
       toolsList: [
         'record_wrong_question',
@@ -55,10 +67,10 @@ export function seedTestAgents(db: Database.Database) {
       userToolsList: [],
     },
     {
-      id: 'agent-alter-ego',
-      name: 'alter-ego',
-      displayName: '个人分身',
-      description: 'Test personal assistant fixture',
+      id: 'agent-all-tools-test',
+      name: 'all-tools-test',
+      displayName: '全工具测试',
+      description: 'Test all-tools assistant fixture',
       toolsMode: 'all',
       toolsList: [],
       blockTools: [],
@@ -97,7 +109,7 @@ function seedClients(db: Database.Database) {
 }
 
 function seedTodos(db: Database.Database) {
-  const agentId = db.prepare("SELECT id FROM agents WHERE name='alter-ego'").get() as { id: string } | undefined;
+  const agentId = db.prepare("SELECT id FROM agents WHERE name='admin'").get() as { id: string } | undefined;
   if (!agentId) return;
 
   const ins = db.prepare(`

@@ -73,20 +73,20 @@ describe('knowledge tools', () => {
     it('knowledge is scoped per agent', async () => {
       const { addKnowledge, fetchKnowledge } = await import('../../../src/commands/knowledge.js');
       const otcId = await getAgentId('otcclaw');
-      const docId = await getAgentId('doctor');
+      const secondAgentId = await getAgentId('standard-test');
 
       await withContext({ channel: 'cli', role: 'admin', agentName: 'otcclaw' }, () =>
         addKnowledge({ question: 'OTC问题', answer: '仅OTC' }, otcId),
       );
-      await withContext({ channel: 'cli', role: 'admin', agentName: 'doctor' }, () =>
-        addKnowledge({ question: '医疗问题', answer: '仅医疗' }, docId),
+      await withContext({ channel: 'cli', role: 'admin', agentName: 'standard-test' }, () =>
+        addKnowledge({ question: '标准问题', answer: '仅标准测试' }, secondAgentId),
       );
 
       const otcSearch = fetchKnowledge('OTC', otcId);
-      const docSearch = fetchKnowledge('OTC', docId);
+      const secondSearch = fetchKnowledge('OTC', secondAgentId);
 
       expect(otcSearch.faq.length).toBeGreaterThan(0);
-      expect(docSearch.faq.length).toBe(0);
+      expect(secondSearch.faq.length).toBe(0);
     });
   });
 

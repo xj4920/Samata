@@ -40,7 +40,7 @@
   "knowledge": {
     "tags": {
       "otcclaw": ["期权", "对冲", "雪球"],
-      "tutor": ["语文", "数学", "英语"]
+      "ticlaw": ["代码", "日志", "发布"]
     }
   },
   "hedgeRatio": {

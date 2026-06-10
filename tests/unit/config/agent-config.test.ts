@@ -141,41 +141,41 @@ describe('getAgentTools', () => {
     });
   });
 
-  describe('standard mode (doctor)', () => {
+  describe('standard mode (standard-test)', () => {
     it('does not include private plugin tools from platform schema', async () => {
-      const names = await getToolNames('doctor');
+      const names = await getToolNames('standard-test');
       expect(names).toContain('update_memory');
       expect(names).not.toContain('query_clients');
       expect(names).not.toContain('query_trades');
     });
 
     it('does not include otcclaw-specific tools', async () => {
-      const names = await getToolNames('doctor');
+      const names = await getToolNames('standard-test');
       expect(names).not.toContain('query_clients');
       expect(names).not.toContain('query_trades');
       expect(names).not.toContain('analyze_sbl_usage');
     });
   });
 
-  describe('standard mode (tutor)', () => {
+  describe('standard mode (learning-test)', () => {
     it('includes wrong-question exclusive tools', async () => {
-      const names = await getToolNames('tutor');
+      const names = await getToolNames('learning-test');
       expect(names).toContain('record_wrong_question');
       expect(names).toContain('list_wrong_questions');
       expect(names).toContain('wrong_question_report');
     });
   });
 
-  describe('all mode (alter-ego)', () => {
+  describe('all mode (all-tools-test)', () => {
     it('includes most tools', async () => {
-      const names = await getToolNames('alter-ego');
+      const names = await getToolNames('all-tools-test');
       expect(names).toContain('search_knowledge');
       expect(names).toContain('list_todos');
       expect(names).toContain('sandbox_exec');
     });
 
     it('does not hardcode work plugin blocks in platform schema', async () => {
-      const names = await getToolNames('alter-ego');
+      const names = await getToolNames('all-tools-test');
       expect(names).toContain('query_clients');
       expect(names).toContain('query_trades');
     });
@@ -201,10 +201,10 @@ describe('getAgentTools', () => {
 
     it('toolsMode=all does not bypass MCP agent scope', async () => {
       setMockMcpTools([devtoolsTool, logyiTool], {
-        'alter-ego': [devtoolsTool],
+        'all-tools-test': [devtoolsTool],
       });
 
-      const names = await getToolNames('alter-ego');
+      const names = await getToolNames('all-tools-test');
 
       expect(names).toContain('mcp_devtools_navigate_page');
       expect(names).not.toContain('mcp_logyi_search_logs');
@@ -212,14 +212,14 @@ describe('getAgentTools', () => {
   });
 
   describe('channel filtering', () => {
-    it('alter-ego (all mode) on CLI includes agent management tools', async () => {
-      const names = await getToolNames('alter-ego', true, 'cli');
+    it('all-tools-test (all mode) on CLI includes agent management tools', async () => {
+      const names = await getToolNames('all-tools-test', true, 'cli');
       expect(names).toContain('list_agents');
       expect(names).toContain('save_agent');
     });
 
-    it('alter-ego (all mode) on feishu strips CLI-only tools', async () => {
-      const names = await getToolNames('alter-ego', true, 'feishu');
+    it('all-tools-test (all mode) on feishu strips CLI-only tools', async () => {
+      const names = await getToolNames('all-tools-test', true, 'feishu');
       expect(names).not.toContain('list_agents');
       expect(names).not.toContain('save_agent');
       expect(names).not.toContain('delete_agent');

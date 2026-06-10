@@ -345,7 +345,7 @@ CREATE TABLE knowledge_agents (
 ```
 
 **关键设计**：
-- `knowledge_agents` 关联表实现多对多——一条 FAQ 可关联多个 agent（如"公司介绍"可同时用于 otcclaw 和 tutor）
+- `knowledge_agents` 关联表实现多对多——一条 FAQ 可关联多个 agent（如"公司介绍"可同时用于 otcclaw 和 ticlaw）
 - `document_id` 列为**退役字段**：migration 后所有 `document_id IS NOT NULL` 的行已删除，仅手动 FAQ（`document_id IS NULL`）保留
 - 唯一索引确保 question 不重复
 
@@ -447,7 +447,7 @@ data/documents/
     9de8ee9e/
       original.docx
       parsed.md
-  agent-tutor/
+  agent-ticlaw/
     <docId[:8]>/
       ...
 ```

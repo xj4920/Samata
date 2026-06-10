@@ -79,12 +79,12 @@ describe('RBAC', () => {
         'user-carol', 'carol', 'user',
       );
       ctx.db.prepare(`INSERT INTO agent_members (id, agent_id, user_id, role, created_at) VALUES (?, ?, ?, ?, datetime('now'))`).run(
-        'am-carol-doc', 'agent-doctor', 'user-carol', 'user',
+        'am-carol-standard', 'agent-standard-test', 'user-carol', 'user',
       );
 
       const result = runWithExecutionContext(
         { channel: 'feishu' as any, user: { id: 'user-carol', username: 'carol', role: 'user' } },
-        () => isAgentAdmin('agent-doctor'),
+        () => isAgentAdmin('agent-standard-test'),
       );
       expect(result).toBe(false);
     });

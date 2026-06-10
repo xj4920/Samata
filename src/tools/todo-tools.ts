@@ -22,9 +22,8 @@ const TODO_TAGS = loadTodoTags();
 
 function getTodoReadAgentId(): string | undefined {
   const agent = getCurrentAgent();
-  // alter-ego is the user's personal assistant; it should see that user's todos
-  // even when they were created from another specialized agent.
-  return agent?.name === 'alter-ego' ? undefined : agent?.id;
+  // Admin has a platform view; business agents remain scoped to their own todos.
+  return agent?.name === 'admin' ? undefined : agent?.id;
 }
 
 export const toolDefinitions: Anthropic.Tool[] = [

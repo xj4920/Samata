@@ -27,6 +27,8 @@ data/samata.db-wal
 config/mcp-servers.json
 config/monitor.json
 config/agent-tool-bindings*.json
+config/production-bootstrap*.json
+!config/production-bootstrap.example.json
 
 # Temp test scripts
 scripts/test_*.mjs

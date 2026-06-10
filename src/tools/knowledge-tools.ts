@@ -84,7 +84,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {
         knowledge_id: { type: 'string', description: '知识条目 ID 或 ID 前缀（通过 search_knowledge 获取）' },
-        agent_name: { type: 'string', description: 'Agent 名称（如 otcclaw、doctor、tutor）' },
+        agent_name: { type: 'string', description: 'Agent 名称（如 admin、ticlaw、otcclaw）' },
       },
       required: ['knowledge_id', 'agent_name'],
     },

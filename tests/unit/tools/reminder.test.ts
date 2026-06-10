@@ -12,7 +12,7 @@ describe('reminder tools', () => {
   describe('command layer (createReminder / listReminders / cancelReminder)', () => {
     it('creates and lists reminders', async () => {
       const { createReminder, listReminders } = await import('../../../src/commands/reminder.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const result = createReminder({
         agentId,
@@ -31,7 +31,7 @@ describe('reminder tools', () => {
 
     it('cancels a reminder', async () => {
       const { createReminder, cancelReminder, listReminders } = await import('../../../src/commands/reminder.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const created = createReminder({
         agentId,
@@ -52,7 +52,7 @@ describe('reminder tools', () => {
 
     it('getPendingReminders returns only past-due pending reminders', async () => {
       const { createReminder, getPendingReminders } = await import('../../../src/commands/reminder.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       createReminder({
         agentId,
@@ -79,7 +79,7 @@ describe('reminder tools', () => {
     it('returns error without deliveryContext', async () => {
       const reminderTools = await import('../../../src/tools/reminder-tools.js');
 
-      const result = await withContext({ agentName: 'alter-ego' }, () =>
+      const result = await withContext({ agentName: 'admin' }, () =>
         reminderTools.handleTool('set_reminder', {
           message: '无context',
           remind_at: new Date(Date.now() + 3600000).toISOString(),
@@ -92,7 +92,7 @@ describe('reminder tools', () => {
     it('list_reminders via handleTool works', async () => {
       const reminderTools = await import('../../../src/tools/reminder-tools.js');
 
-      const result = await withContext({ agentName: 'alter-ego' }, () =>
+      const result = await withContext({ agentName: 'admin' }, () =>
         reminderTools.handleTool('list_reminders', {}),
       );
       expect(result).toBeTruthy();
@@ -101,7 +101,7 @@ describe('reminder tools', () => {
     it('persists Feishu group chat delivery context for reminders', async () => {
       const reminderTools = await import('../../../src/tools/reminder-tools.js');
 
-      const result = await withContext({ agentName: 'alter-ego' }, () =>
+      const result = await withContext({ agentName: 'admin' }, () =>
         reminderTools.handleTool('set_reminder', {
           message: '群提醒',
           delay_minutes: 5,

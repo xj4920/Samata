@@ -20,7 +20,7 @@ describe('schedule tools', () => {
   describe('command layer', () => {
     it('creates and lists tasks', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const result = createScheduledTask({
         agentId,
@@ -60,7 +60,7 @@ describe('schedule tools', () => {
 
     it('creates agent_chat tasks with a prompt payload', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('doctor');
+      const agentId = await getAgentId('standard-test');
 
       const result = createScheduledTask({
         agentId,
@@ -181,7 +181,7 @@ describe('schedule tools', () => {
 
     it('updates a task (disable)', async () => {
       const { createScheduledTask, updateScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const created = createScheduledTask({
         agentId,
@@ -203,7 +203,7 @@ describe('schedule tools', () => {
 
     it('deletes a task', async () => {
       const { createScheduledTask, deleteScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const created = createScheduledTask({
         agentId,
@@ -225,7 +225,7 @@ describe('schedule tools', () => {
 
     it('invalid cron expr fails', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const result = createScheduledTask({
         agentId,
@@ -240,12 +240,12 @@ describe('schedule tools', () => {
 
     it('tasks are agent-scoped', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
-      const agentId1 = await getAgentId('alter-ego');
-      const agentId2 = await getAgentId('doctor');
+      const agentId1 = await getAgentId('admin');
+      const agentId2 = await getAgentId('standard-test');
 
       createScheduledTask({
         agentId: agentId1,
-        name: 'ego-task',
+        name: 'admin-task',
         cronExpr: '0 9 * * *',
         taskType: 'remind',
         payload: JSON.stringify({ message: 'test' }),
@@ -258,7 +258,7 @@ describe('schedule tools', () => {
 
     it('claims a due task only once until the lock expires', async () => {
       const { createScheduledTask, claimDueScheduledTask } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const created = createScheduledTask({
         agentId,
@@ -287,7 +287,7 @@ describe('schedule tools', () => {
 
     it('markTaskExecuted clears the lock and advances next_run_at', async () => {
       const { createScheduledTask, markTaskExecuted } = await import('../../../src/commands/scheduled-task.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const created = createScheduledTask({
         agentId,
@@ -416,7 +416,7 @@ describe('schedule tools', () => {
     it('returns error without deliveryContext', async () => {
       const scheduleTools = await import('../../../src/tools/schedule-tools.js');
 
-      const result = await withContext({ agentName: 'alter-ego' }, () =>
+      const result = await withContext({ agentName: 'admin' }, () =>
         scheduleTools.handleTool('create_scheduled_task', {
           name: 'no-ctx',
           cron_expr: '0 9 * * *',
@@ -431,7 +431,7 @@ describe('schedule tools', () => {
     it('shows system-created scheduled tasks for the current agent', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const scheduleTools = await import('../../../src/tools/schedule-tools.js');
-      const agentId = await getAgentId('alter-ego');
+      const agentId = await getAgentId('admin');
 
       const systemTask = createScheduledTask({
         agentId,
@@ -444,13 +444,13 @@ describe('schedule tools', () => {
       });
       expect(systemTask.success).toBe(true);
 
-      const listed = await withContext({ agentName: 'alter-ego' }, () =>
+      const listed = await withContext({ agentName: 'admin' }, () =>
         scheduleTools.handleTool('list_scheduled_tasks', {}),
       );
       const parsed = JSON.parse(listed!);
       expect(parsed.map((task: any) => task.name)).toContain('system-visible');
 
-      const updated = await withContext({ agentName: 'alter-ego' }, () =>
+      const updated = await withContext({ agentName: 'admin' }, () =>
         scheduleTools.handleTool('update_scheduled_task', {
           id: (systemTask as any).id,
           enabled: false,
@@ -462,7 +462,7 @@ describe('schedule tools', () => {
     it('persists Feishu group chat delivery context for scheduled tasks', async () => {
       const scheduleTools = await import('../../../src/tools/schedule-tools.js');
 
-      const result = await withContext({ agentName: 'alter-ego' }, () =>
+      const result = await withContext({ agentName: 'admin' }, () =>
         scheduleTools.handleTool('create_scheduled_task', {
           name: '群定时任务',
           cron_expr: '0 8 * * *',
