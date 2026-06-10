@@ -62,6 +62,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "数据库初始化与生产自举"
     },
     {
+      "title": "README 空白项目启动说明",
+      "link": "/plan/2026-06-10_readme-blank-start-guide",
+      "sourcePath": "docs/plan/2026-06-10_readme-blank-start-guide.md",
+      "sortKey": "2026-06-10_readme-blank-start-guide.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "空白项目启动"
+    },
+    {
       "title": "清理 WeWork 环境变量历史 Seed 逻辑",
       "link": "/plan/2026-06-09_wework-env-seed-cleanup",
       "sourcePath": "docs/plan/2026-06-09_wework-env-seed-cleanup.md",
