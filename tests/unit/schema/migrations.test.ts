@@ -1,10 +1,14 @@
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import { setupUnitDb, teardownDb, type UnitTestContext } from '../../helpers/unit-harness.js';
 
 describe('Umzug migration runner', () => {
   let ctx: UnitTestContext | null = null;
   let standaloneDb: Database.Database | null = null;
+  let tempDir: string | null = null;
 
   afterEach(() => {
     if (ctx) {
@@ -13,16 +17,33 @@ describe('Umzug migration runner', () => {
     }
     try { standaloneDb?.close(); } catch {}
     standaloneDb = null;
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+    }
   });
 
-  it('records source migrations in the existing migrations table', async () => {
+  it('records discovered migrations in the existing migrations table', async () => {
     ctx = await setupUnitDb();
+    tempDir = mkdtempSync(join(tmpdir(), 'samata-migration-test-'));
+    const migrationName = 'unit_test_migration';
+    writeFileSync(
+      join(tempDir, `${migrationName}.js`),
+      `
+export async function up({ db }) {
+  db.exec("CREATE TABLE IF NOT EXISTS unit_migration_marker (id TEXT PRIMARY KEY)");
+  db.prepare("INSERT OR IGNORE INTO unit_migration_marker (id) VALUES (?)").run("ran");
+}
+`,
+    );
 
-    const row = ctx.db.prepare(
-      "SELECT id FROM migrations WHERE id = '20260610_0001_migration_runner_smoke'",
-    ).get() as { id: string } | undefined;
+    const { createMigrator } = await import('../../../src/db/migrate.js');
+    await createMigrator({ db: ctx.db, migrationsGlob: join(tempDir, '*.js') }).up();
 
-    expect(row?.id).toBe('20260610_0001_migration_runner_smoke');
+    const migration = ctx.db.prepare('SELECT id FROM migrations WHERE id = ?').get(migrationName) as { id: string } | undefined;
+    const marker = ctx.db.prepare('SELECT id FROM unit_migration_marker WHERE id = ?').get('ran') as { id: string } | undefined;
+    expect(migration?.id).toBe(migrationName);
+    expect(marker?.id).toBe('ran');
   });
 
   it('running initDatabase again does not duplicate migration rows', async () => {

@@ -74,6 +74,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "空白项目启动"
     },
     {
+      "title": "清理空迁移与 migrations 账本",
+      "link": "/plan/2026-06-10_cleanup-empty-migrations",
+      "sourcePath": "docs/plan/2026-06-10_cleanup-empty-migrations.md",
+      "sortKey": "2026-06-10_cleanup-empty-migrations.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "数据库迁移"
+    },
+    {
       "title": "清理 WeWork 环境变量历史 Seed 逻辑",
       "link": "/plan/2026-06-09_wework-env-seed-cleanup",
       "sourcePath": "docs/plan/2026-06-09_wework-env-seed-cleanup.md",
