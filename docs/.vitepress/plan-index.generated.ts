@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Schema/Seed 边界与 Umzug Migration 入口",
+      "link": "/plan/2026-06-10_schema-seed-umzug-boundary",
+      "sourcePath": "docs/plan/2026-06-10_schema-seed-umzug-boundary.md",
+      "sortKey": "2026-06-10_schema-seed-umzug-boundary.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "数据库初始化"
+    },
+    {
       "title": "清理 WeWork 环境变量历史 Seed 逻辑",
       "link": "/plan/2026-06-09_wework-env-seed-cleanup",
       "sourcePath": "docs/plan/2026-06-09_wework-env-seed-cleanup.md",

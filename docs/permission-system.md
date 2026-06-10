@@ -114,7 +114,7 @@ isAgentMember(agentId) = isSystemAdmin()  // 自动通过
 ### 限制
 
 - **不可写入任何资源**：knowledge/skill/memory/document 的 add/update/delete 均被拒绝
-- **user_tools_list blocklist** 阻止 mutation 工具（seed 数据包含 23+ 个工具）
+- **user_tools_list blocklist** 阻止 mutation 工具（平台默认初始化包含 23+ 个工具）
 - **LLM 权限描述注入**：system prompt 中会提示"不可新增、修改、删除"
 
 ### /memory 命令权限细节
@@ -181,7 +181,7 @@ isAgentMember(agentId) = isSystemAdmin()  // 自动通过
 
 `exec_cmd`、`reload_app`、`read_file`、`list_directory`、`write_file`、`edit_file`、`add_knowledge`、`update_knowledge`、`delete_knowledge`、`assign_knowledge_agent`、`unassign_knowledge_agent`、`save_skill`、`delete_skill`、`save_memory`、`update_memory`、`delete_memory`、`create_todo`、`update_todo`、`delete_todo`、`set_reminder`、`cancel_reminder`、`import_document`、`delete_document`
 
-> 代码位置：`src/db/schema.ts` — `seed-member-default-blocklist` migration
+> 代码位置：legacy 初始化仍在 `src/db/schema.ts` 的 `seed-member-default-blocklist`；新增业务工具绑定请使用 `scripts/bind-agent-tools.ts`，不要追加 schema migration。
 
 ---
 
@@ -275,5 +275,7 @@ Agent User (agent_members.role='user' 或无 membership)
 | `src/commands/knowledge.ts` | `ensureKnowledgeWriteAccess()` — knowledge 写权限 |
 | `src/commands/skill.ts` | `saveSkill`/`deleteSkill` 权限检查 |
 | `src/commands/agent.ts` | agent 子命令权限矩阵 |
-| `src/db/schema.ts` | DB schema、seed data、migrations |
+| `src/db/schema.ts` | 基础 schema 与 legacy `runOnce` bridge |
+| `src/db/migrate.ts` | Umzug migration runner，新 migration 入口 |
+| `src/db/migrations/` | 新增数据库 migration 文件 |
 | `src/tools/agent-tools.ts` | CLI-only channel 双重守卫 |

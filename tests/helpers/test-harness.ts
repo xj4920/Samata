@@ -118,8 +118,8 @@ export async function setupTestAgent(agentName: string): Promise<TestContext> {
     insertMig.run(id);
   }
 
-  const { initSchema } = await import('../../src/db/schema.js');
-  initSchema();
+  const { initDatabase } = await import('../../src/db/schema.js');
+  await initDatabase();
 
   const { seedTestData } = await import('./seed-data.js');
   seedTestData(memoryDb);

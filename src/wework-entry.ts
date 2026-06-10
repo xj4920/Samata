@@ -10,7 +10,7 @@
  */
 import 'dotenv/config';
 import { createServer } from 'node:http';
-import { initSchema } from './db/schema.js';
+import { initDatabase } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
@@ -25,7 +25,7 @@ async function main() {
   log.print('  Samata — 企微 Bot（WebSocket 长连接）');
   log.print('='.repeat(40) + '\n');
 
-  initSchema();
+  await initDatabase();
 
   const llmReady = await initProviders();
   if (!llmReady) {

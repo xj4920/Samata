@@ -137,16 +137,20 @@ export interface UnitTestContext {
   db: Database.Database;
 }
 
+export interface SetupUnitDbOptions {
+  seedTestAgents?: boolean;
+}
+
 export function setMockMcpTools(allTools: any[], byAgent: Record<string, any[]> = {}) {
   mockMcpState.allTools = allTools;
   mockMcpState.byAgent = new Map(Object.entries(byAgent));
 }
 
 /**
- * Initialize a fresh in-memory DB with full schema and seed agents.
+ * Initialize a fresh in-memory DB with full schema and optional test agents.
  * Also inserts a default test user and sets it as current user.
  */
-export async function setupUnitDb(): Promise<UnitTestContext> {
+export async function setupUnitDb(options: SetupUnitDbOptions = {}): Promise<UnitTestContext> {
   setMockMcpTools([]);
   memoryDb = new Database(':memory:');
   memoryDb.pragma('journal_mode = WAL');
@@ -154,8 +158,13 @@ export async function setupUnitDb(): Promise<UnitTestContext> {
 
   prefillFsMigrations(memoryDb);
 
-  const { initSchema } = await import('../../src/db/schema.js');
-  initSchema();
+  const { initDatabase } = await import('../../src/db/schema.js');
+  await initDatabase();
+
+  if (options.seedTestAgents !== false) {
+    const { seedTestAgents } = await import('./seed-data.js');
+    seedTestAgents(memoryDb);
+  }
 
   memoryDb.prepare(
     `INSERT OR IGNORE INTO users (id, username, role) VALUES (?, ?, ?)`,

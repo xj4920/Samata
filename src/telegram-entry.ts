@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { initSchema } from './db/schema.js';
+import { initDatabase } from './db/schema.js';
 import { initProviders } from './llm/provider.js';
 import { setCurrentUser } from './auth/rbac.js';
 import { closeDb } from './db/connection.js';
@@ -8,7 +8,7 @@ import { log } from './utils/logger.js';
 import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 
 async function main() {
-  initSchema();
+  await initDatabase();
 
   const llmReady = await initProviders();
   if (!llmReady) {

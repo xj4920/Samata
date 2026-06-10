@@ -5,7 +5,7 @@ describe('schema integrity', () => {
   let ctx: UnitTestContext;
 
   beforeEach(async () => {
-    ctx = await setupUnitDb();
+    ctx = await setupUnitDb({ seedTestAgents: false });
   });
 
   afterEach(() => {
@@ -33,23 +33,16 @@ describe('schema integrity', () => {
   });
 
   describe('agent seed data', () => {
-    it('all 4 default agents exist', () => {
+    it('core platform agents exist', () => {
       const agents = ctx.db.prepare('SELECT name FROM agents ORDER BY name').all() as { name: string }[];
       const names = agents.map(a => a.name);
       expect(names).toContain('otcclaw');
-      expect(names).toContain('alter-ego');
-      expect(names).toContain('doctor');
-      expect(names).toContain('tutor');
+      expect(names).toContain('admin');
     });
 
     it('otcclaw has standard tools_mode', () => {
       const row = ctx.db.prepare('SELECT tools_mode FROM agents WHERE name=?').get('otcclaw') as any;
       expect(row.tools_mode).toBe('standard');
-    });
-
-    it('alter-ego has all tools_mode', () => {
-      const row = ctx.db.prepare('SELECT tools_mode FROM agents WHERE name=?').get('alter-ego') as any;
-      expect(row.tools_mode).toBe('all');
     });
 
     it('agent IDs follow naming convention', () => {
@@ -168,11 +161,11 @@ describe('schema integrity', () => {
       expect(assignments.c).toBe(0);
     });
 
-    it('does not seed private or person-specific agents', () => {
+    it('does not seed optional, private, or person-specific agents', () => {
       const row = ctx.db.prepare(`
         SELECT COUNT(*) as c
         FROM agents
-        WHERE name IN ('ticlaw', 'falcon', 'potato', 'man')
+        WHERE name IN ('alter-ego', 'doctor', 'tutor', 'browser', 'ticlaw', 'falcon', 'potato', 'man')
       `).get() as { c: number };
 
       expect(row.c).toBe(0);

@@ -11,6 +11,20 @@ npm run server
 npm run cli
 ```
 
+## 数据库迁移与 Seed 边界
+
+启动期会先执行 legacy `initSchema()`，用于基础建表和历史 `runOnce` 迁移；随后执行 Umzug migration runner。新增数据库迁移一律放在 `src/db/migrations/`，不要继续追加到 `src/db/schema.ts`。
+
+```bash
+npm run db:migrate
+```
+
+`npm run db:migrate` 复用 SQLite `migrations` 表记录执行状态，适合本地或部署前显式验证。默认 Agent / 默认成员这类平台基线仍由 legacy 初始化保证；开发、演示、业务插件绑定和 Bot 配置不应作为启动 seed 写入平台 schema。
+
+## Bot 配置
+
+飞书、企微和 Telegram Bot 配置以 SQLite `bot_apps` 和 `agent_assignments` 为准，通过 CLI 的 `/agent bot-app`、`/agent assign`、`/agent bot-app start|stop` 管理。`WEWORK_AIBOT_*` 不再作为自动写入 `bot_apps` 的入口；需要启用企微 Bot 时，先显式创建/绑定 Bot app，再启动服务或独立企微进程。
+
 ## Docker 部署
 
 Docker 镜像会同时打包 Samata 主应用和同级目录下的源码插件：
@@ -26,7 +40,7 @@ source/
 
 ```bash
 cp .env.example .env
-# 编辑 .env，配置 LLM Provider、Bot 凭证和外部服务密钥
+# 编辑 .env，配置 LLM Provider、插件和外部服务密钥；Bot app 凭证通过 CLI 写入 SQLite
 npm run docker:samata:up
 docker compose --env-file /dev/null logs -f samata
 ```

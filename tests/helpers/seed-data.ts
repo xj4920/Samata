@@ -3,11 +3,87 @@ import { v4 as uuid } from 'uuid';
 
 /**
  * Insert test seed data into the in-memory DB.
- * Called after initSchema() so all tables + default agents already exist.
+ * Called after initSchema() so all tables already exist.
  */
 export function seedTestData(db: Database.Database) {
+  seedTestAgents(db);
   seedClients(db);
   seedTodos(db);
+}
+
+export function seedTestAgents(db: Database.Database) {
+  const insAgent = db.prepare(`
+    INSERT OR IGNORE INTO agents (
+      id, name, display_name, description, tools_mode, tools_list,
+      block_tools, preset, user_tools_mode, user_tools_list, created_by
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insMember = db.prepare(`
+    INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const fixtures = [
+    {
+      id: 'agent-doctor',
+      name: 'doctor',
+      displayName: '家庭医生',
+      description: 'Test health assistant fixture',
+      toolsMode: 'standard',
+      toolsList: ['update_memory'],
+      blockTools: [],
+      preset: null,
+      userToolsMode: 'inherit',
+      userToolsList: [],
+    },
+    {
+      id: 'agent-tutor',
+      name: 'tutor',
+      displayName: '教育辅导',
+      description: 'Test tutor fixture',
+      toolsMode: 'standard',
+      toolsList: [
+        'record_wrong_question',
+        'list_wrong_questions',
+        'mark_wrong_question_mastered',
+        'wrong_question_report',
+      ],
+      blockTools: [],
+      preset: null,
+      userToolsMode: 'inherit',
+      userToolsList: [],
+    },
+    {
+      id: 'agent-alter-ego',
+      name: 'alter-ego',
+      displayName: '个人分身',
+      description: 'Test personal assistant fixture',
+      toolsMode: 'all',
+      toolsList: [],
+      blockTools: [],
+      preset: null,
+      userToolsMode: 'inherit',
+      userToolsList: [],
+    },
+  ];
+
+  for (const agent of fixtures) {
+    insAgent.run(
+      agent.id,
+      agent.name,
+      agent.displayName,
+      agent.description,
+      agent.toolsMode,
+      agent.toolsList.length > 0 ? JSON.stringify(agent.toolsList) : null,
+      agent.blockTools.length > 0 ? JSON.stringify(agent.blockTools) : null,
+      agent.preset,
+      agent.userToolsMode,
+      agent.userToolsList.length > 0 ? JSON.stringify(agent.userToolsList) : null,
+      'admin-001',
+    );
+    insMember.run(`test-${agent.id}-admin`, agent.id, 'admin-001', 'admin');
+  }
 }
 
 function seedClients(db: Database.Database) {

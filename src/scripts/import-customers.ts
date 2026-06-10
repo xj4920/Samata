@@ -1,5 +1,5 @@
 import XLSX from 'xlsx';
-import { initSchema } from '../db/schema.js';
+import { initDatabase } from '../db/schema.js';
 import { getDb, closeDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
 
@@ -10,8 +10,8 @@ const STATUS_MAP: Record<string, string> = {
   'PENDING': 'initial_contact',
 };
 
-function importCustomers(): void {
-  initSchema();
+async function importCustomers(): Promise<void> {
+  await initDatabase();
   const db = getDb();
 
   const workbook = XLSX.readFile('/Users/simon/topics/agent/data/customers/北向客户OnBoard-Last.xlsx');

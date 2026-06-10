@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { resolve, join, isAbsolute, relative, sep, extname } from 'path';
 import { getDb } from './connection.js';
 import { v4 as uuid } from 'uuid';
-import { TOOL_PRESETS, COMMON_SET } from '../llm/agents/config.js';
 
 /** System tools beyond COMMON_SET granted to TIClaw agent */
 const TITANS_CODE_TOOLS = [
@@ -50,7 +49,7 @@ const TICLAW_MEMBER_BLOCKED_TOOLS = [
 export function initSchema(): void {
   const db = getDb();
 
-  /** Platform-level block list for admin + alter-ego (`tools_mode=all`); business plugin tools are configured at runtime. */
+  /** Platform-level block list for admin (`tools_mode=all`); business plugin tools are configured at runtime. */
   const ADMIN_AGENT_BLOCK_TOOLS: string[] = [];
 
   db.exec(`
@@ -372,35 +371,7 @@ export function initSchema(): void {
       const ins = db.prepare(
         'INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
-      const commonTools = JSON.stringify([
-        'search_knowledge', 'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
-        'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-        'save_memory', 'search_memory', 'delete_memory',
-        'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
-      ]);
-      const alterEgoTools = JSON.stringify([
-        'search_knowledge', 'update_knowledge', 'extract_wework_qa',
-        'list_skills', 'get_skill', 'save_skill', 'delete_skill', 'run_skill',
-        'get_status_summary', 'list_agents', 'get_agent', 'save_agent', 'delete_agent', 'switch_agent',
-        'save_memory', 'search_memory', 'delete_memory',
-        'read_file', 'write_file', 'write_artifact', 'send_file', 'send_image', 'reload_app', 'exec_cmd',
-        'markdown_to_image',
-      ]);
       ins.run('agent-otcclaw', 'otcclaw', '衍语', 'OTC 业务专家，客户管理、交易查询、展业支持', 'all', null, 'admin-001');
-      ins.run('agent-doctor', 'doctor', '家庭医生', '健康咨询、症状分析、用药建议', 'allowlist', commonTools, 'admin-001');
-      ins.run('agent-tutor', 'tutor', '教育辅导', '孩子学习辅导、作业答疑、学习规划', 'allowlist', commonTools, 'admin-001');
-      ins.run('agent-alter-ego', 'alter-ego', '个人分身', '代表用户风格回答、日常助手', 'allowlist', alterEgoTools, 'admin-001');
-    }
-  });
-
-  runOnce('seed-default-agent-members', () => {
-    const agentMembersCount = db.prepare('SELECT COUNT(*) as c FROM agent_members').get() as { c: number };
-    if (agentMembersCount.c === 0) {
-      const agents = db.prepare('SELECT id, created_by FROM agents').all() as { id: string, created_by: string }[];
-      const insMember = db.prepare('INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)');
-      for (const agent of agents) {
-        insMember.run(uuid(), agent.id, agent.created_by, 'admin');
-      }
     }
   });
 
@@ -411,17 +382,6 @@ export function initSchema(): void {
       const insKA = db.prepare('INSERT OR IGNORE INTO knowledge_agents (id, knowledge_id, agent_id) VALUES (?, ?, ?)');
       for (const k of allKnowledge) {
         insKA.run(uuid(), k.id, 'agent-otcclaw');
-      }
-    }
-  });
-
-  runOnce('alter-ego-add-qa-tools', () => {
-    const aeRow = db.prepare("SELECT tools_list FROM agents WHERE name = 'alter-ego'").get() as { tools_list: string | null } | undefined;
-    if (aeRow) {
-      const current: string[] = aeRow.tools_list ? JSON.parse(aeRow.tools_list) : [];
-      if (!current.includes('extract_wework_qa')) {
-        const updated = [...new Set([...current, 'update_knowledge', 'extract_wework_qa'])];
-        db.prepare("UPDATE agents SET tools_list = ? WHERE name = 'alter-ego'").run(JSON.stringify(updated));
       }
     }
   });
@@ -455,68 +415,6 @@ export function initSchema(): void {
 
   });
 
-  runOnce('agents-add-exec-cmd', () => {
-    for (const agentName of ['tutor', 'alter-ego']) {
-      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
-      if (row) {
-        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-        if (!current.includes('exec_cmd')) {
-          current.push('exec_cmd');
-          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
-            .run(JSON.stringify(current), agentName);
-        }
-      }
-    }
-  });
-
-  runOnce('agents-add-reminder-tools', () => {
-    const reminderTools = ['set_reminder', 'list_reminders', 'cancel_reminder'];
-    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
-      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
-      if (row) {
-        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-        let changed = false;
-        for (const tool of reminderTools) {
-          if (!current.includes(tool)) { current.push(tool); changed = true; }
-        }
-        if (changed) {
-          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
-            .run(JSON.stringify(current), agentName);
-        }
-      }
-    }
-  });
-
-  runOnce('seed-browser-agent', () => {
-    const browserAgent = db.prepare("SELECT id FROM agents WHERE name='browser'").get();
-    if (!browserAgent) {
-      const browserTools = JSON.stringify(TOOL_PRESETS.browser.tools);
-      db.prepare(
-        "INSERT INTO agents (id, name, display_name, description, tools_mode, tools_list, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run('agent-browser', 'browser', '浏览器助手', '网页浏览、截图、内容提取', 'allowlist', browserTools, 'admin-001');
-      db.prepare("INSERT OR IGNORE INTO agent_members (id, agent_id, user_id, role) VALUES (?, ?, ?, ?)")
-        .run(uuid(), 'agent-browser', 'admin-001', 'admin');
-    }
-  });
-
-  runOnce('agents-add-todo-tools', () => {
-    const todoTools = ['create_todo', 'list_todos', 'update_todo', 'delete_todo'];
-    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
-      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
-      if (row) {
-        const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-        let changed = false;
-        for (const tool of todoTools) {
-          if (!current.includes(tool)) { current.push(tool); changed = true; }
-        }
-        if (changed) {
-          db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
-            .run(JSON.stringify(current), agentName);
-        }
-      }
-    }
-  });
-
   runOnce('agents-add-preset-column', () => {
     const agentCols = db.pragma('table_info(agents)') as Array<{ name: string }>;
     if (!agentCols.find(c => c.name === 'preset')) {
@@ -524,65 +422,9 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('agents-backfill-preset', () => {
-    db.prepare("UPDATE agents SET preset='common'    WHERE name IN ('doctor','tutor') AND preset IS NULL").run();
-    db.prepare("UPDATE agents SET preset='alter_ego' WHERE name='alter-ego'           AND preset IS NULL").run();
-  });
-
   runOnce('agents-add-user-tools-columns', () => {
     try { db.exec("ALTER TABLE agents ADD COLUMN user_tools_mode TEXT NOT NULL DEFAULT 'inherit'"); } catch (e) {}
     try { db.exec("ALTER TABLE agents ADD COLUMN user_tools_list TEXT"); } catch (e) {}
-  });
-
-  runOnce('alter-ego-add-markdown-to-image', () => {
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name='alter-ego'").get() as { tools_list: string | null } | undefined;
-    if (row) {
-      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      if (!current.includes('markdown_to_image')) {
-        current.push('markdown_to_image');
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name='alter-ego'")
-          .run(JSON.stringify(current));
-      }
-    }
-  });
-
-  runOnce('agents-add-delivery-tools', () => {
-    const deliveryTools = ['write_artifact', 'send_file', 'send_image'];
-    for (const agentName of ['tutor', 'doctor', 'alter-ego']) {
-      const row = db.prepare("SELECT tools_list FROM agents WHERE name=?").get(agentName) as { tools_list: string | null } | undefined;
-      if (!row) continue;
-      const current: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      let changed = false;
-      for (const tool of deliveryTools) {
-        if (!current.includes(tool)) {
-          current.push(tool);
-          changed = true;
-        }
-      }
-      if (changed) {
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE name=?")
-          .run(JSON.stringify(current), agentName);
-      }
-    }
-  });
-
-  runOnce('agents-add-media-gen-tools', () => {
-    const mediaTools = ['generate_image', 'generate_video'];
-    const agents = db.prepare("SELECT id, name, tools_list FROM agents WHERE tools_list IS NOT NULL").all() as { id: string; name: string; tools_list: string }[];
-    for (const agent of agents) {
-      const current: string[] = JSON.parse(agent.tools_list);
-      let changed = false;
-      for (const tool of mediaTools) {
-        if (!current.includes(tool)) {
-          current.push(tool);
-          changed = true;
-        }
-      }
-      if (changed) {
-        db.prepare("UPDATE agents SET tools_list=?, updated_at=datetime('now') WHERE id=?")
-          .run(JSON.stringify(current), agent.id);
-      }
-    }
   });
 
   runOnce('fix-feishu-hardcoded-usernames', () => {
@@ -604,58 +446,18 @@ export function initSchema(): void {
   });
 
   runOnce('migrate-agents-to-standard-mode', () => {
-    // Migrate all agents from legacy allowlist/blocklist/all to the new standard model.
-    // tools_list is cleaned to only contain tools NOT in COMMON_SET.
-    const commonArr = [...COMMON_SET];
+    const row = db.prepare("SELECT id, tools_mode FROM agents WHERE name = 'otcclaw'").get() as
+      { id: string; tools_mode: string } | undefined;
+    if (!row || row.tools_mode === 'standard') return;
 
-    const agents = db.prepare("SELECT id, name, tools_mode, tools_list, preset FROM agents").all() as
-      { id: string; name: string; tools_mode: string; tools_list: string | null; preset: string | null }[];
+    const allowTools = [
+      'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
+      'markdown_to_image', 'update_memory',
+    ];
+    const blockTools = ['generate_video'];
 
-    for (const agent of agents) {
-      // System admin agent stays tools_mode=all + block_tools (design matrix); do not flatten to standard.
-      if (agent.name === 'admin') continue;
-      // alter-ego may need upgrade from standard → all (aligned with admin); do not skip when standard.
-      if (agent.tools_mode === 'standard' && agent.name !== 'alter-ego') continue;
-
-      let allowTools: string[] = [];
-      let blockTools: string[] = [];
-
-      if (agent.name === 'otcclaw') {
-        // otcclaw: standard mode with platform-owned extras only. Business plugin tools are bound at runtime.
-        allowTools = [
-          'assign_knowledge_agent', 'unassign_knowledge_agent', 'get_knowledge_agents',
-          'markdown_to_image', 'update_memory',
-        ];
-        blockTools = ['generate_video'];
-      } else if (agent.name === 'alter-ego') {
-        // alter-ego: same effective tools as admin — all minus selected business tools.
-        db.prepare(
-          `UPDATE agents SET tools_mode='all', tools_list=NULL, block_tools=?, updated_at=datetime('now') WHERE id=?`,
-        ).run(JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS), agent.id);
-        continue;
-      } else if (agent.name === 'doctor') {
-        // doctor: standard mode, no platform-owned private plugin tools.
-        allowTools = ['update_memory'];
-      } else if (agent.name === 'tutor') {
-        // tutor: pure COMMON_SET, no extra allow/block
-        allowTools = [];
-      } else if (agent.name === 'browser') {
-        // browser: keep its special MCP tools as allow, no COMMON_SET overlap
-        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
-        allowTools = current.filter(t => !COMMON_SET.has(t));
-      } else {
-        // Other agents: keep their tools_list minus COMMON_SET as allow
-        const current: string[] = agent.tools_list ? JSON.parse(agent.tools_list) : [];
-        allowTools = current.filter(t => !COMMON_SET.has(t));
-      }
-
-      db.prepare(`UPDATE agents SET tools_mode='standard', tools_list=?, block_tools=?, updated_at=datetime('now') WHERE id=?`)
-        .run(
-          allowTools.length > 0 ? JSON.stringify(allowTools) : null,
-          blockTools.length > 0 ? JSON.stringify(blockTools) : null,
-          agent.id,
-        );
-    }
+    db.prepare(`UPDATE agents SET tools_mode='standard', tools_list=?, block_tools=?, updated_at=datetime('now') WHERE id=?`)
+      .run(JSON.stringify(allowTools), JSON.stringify(blockTools), row.id);
   });
 
   runOnce('seed-system-admin-agent', () => {
@@ -687,59 +489,6 @@ export function initSchema(): void {
     db.prepare(`UPDATE agents SET block_tools = ?, updated_at = datetime('now') WHERE name = 'admin'`).run(
       JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS),
     );
-  });
-
-  /** Same effective set as admin: all minus selected business tools. Keeps DB aligned if rows drift. */
-  runOnce('ensure-alter-ego-all-block-v1', () => {
-    const blockJson = JSON.stringify(ADMIN_AGENT_BLOCK_TOOLS);
-    db.prepare(
-      `UPDATE agents SET tools_mode = 'all', tools_list = NULL, block_tools = ?, updated_at = datetime('now') WHERE name = 'alter-ego'`,
-    ).run(blockJson);
-  });
-
-  runOnce('seed-member-default-blocklist', () => {
-    /** Align docs/plan [^member-mutation-block]; doctor gets same row — adjust via save_agent after per-tool review. */
-    const MEMBER_MUTATION_BLOCK = [
-      'exec_cmd',
-      'reload_app',
-      'read_file',
-      'list_directory',
-      'write_file',
-      'edit_file',
-      'add_knowledge',
-      'update_knowledge',
-      'delete_knowledge',
-      'assign_knowledge_agent',
-      'unassign_knowledge_agent',
-      'save_skill',
-      'delete_skill',
-      'save_memory',
-      'update_memory',
-      'delete_memory',
-      'create_todo',
-      'update_todo',
-      'delete_todo',
-      'set_reminder',
-      'cancel_reminder',
-      'import_document',
-      'delete_document',
-    ];
-    const json = JSON.stringify(MEMBER_MUTATION_BLOCK);
-    db.prepare(
-      `UPDATE agents SET user_tools_mode = 'blocklist', user_tools_list = ?, updated_at = datetime('now')`
-    ).run(json);
-  });
-
-  runOnce('user-blocklist-add-extract-wework-qa', () => {
-    const rows = db.prepare("SELECT id, user_tools_list FROM agents WHERE user_tools_mode = 'blocklist' AND user_tools_list IS NOT NULL").all() as { id: string; user_tools_list: string }[];
-    for (const row of rows) {
-      const current: string[] = JSON.parse(row.user_tools_list);
-      if (!current.includes('extract_wework_qa')) {
-        current.push('extract_wework_qa');
-        db.prepare("UPDATE agents SET user_tools_list = ?, updated_at = datetime('now') WHERE id = ?")
-          .run(JSON.stringify(current), row.id);
-      }
-    }
   });
 
   runOnce('add-documents-table', () => {
@@ -1233,29 +982,6 @@ export function initSchema(): void {
     `);
   });
 
-  runOnce('tutor-add-wrong-question-tools', () => {
-    const toolNames = [
-      'record_wrong_question',
-      'list_wrong_questions',
-      'mark_wrong_question_mastered',
-      'wrong_question_report',
-    ];
-    const row = db.prepare("SELECT tools_list FROM agents WHERE name = 'tutor'").get() as { tools_list: string | null } | undefined;
-    if (!row) return;
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    let changed = false;
-    for (const tool of toolNames) {
-      if (!list.includes(tool)) {
-        list.push(tool);
-        changed = true;
-      }
-    }
-    if (changed) {
-      db.prepare("UPDATE agents SET tools_list = ?, updated_at = datetime('now') WHERE name = 'tutor'")
-        .run(JSON.stringify(list));
-    }
-  });
-
   runOnce('agents-rename-glm-gf-to-custom', () => {
     db.prepare("UPDATE agents SET provider = 'custom', updated_at = datetime('now') WHERE provider IN ('glm', 'gf')").run();
   });
@@ -1483,32 +1209,6 @@ export function initSchema(): void {
     }
   });
 
-  runOnce('potato-add-sandbox-tools', () => {
-    const row = db.prepare(
-      "SELECT tools_list, user_tools_list FROM agents WHERE name = 'potato'"
-    ).get() as { tools_list: string | null; user_tools_list: string | null } | undefined;
-    if (!row) return;
-
-    const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-    const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-
-    let changed = false;
-    for (const t of ['sandbox_write_file', 'sandbox_read_file', 'sandbox_list', 'sandbox_exec', 'read_file']) {
-      if (!list.includes(t)) { list.push(t); changed = true; }
-    }
-    const rfIdx = userList.indexOf('read_file');
-    if (rfIdx !== -1) {
-      userList.splice(rfIdx, 1);
-      changed = true;
-    }
-
-    if (changed) {
-      db.prepare(
-        "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = 'potato'"
-      ).run(JSON.stringify(list), userList.length > 0 ? JSON.stringify(userList) : null);
-    }
-  });
-
   runOnce('add-documents-wiki-compiled-hash', () => {
     try { db.exec("ALTER TABLE documents ADD COLUMN wiki_compiled_hash TEXT"); } catch (e) {}
   });
@@ -1593,43 +1293,6 @@ export function initSchema(): void {
     for (const row of aliases) {
       if (userExists.get(row.canonical) && userExists.get(row.alias)) {
         ins.run(row.canonical, row.alias, row.note);
-      }
-    }
-  });
-
-  // --- Scheduled tasks & crontab tools ---
-
-  // Add crontab tools to all standard-mode agents' tools_list,
-  // and add write tools (crontab + scheduled task mutations) to user_tools_list blocklist.
-  runOnce('add-schedule-and-crontab-tools', () => {
-    const crontabTools = ['list_crontab', 'add_crontab', 'remove_crontab'];
-    const writeToolsToBlock = ['add_crontab', 'remove_crontab', 'create_scheduled_task', 'update_scheduled_task', 'delete_scheduled_task'];
-
-    const rows = db.prepare(
-      "SELECT name, tools_mode, tools_list, user_tools_list FROM agents"
-    ).all() as { name: string; tools_mode: string; tools_list: string | null; user_tools_list: string | null }[];
-
-    for (const row of rows) {
-      const list: string[] = row.tools_list ? JSON.parse(row.tools_list) : [];
-      const userList: string[] = row.user_tools_list ? JSON.parse(row.user_tools_list) : [];
-      let changed = false;
-
-      // Add crontab tools to tools_list (for standard-mode agents; 'all' agents see everything already)
-      if (row.tools_mode === 'standard') {
-        for (const t of crontabTools) {
-          if (!list.includes(t)) { list.push(t); changed = true; }
-        }
-      }
-
-      // Add write tools to user blocklist
-      for (const t of writeToolsToBlock) {
-        if (!userList.includes(t)) { userList.push(t); changed = true; }
-      }
-
-      if (changed) {
-        db.prepare(
-          "UPDATE agents SET tools_list = ?, user_tools_list = ?, updated_at = datetime('now') WHERE name = ?"
-        ).run(JSON.stringify(list), JSON.stringify(userList), row.name);
       }
     }
   });
@@ -1724,4 +1387,10 @@ export function initSchema(): void {
     }
   });
 
+}
+
+export async function initDatabase(): Promise<void> {
+  initSchema();
+  const { runMigrations } = await import('./migrate.js');
+  await runMigrations();
 }

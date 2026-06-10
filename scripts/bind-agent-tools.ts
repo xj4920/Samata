@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { initSchema } from '../src/db/schema.js';
+import { initDatabase } from '../src/db/schema.js';
 import { getAllUsers, getUserByIdOrUsername, setCurrentUser, type User } from '../src/auth/rbac.js';
 import { runWithExecutionContext } from '../src/runtime/execution-context.js';
 import { applyAgentToolBinding, type AgentToolBindingInput } from '../src/llm/agents/tool-binding.js';
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  initSchema();
+  await initDatabase();
   const user = resolveCliUser(options.user);
   setCurrentUser(user);
   const bindings = buildBindings(options);

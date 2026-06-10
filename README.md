@@ -240,7 +240,7 @@ samata/
 │   ├── auth/             # 认证与 RBAC
 │   ├── cli/              # CLI 客户端（REPL + SSE 解析）
 │   ├── commands/         # 命令处理器（可复用业务函数）
-│   ├── db/               # Schema、migrations、seed
+│   ├── db/               # Schema、legacy runOnce bridge、Umzug migrations
 │   ├── feishu/           # 飞书 Bot
 │   ├── llm/             # AI agent + 多 LLM provider
 │   ├── plugins/          # 插件注册与加载

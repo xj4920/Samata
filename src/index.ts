@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import * as readline from 'node:readline';
 import { select } from '@inquirer/prompts';
-import { initSchema } from './db/schema.js';
+import { initDatabase } from './db/schema.js';
 import { closeDb } from './db/connection.js';
 import { getAllUsers, setCurrentUser } from './auth/rbac.js';
 import { route, setLlmEnabled, getCommandNames, getCommandEntries } from './commands/router.js';
@@ -384,7 +384,7 @@ async function main(): Promise<void> {
     serverKeepAliveTimer = setInterval(() => {}, 1000);
   }
 
-  initSchema();
+  await initDatabase();
 
   const llmReady = await initProviders();
   setLlmEnabled(llmReady);
