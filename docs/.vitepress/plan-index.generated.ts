@@ -805,6 +805,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
   ],
   "dream": [
     {
+      "title": "Dream 内置调度与输出质量保护",
+      "link": "/plan/2026-06-10_dream-scheduler-and-output-guard",
+      "sourcePath": "docs/plan/2026-06-10_dream-scheduler-and-output-guard.md",
+      "sortKey": "2026-06-10_dream-scheduler-and-output-guard.md",
+      "date": "2026-06-10",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/dream/quality"
+      ],
+      "topic": "质量与观测"
+    },
+    {
       "title": "丰富 Dream 数据源 + 改善提取质量",
       "link": "/plan/2026-05-12_enrich-dream-quality",
       "sourcePath": "docs/plan/2026-05-12_enrich-dream-quality.md",

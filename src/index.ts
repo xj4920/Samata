@@ -9,6 +9,7 @@ import { resetAbort, abort as abortCommand } from './utils/abort.js';
 import { initProviders } from './llm/provider.js';
 import { startReminderScheduler, stopReminderScheduler } from './services/reminder-scheduler.js';
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
+import { startDreamScheduler, stopDreamScheduler } from './services/dream-scheduler.js';
 import { initMcpServers, stopMcpServers } from './services/mcp-manager.js';
 import { initPlugins, startAllPlugins, stopAllPlugins, stopPluginWatcher } from './plugins/registry.js';
 import { startAllFeishuBots, stopAllFeishuBots, watchFeishuApps, stopWatchFeishuApps, type FeishuBotMode } from './feishu/bot.js';
@@ -36,6 +37,7 @@ export function gracefulShutdown(): void {
   stopPluginWatcher();
   stopReminderScheduler();
   stopTaskScheduler();
+  stopDreamScheduler();
   stopWatchFeishuApps();
   stopWatchWeworkApps();
   stopAllFeishuBots();
@@ -405,6 +407,11 @@ async function main(): Promise<void> {
 
   // 启动定时任务调度器（依赖插件工具已加载）
   startTaskScheduler();
+
+  // Dream 只在服务模式内置调度，避免 CLI 单次命令启动后台任务
+  if (isServer) {
+    startDreamScheduler();
+  }
 
   // 启动企微机器人（长连接模式，多实例）
   await startAllWeworkBots();

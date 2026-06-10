@@ -11,8 +11,22 @@ import { getAllAgents } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import type { TelemetryToolCall } from '../telemetry/types.js';
 
-const DREAMS_DIR = resolve(process.cwd(), 'data/dreams');
 const DREAM_WARN_LENGTH = 6000;
+const DREAM_MIN_LENGTH = 200;
+const DREAM_MIN_SECTION_COUNT = 1;
+const DREAM_MAX_SHRINK_RATIO = 0.35;
+const DREAM_MAX_SHRINK_FLOOR = 800;
+const warnedInvalidDreamFiles = new Set<string>();
+
+function getDreamsDir(): string {
+  return resolve(process.cwd(), 'data/dreams');
+}
+
+function warnInvalidDreamOnce(key: string, message: string): void {
+  if (warnedInvalidDreamFiles.has(key)) return;
+  warnedInvalidDreamFiles.add(key);
+  log.warn(message);
+}
 
 /**
  * Remove characters that can break JSON serialisation for some LLM APIs (e.g. DeepSeek).
@@ -37,25 +51,33 @@ export interface DreamTurnSummary {
   model: string;
 }
 
-/** Load the latest dream file for an agent (new dir format, with flat-file fallback) */
+/** Load the latest valid dream file for an agent (new dir format, with flat-file fallback) */
 export function loadDreamFile(agentName: string): string {
-  const agentDir = resolve(DREAMS_DIR, agentName);
+  const agentDir = resolve(getDreamsDir(), agentName);
   if (fs.existsSync(agentDir) && fs.statSync(agentDir).isDirectory()) {
     const files = fs.readdirSync(agentDir)
       .filter(f => f.endsWith('.md'))
       .sort();
-    if (files.length > 0) {
-      return fs.readFileSync(resolve(agentDir, files[files.length - 1]), 'utf-8');
+    for (let i = files.length - 1; i >= 0; i--) {
+      const content = fs.readFileSync(resolve(agentDir, files[i]), 'utf-8');
+      const validation = validateDream(content);
+      if (validation.pass) return content;
+      warnInvalidDreamOnce(`${agentName}/${files[i]}`, `[dream] ${agentName}: 跳过无效 dream 文件 ${files[i]} [${validation.reasons.join('; ')}]`);
     }
   }
-  const legacyPath = resolve(DREAMS_DIR, `${agentName}.md`);
-  if (fs.existsSync(legacyPath)) return fs.readFileSync(legacyPath, 'utf-8');
+  const legacyPath = resolve(getDreamsDir(), `${agentName}.md`);
+  if (fs.existsSync(legacyPath)) {
+    const content = fs.readFileSync(legacyPath, 'utf-8');
+    const validation = validateDream(content);
+    if (validation.pass) return content;
+    warnInvalidDreamOnce(`${agentName}/legacy`, `[dream] ${agentName}: 跳过无效 legacy dream [${validation.reasons.join('; ')}]`);
+  }
   return '';
 }
 
 /** Write dream content for an agent under dated subdirectory */
 function writeDreamFile(agentName: string, dateStr: string, content: string): void {
-  const agentDir = resolve(DREAMS_DIR, agentName);
+  const agentDir = resolve(getDreamsDir(), agentName);
   fs.mkdirSync(agentDir, { recursive: true });
   const filePath = resolve(agentDir, `${dateStr}.md`);
   fs.writeFileSync(filePath, content, 'utf-8');
@@ -180,14 +202,41 @@ const DREAM_SYSTEM_PROMPT = `你是一个 AI 系统的"梦境分析器"。你的
 - 新数据验证了旧经验正确的，保留但可精简措辞
 - 严禁因为旧经验篇幅大就原样照搬——每条经验都必须经受新数据的检验`;
 
-/** Validate dream output quality before writing */
-function validateDream(text: string): { pass: boolean; reasons: string[] } {
+function countDreamSections(text: string): number {
+  return (text.match(/^###\s+/gm) ?? []).length;
+}
+
+function endsLikeCompleteMarkdown(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /[。！？.!?）)\]】`"']$/.test(trimmed);
+}
+
+/** Validate dream output quality before writing or prompt injection */
+export function validateDream(
+  text: string,
+  options: { existingDream?: string } = {},
+): { pass: boolean; reasons: string[] } {
   const reasons: string[] = [];
+  const trimmed = text.trim();
+  if (trimmed.length < DREAM_MIN_LENGTH) reasons.push(`内容过短(${trimmed.length}字符)`);
   if (/\d+\s*ms\b/i.test(text)) reasons.push('包含延时数值(ms)');
   if (/\d+\s*[次秒s]\s*(调用|失败|成功)/i.test(text)) reasons.push('包含调用次数统计');
   if (/今[日天]|本[日次]/.test(text)) reasons.push('包含时效性措辞');
-  if (!text.startsWith('## 工具使用经验')) reasons.push('缺少标准开头');
-  if (!text.includes('###')) reasons.push('缺少工具分节');
+  if (!trimmed.startsWith('## 工具使用经验')) reasons.push('缺少标准开头');
+  if (countDreamSections(trimmed) < DREAM_MIN_SECTION_COUNT) reasons.push('缺少工具分节');
+  if (!/场景(?:\*\*)?\s*[：:]/.test(trimmed)) reasons.push('缺少场景结构');
+  if (!/正确做法(?:\*\*)?\s*[：:]/.test(trimmed)) reasons.push('缺少正确做法结构');
+  if (!endsLikeCompleteMarkdown(trimmed)) reasons.push('疑似截断结尾');
+
+  const existing = options.existingDream?.trim();
+  if (existing && existing.length >= 1200) {
+    const minLength = Math.max(DREAM_MAX_SHRINK_FLOOR, Math.floor(existing.length * DREAM_MAX_SHRINK_RATIO));
+    if (trimmed.length < minLength) {
+      reasons.push(`相对历史版本异常缩水(${trimmed.length}/${existing.length}字符)`);
+    }
+  }
+
   return { pass: reasons.length === 0, reasons };
 }
 
@@ -227,7 +276,7 @@ export async function runDreamForAgent(agentId: string, agentName: string, dateS
     const dreamText = textBlocks.map(b => (b as any).text).join('\n').trim();
 
     if (dreamText) {
-      const validation = validateDream(dreamText);
+      const validation = validateDream(dreamText, { existingDream });
       if (!validation.pass) {
         log.warn(`[dream] ${agentName}: 质量检测未通过 [${validation.reasons.join('; ')}]，跳过写入`);
         return false;

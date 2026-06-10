@@ -21,6 +21,7 @@ const getLogFileName = () => {
 };
 
 const getLogFilePath = () => path.join(logsDir, getLogFileName());
+let fileLoggingDisabled = false;
 
 function formatLogEntry(level: string, msg: string): string {
   const timestamp = new Date().toISOString();
@@ -34,7 +35,13 @@ function formatLogEntry(level: string, msg: string): string {
 }
 
 function writeToFile(level: string, msg: string): void {
-  fs.appendFileSync(getLogFilePath(), formatLogEntry(level, msg), 'utf8');
+  if (fileLoggingDisabled) return;
+  try {
+    fs.appendFileSync(getLogFilePath(), formatLogEntry(level, msg), 'utf8');
+  } catch (err: any) {
+    fileLoggingDisabled = true;
+    console.warn(chalk.yellow(`[logger] 文件日志写入失败，已降级为终端输出: ${err.message}`));
+  }
 }
 
 export const log = {
