@@ -99,7 +99,7 @@ git diff --check
 
 ## Commit Hash
 
-- 待提交后回填。
+- 功能提交：`b4c069c`
 
 ## 构建与运行影响
 
