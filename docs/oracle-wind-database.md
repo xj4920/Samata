@@ -29,7 +29,7 @@ conn = oracledb.connect(
 - `sync/full_sync.py` — 全量同步（含日期类型判断、LOB 处理）
 - `schema/create_tables.py` — 从 Oracle schema 创建目标库表
 
-## 表一览（24 张，均属 WIND schema）
+## 表一览（28 张，均属 WIND schema）
 
 ### 1. 行情数据（Market Data）
 
@@ -39,6 +39,8 @@ conn = oracledb.connect(
 | WIND.AINDEXEODPRICES | TRADE_DT | 指数日行情（约 2300 万行） |
 | WIND.ASHAREEODDERIVATIVEINDICATOR | TRADE_DT | A股日衍生指标（约 2700 万行） |
 | WIND.CINDEXFUTURESEODPRICES | TRADE_DT | 股指期货日行情 |
+| WIND.CCOMMODITYFUTURESEODPRICES | TRADE_DT | 商品期货日行情 |
+| WIND.CHINAOPTIONEODPRICES | TRADE_DT | 中国期权日行情 |
 
 ### 2. 财务报表（Financial Statements）
 
@@ -79,7 +81,13 @@ conn = oracledb.connect(
 | WIND.CFUTURESCONTRACTMAPPING | STARTDATE | 期货合约映射 |
 | WIND.CFUTURESDESCRIPTION | S_INFO_LISTDATE | 期货合约信息 |
 
-### 7. 基金（Mutual Fund）
+### 7. 期权（Options）
+
+| 表名 | 日期列 | 说明 |
+|------|--------|------|
+| WIND.CHINAOPTIONDESCRIPTION | S_INFO_FTDATE | 中国期权合约信息 |
+
+### 8. 基金（Mutual Fund）
 
 | 表名 | 日期列 | 说明 |
 |------|--------|------|
@@ -87,8 +95,9 @@ conn = oracledb.connect(
 | WIND.CHINAMUTUALFUNDDESCRIPTION | F_INFO_ANNDATE | 基金基本信息 |
 | WIND.CHINAMUTUALFUNDMANAGER | ANN_DATE | 基金经理信息 |
 | WIND.CHINAMUTUALFUNDSECTOR | OPDATE | 基金分类 |
+| WIND.CHINACLOSEDFUNDEODPRICE | TRADE_DT | 封闭式基金日行情 |
 
-### 8. 陆股通（Stock Connect）
+### 9. 陆股通（Stock Connect）
 
 | 表名 | 日期列 | 说明 |
 |------|--------|------|
@@ -97,7 +106,7 @@ conn = oracledb.connect(
 
 ## 完整列定义（写 SELECT 之前必读）
 
-**全部 24 张表的字段定义（列名 / 类型 / 长度 / 可空）已落到 [`docs/wind-schema.json`](wind-schema.json)。**
+**全部 28 张表的字段定义（列名 / 类型 / 长度 / 可空）已落到 [`docs/wind-schema.json`](wind-schema.json)。**
 
 写任何 Wind 查询前的硬性流程：
 

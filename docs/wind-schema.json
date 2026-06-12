@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-28T06:12:58Z",
+  "generated_at": "2026-06-12T01:49:02Z",
   "source": "10.2.89.132:1521/winddb (windquery)",
   "note": "Column metadata dumped from Oracle ALL_TAB_COLUMNS for tables tracked by ~/work/source/dataSync/config/config.json. Regenerate via scripts/dump-wind-schema.py.",
   "tables": {
@@ -4701,6 +4701,114 @@
         }
       ]
     },
+    "CCOMMODITYFUTURESEODPRICES": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRESETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_SETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OI",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OICHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "FS_INFO_TYPE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
     "CFUTURESDESCRIPTION": {
       "owner": "WIND",
       "date_col": "S_INFO_LISTDATE",
@@ -4817,6 +4925,462 @@
           "name": "OPMODE",
           "type": "VARCHAR2",
           "length": 1,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAOPTIONEODPRICES": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_SETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OI",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OICHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRESETTLE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE1",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE2",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PCTCHANGE1",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PCTCHANGE2",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_EXER_VOL",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINAOPTIONDESCRIPTION": {
+      "owner": "WIND",
+      "date_col": "S_INFO_FTDATE",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_NAME",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_SCCODE",
+          "type": "VARCHAR2",
+          "length": 50,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_CALLPUT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_STRIKEPRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_MONTH",
+          "type": "VARCHAR2",
+          "length": 6,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_MATURITYDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_FTDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_LASTTRADINGDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXERCISINGEND",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_LDDATE",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_LPRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_TRADE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCODE",
+          "type": "VARCHAR2",
+          "length": 20,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXNAME",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_COUNIT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_INFO_EXCHANGE_NAME",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "LISTREASON_CODE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "ADJ_SIGN",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        }
+      ]
+    },
+    "CHINACLOSEDFUNDEODPRICE": {
+      "owner": "WIND",
+      "date_col": "TRADE_DT",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "type": "VARCHAR2",
+          "length": 100,
+          "nullable": "N"
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "type": "VARCHAR2",
+          "length": 40,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADE_DT",
+          "type": "VARCHAR2",
+          "length": 8,
+          "nullable": "Y"
+        },
+        {
+          "name": "CRNCY_CODE",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_LOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJPRECLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJOPEN",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJHIGH",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJLOW",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJCLOSE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_ADJFACTOR",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "TRADES_COUNT",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISCOUNT_RATE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPDATE",
+          "type": "DATE",
+          "length": 7,
+          "nullable": "Y"
+        },
+        {
+          "name": "OPMODE",
+          "type": "VARCHAR2",
+          "length": 1,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_AVGPRICE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TRADESTATUS",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "SEC_ID",
+          "type": "VARCHAR2",
+          "length": 10,
+          "nullable": "Y"
+        },
+        {
+          "name": "S_DQ_TRADESTATUSCODE",
+          "type": "NUMBER",
+          "length": 22,
+          "nullable": "Y"
+        },
+        {
+          "name": "DISCOUNT_PREMIUM_RATE",
+          "type": "NUMBER",
+          "length": 22,
           "nullable": "Y"
         }
       ]

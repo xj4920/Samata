@@ -1112,6 +1112,31 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
   ],
   "external-data": [
     {
+      "title": "Wind 新增同步表说明补齐",
+      "link": "/plan/2026-06-12_wind-new-tables",
+      "sourcePath": "docs/plan/2026-06-12_wind-new-tables.md",
+      "sortKey": "2026-06-12_wind-new-tables.md",
+      "date": "2026-06-12",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/external-data/wind-postgres",
+        "/external-data/wind-tables"
+      ],
+      "topic": "Wind PostgreSQL"
+    },
+    {
+      "title": "Wind PG 连接地址更新",
+      "link": "/plan/2026-06-11_wind-pg-host-update",
+      "sourcePath": "docs/plan/2026-06-11_wind-pg-host-update.md",
+      "sortKey": "2026-06-11_wind-pg-host-update.md",
+      "date": "2026-06-11",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/external-data/wind-postgres"
+      ],
+      "topic": "Wind PostgreSQL"
+    },
+    {
       "title": "Web 搜索直连 fallback 修复（2026-06-08）",
       "link": "/plan/2026-06-08_web-search-direct-fallback",
       "sourcePath": "docs/plan/2026-06-08_web-search-direct-fallback.md",
@@ -1467,6 +1492,16 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "Corporate Action Alert AM-only 配置简化",
+    "link": "/plan/2026-06-10_corporate-action-alert-am-only",
+    "sourcePath": "docs/plan/2026-06-10_corporate-action-alert-am-only.md",
+    "sortKey": "2026-06-10_corporate-action-alert-am-only.md",
+    "date": "2026-06-10",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "otcclaw 19:00 定时任务改为常速规模同步",
     "link": "/plan/2026-06-08_otcclaw-19-normal-trading-sync",

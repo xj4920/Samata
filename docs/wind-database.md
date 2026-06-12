@@ -7,7 +7,7 @@
 
 | 参数       | 值                 |
 | -------- | ----------------- |
-| Host     |  175.178.64.67         |
+| Host     | 10.8.0.1          |
 | Port     | 3395              |
 | Database | wind_sync         |
 | 用户       | wind_sync（只读查询即可） |
@@ -18,7 +18,7 @@
 import psycopg2
 
 conn = psycopg2.connect(
-    host="175.178.64.67",
+    host="10.8.0.1",
     port=3395,
     dbname="wind_sync",
     user="wind_sync",
@@ -26,7 +26,7 @@ conn = psycopg2.connect(
 )
 ```
 
-## 表一览（24 张，表名大写需加双引号）
+## 表一览（28 张，表名大写需加双引号）
 
 **重要：** PostgreSQL 中表名使用双引号包裹的大写形式，如 `"ASHAREEODPRICES"`。不加引号会被转为小写导致找不到表。
 
@@ -39,6 +39,8 @@ conn = psycopg2.connect(
 | "AINDEXEODPRICES"              | TRADE_DT | 指数日行情   |
 | "ASHAREEODDERIVATIVEINDICATOR" | TRADE_DT | A股日衍生指标 |
 | "CINDEXFUTURESEODPRICES"       | TRADE_DT | 股指期货日行情 |
+| "CCOMMODITYFUTURESEODPRICES"   | TRADE_DT | 商品期货日行情 |
+| "CHINAOPTIONEODPRICES"         | TRADE_DT | 中国期权日行情 |
 
 
 ### 2. 财务报表（Financial Statements）
@@ -90,7 +92,15 @@ conn = psycopg2.connect(
 | "CFUTURESDESCRIPTION"     | S_INFO_LISTDATE | 期货合约信息 |
 
 
-### 7. 基金（Mutual Fund）
+### 7. 期权（Options）
+
+
+| 表名                      | 日期列           | 说明       |
+| ----------------------- | ------------- | -------- |
+| "CHINAOPTIONDESCRIPTION" | S_INFO_FTDATE | 中国期权合约信息 |
+
+
+### 8. 基金（Mutual Fund）
 
 
 | 表名                              | 日期列            | 说明     |
@@ -99,9 +109,10 @@ conn = psycopg2.connect(
 | "CHINAMUTUALFUNDDESCRIPTION"    | F_INFO_ANNDATE | 基金基本信息 |
 | "CHINAMUTUALFUNDMANAGER"        | ANN_DATE       | 基金经理信息 |
 | "CHINAMUTUALFUNDSECTOR"         | OPDATE         | 基金分类   |
+| "CHINACLOSEDFUNDEODPRICE"       | TRADE_DT       | 封闭式基金日行情 |
 
 
-### 8. 陆股通（Stock Connect）
+### 9. 陆股通（Stock Connect）
 
 
 | 表名                      | 日期列      | 说明       |
@@ -112,7 +123,7 @@ conn = psycopg2.connect(
 
 ## 完整列定义（写 SELECT 之前必读）
 
-**全部 24 张表的字段定义（列名 / Oracle 原始类型 / 中文说明）已落到 `[docs/wind-tables-schema.md](wind-tables-schema.md)`。**
+**全部 28 张表的字段定义（列名 / Oracle 原始类型 / 中文说明）已落到 `[docs/wind-tables-schema.md](wind-tables-schema.md)`。**
 
 > **Oracle → PostgreSQL 类型映射**：schema 文件中显示的是 Oracle 原始类型，实际 PG 类型如下：
 >

@@ -4,10 +4,10 @@
 
 **Oracle 表名：** WIND.ASHAREEODDERIVATIVEINDICATOR
 
-**字段数：** 20（常用字段，完整 45 个）
+**字段数：** 20（常用字段，完整 44 个）
 
 
-> 本文档仅列出最常用的 20 个字段（共 45 个）。如需其他字段，用 `information_schema.columns` 查询完整列表。
+> 本文档仅列出最常用的 20 个字段（共 44 个）。如需其他字段，用 `information_schema.columns` 查询完整列表。
 
 | # | 字段名 | 数据类型 | 长度/精度 | 可空 | 说明 |
 | 1  |OBJECT_ID|VARCHAR2(100)|100|N|对象ID|
