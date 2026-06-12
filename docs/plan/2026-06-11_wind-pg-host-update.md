@@ -48,8 +48,8 @@ rg -n "175\\.178\\.64\\.67|10\\.8\\.0\\.1|3395" docs/wind-database.md docs/oracl
 
 ## Commit Hash
 
-- 实现提交：待提交后补充。
-- 留档回填提交：待提交后补充。
+- 实现提交：`cf38a2d54834e8e8c23725ddda495e4a9536db8a`
+- 回填说明：该 hash 由后续 plan 回填提交写入，最终本地提交见 `git log`。
 
 ## 构建与运行影响
 
