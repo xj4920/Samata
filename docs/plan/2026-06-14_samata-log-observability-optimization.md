@@ -75,4 +75,5 @@ status: implemented
 
 ## Commit Hash
 
-- 实现提交：待提交后回填。
+- 实现提交：`3e698eb2729af7a64e47a0c7a92c27527db1ccbb`
+- 留档回填提交：本段由后续文档提交记录。
