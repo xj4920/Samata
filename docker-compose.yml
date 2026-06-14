@@ -21,6 +21,8 @@ services:
       CLI_API_HOST: 0.0.0.0
       CLI_API_PORT: 3457
       SAMATA_PLUGINS_DIR: /app/plugins,/app/work-plugins
+      PROVIDER_SUMMARY: custom
+      MODEL_SUMMARY: external-deepseek-v4-pro
       PG_WIND_HOST: wind_sync_pg
       PG_WIND_PORT: 5432
       FAST_TRADING_PG_HOST: wind_sync_pg

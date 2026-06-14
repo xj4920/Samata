@@ -13,6 +13,12 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCUMENTS_ROOT = path.resolve(__dirname, '../../data/documents');
 const WIKI_ROOT = path.resolve(__dirname, '../../data/wiki');
+const RG_MAX_BUFFER_BYTES = Number(process.env.RG_MAX_BUFFER_BYTES || 40 * 1024 * 1024);
+const RG_TIMEOUT_MS = Number(process.env.RG_TIMEOUT_MS || 15_000);
+const RG_MAX_FILESIZE = process.env.RG_MAX_FILESIZE || '2M';
+const RG_DEFAULT_CONTEXT_LINES = 2;
+const RG_DEFAULT_MAX_COUNT = 50;
+const RG_FALLBACK_MAX_COUNT = 20;
 
 export interface GrepSearchResult {
   source: 'document';
@@ -141,6 +147,72 @@ interface RgRecord {
   };
 }
 
+function buildRipgrepArgs(
+  terms: string[],
+  searchDir: string,
+  glob: string,
+  options: { contextLines: number; maxCount: number },
+): string[] {
+  const args: string[] = [
+    '-F',
+    '-i',
+    '--json',
+    '-C', String(options.contextLines),
+    '--max-count', String(options.maxCount),
+    '--max-filesize', RG_MAX_FILESIZE,
+    '--glob', glob,
+  ];
+  for (const t of terms) {
+    args.push('-e', t);
+  }
+  args.push('--', searchDir);
+  return args;
+}
+
+function parseRipgrepJson(raw: Buffer): RgRecord[] {
+  const lines = raw.toString().trim().split('\n').filter(Boolean);
+  const records: RgRecord[] = [];
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj.type === 'match' || obj.type === 'context') records.push(obj);
+    } catch {
+      // skip non-JSON output from rg
+    }
+  }
+  return records;
+}
+
+function isRipgrepBufferOverflow(e: any): boolean {
+  return e?.code === 'ENOBUFS' || String(e?.message || '').includes('ENOBUFS');
+}
+
+function execRipgrepJson(
+  args: string[],
+  warnLabel: string,
+  makeFallbackArgs: () => string[],
+): RgRecord[] {
+  try {
+    const raw = execFileSync('rg', args, { maxBuffer: RG_MAX_BUFFER_BYTES, timeout: RG_TIMEOUT_MS });
+    return parseRipgrepJson(raw);
+  } catch (e: any) {
+    if (e.status === 1) return [];
+    if (isRipgrepBufferOverflow(e)) {
+      log.warn(`${warnLabel}: output exceeded ${RG_MAX_BUFFER_BYTES} bytes, retrying with reduced context`);
+      try {
+        const raw = execFileSync('rg', makeFallbackArgs(), { maxBuffer: RG_MAX_BUFFER_BYTES, timeout: RG_TIMEOUT_MS });
+        return parseRipgrepJson(raw);
+      } catch (retryError: any) {
+        if (retryError.status === 1) return [];
+        log.warn(`${warnLabel} fallback failed: ${retryError.message}`);
+        return [];
+      }
+    }
+    log.warn(`${warnLabel}: ${e.message}`);
+    return [];
+  }
+}
+
 /**
  * Invoke ripgrep with the ordered list of terms. Returns raw per-line records
  * (both matches and context rows). Never throws on "no match" (exit code 1).
@@ -149,35 +221,14 @@ function runRipgrep(terms: string[], agentId: string): RgRecord[] {
   const searchDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
   if (!fs.existsSync(searchDir)) return [];
 
-  const args: string[] = [
-    '-F',
-    '-i',
-    '--json',
-    '-C', '3',
-    '--max-count', '50',
-    '--glob', '**/parsed.md',
-  ];
-  for (const t of terms) {
-    args.push('-e', t);
-  }
-  args.push('--', searchDir);
-
-  try {
-    const raw = execFileSync('rg', args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
-    const lines = raw.toString().trim().split('\n').filter(Boolean);
-    const records: RgRecord[] = [];
-    for (const line of lines) {
-      try {
-        const obj = JSON.parse(line);
-        if (obj.type === 'match' || obj.type === 'context') records.push(obj);
-      } catch { /* skip non-JSON */ }
-    }
-    return records;
-  } catch (e: any) {
-    if (e.status === 1) return [];
-    log.warn(`ripgrep search failed: ${e.message}`);
-    return [];
-  }
+  const args = buildRipgrepArgs(terms, searchDir, '**/parsed.md', {
+    contextLines: RG_DEFAULT_CONTEXT_LINES,
+    maxCount: RG_DEFAULT_MAX_COUNT,
+  });
+  return execRipgrepJson(args, 'ripgrep search failed', () => buildRipgrepArgs(terms, searchDir, '**/parsed.md', {
+    contextLines: 0,
+    maxCount: RG_FALLBACK_MAX_COUNT,
+  }));
 }
 
 // --- Per-file aggregation ---------------------------------------------------
@@ -511,32 +562,14 @@ export function searchWikiEntitiesExact(
 function runRipgrepOnDir(terms: string[], searchDir: string): RgRecord[] {
   if (!fs.existsSync(searchDir)) return [];
 
-  const args: string[] = [
-    '-F', '-i', '--json', '-C', '3',
-    '--max-count', '50',
-    '--glob', '**/*.md',
-  ];
-  for (const t of terms) {
-    args.push('-e', t);
-  }
-  args.push('--', searchDir);
-
-  try {
-    const raw = execFileSync('rg', args, { maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
-    const lines = raw.toString().trim().split('\n').filter(Boolean);
-    const records: RgRecord[] = [];
-    for (const line of lines) {
-      try {
-        const obj = JSON.parse(line);
-        if (obj.type === 'match' || obj.type === 'context') records.push(obj);
-      } catch { /* skip non-JSON */ }
-    }
-    return records;
-  } catch (e: any) {
-    if (e.status === 1) return [];
-    log.warn(`ripgrep wiki search failed: ${e.message}`);
-    return [];
-  }
+  const args = buildRipgrepArgs(terms, searchDir, '**/*.md', {
+    contextLines: RG_DEFAULT_CONTEXT_LINES,
+    maxCount: RG_DEFAULT_MAX_COUNT,
+  });
+  return execRipgrepJson(args, 'ripgrep wiki search failed', () => buildRipgrepArgs(terms, searchDir, '**/*.md', {
+    contextLines: 0,
+    maxCount: RG_FALLBACK_MAX_COUNT,
+  }));
 }
 
 function fallbackScanDir(

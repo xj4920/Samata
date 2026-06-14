@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Samata 日志观测与告警降噪优化",
+      "link": "/plan/2026-06-14_samata-log-observability-optimization",
+      "sourcePath": "docs/plan/2026-06-14_samata-log-observability-optimization.md",
+      "sortKey": "2026-06-14_samata-log-observability-optimization.md",
+      "date": "2026-06-14",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "运行观测与告警降噪"
+    },
+    {
       "title": "Schema/Seed 边界与 Umzug Migration 入口",
       "link": "/plan/2026-06-10_schema-seed-umzug-boundary",
       "sourcePath": "docs/plan/2026-06-10_schema-seed-umzug-boundary.md",

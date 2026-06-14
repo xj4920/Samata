@@ -1010,6 +1010,31 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
   return lines.join('\n');
 }
 
+function buildNoDataMarkdown(dateLabel: string, source: DataSource, channel?: Channel): string {
+  const sourceLabel = source === 'telemetry' ? 'telemetry JSONL' : 'app log';
+  const channelLabel = channel ? CHANNEL_LABEL[channel] : '全部渠道';
+  const lines: string[] = [];
+
+  lines.push(`# Samata 使用报告 — ${dateLabel}`);
+  lines.push('');
+  lines.push('## 数据状态');
+  lines.push('');
+  lines.push('- 状态: no_data');
+  lines.push(`- 数据源: ${sourceLabel}`);
+  lines.push(`- 渠道: ${channelLabel}`);
+  lines.push('- 用户提问记录: 0');
+  lines.push('');
+  lines.push('### 说明');
+  lines.push('');
+  lines.push('- 已分析对应日期日志，但没有匹配到用户提问记录。');
+  if (channel) {
+    lines.push('- 这表示该渠道当日无交互或未写入该渠道数据，不应按 source_not_found 计为异常。');
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>, userNameMap: Map<string, string>): string {
   const isTelemetry = reportSource === 'telemetry';
   const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '工具数', '耗时ms'];
@@ -1358,15 +1383,28 @@ if (channelArg) {
   turns = turns.filter(turn => turn.channel === channelArg);
 }
 
-if (turns.length === 0) {
-  const suffix = channelArg ? ` (渠道: ${channelArg})` : '';
-  console.log(`未找到用户提问记录${suffix}。`);
-  process.exit(0);
-}
-
 const dates = paths.map(extractDateFromPath);
 const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
 const fileTag = dates.length === 1 ? dates[0] : `${dates[0]}_${dates[dates.length - 1]}`;
+const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
+const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
+const outDir = join(process.cwd(), 'logs', 'daily_usage');
+if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+const ext = csvMode ? 'csv' : 'md';
+const srcFileTag = source === 'telemetry' ? '_telemetry' : '';
+const channelFileTag = channelArg ? `_${channelArg}` : '';
+const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}.${ext}`);
+
+if (turns.length === 0) {
+  const noDataLabel = dateLabel + srcSuffix + channelSuffix;
+  const output = csvMode
+    ? buildCSV([], new Map(), new Map())
+    : buildNoDataMarkdown(noDataLabel, source, channelArg);
+  console.log(output);
+  writeFileSync(outFile, output, 'utf8');
+  console.log(`\n=> 无数据报告已写入 ${outFile}`);
+  process.exit(0);
+}
 
 const agentNameMap = loadAgentNameMap();
 if (agentNameMap.size > 0) {
@@ -1378,20 +1416,11 @@ if (userNameMap.size > 0) {
   console.warn(`已加载 ${userNameMap.size} 条用户名称映射`);
 }
 
-const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
-const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
 const output = csvMode
   ? buildCSV(turns, agentNameMap, userNameMap)
   : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix, agentNameMap, userNameMap);
 console.log(output);
 
-const outDir = join(process.cwd(), 'logs', 'daily_usage');
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-
-const ext = csvMode ? 'csv' : 'md';
-const srcFileTag = source === 'telemetry' ? '_telemetry' : '';
-const channelFileTag = channelArg ? `_${channelArg}` : '';
-const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}.${ext}`);
 writeFileSync(outFile, output, 'utf8');
 console.log(`\n=> 已写入 ${outFile}`);
 

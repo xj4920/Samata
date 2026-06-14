@@ -17,6 +17,7 @@ RUN apt-get update \
     fonts-noto-color-emoji \
     g++ \
     git \
+    gosu \
     make \
     openssh-client \
     openssl \
@@ -80,6 +81,9 @@ RUN npm run build
 
 WORKDIR /app/samata
 COPY samata ./
+RUN chmod +x scripts/docker-entrypoint.sh \
+  && mkdir -p data logs \
+  && chown -R node:node data logs
 
 EXPOSE 3457
 
@@ -93,4 +97,5 @@ LABEL org.opencontainers.image.title="Samata" \
       org.opencontainers.image.version="${SAMATA_VERSION}" \
       org.opencontainers.image.revision="${SAMATA_COMMIT}"
 
+ENTRYPOINT ["scripts/docker-entrypoint.sh"]
 CMD ["node", "--import", "tsx/esm", "src/index.ts", "--server"]
