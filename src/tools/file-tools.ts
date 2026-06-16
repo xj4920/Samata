@@ -224,7 +224,7 @@ function handleListDirectory(input: { path: string }): string {
       return JSON.stringify({ error: `不是目录: ${auth.relative}` });
     }
     const entries = fs.readdirSync(auth.filePath, { withFileTypes: true })
-      .filter(e => !(e.isDirectory() && HIDDEN_DIRECTORY_NAMES.has(e.name)))
+      .filter(e => !HIDDEN_DIRECTORY_NAMES.has(e.name))
       .map(e => ({
         name: e.name,
         type: e.isDirectory() ? 'directory' : 'file',

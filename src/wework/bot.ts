@@ -10,13 +10,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent } from '@wecom/aibot-node-sdk';
+import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent, TemplateCardEventData } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
-import { isAgentAdmin, listUserAliases } from '../auth/rbac.js';
+import { buildCanonicalUserId, isAgentAdmin, listUserAliases } from '../auth/rbac.js';
 import { runAgenticChat, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
-import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
+import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotApp, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
 import { buildFileHint } from '../runtime/file-hint.js';
 import { log } from '../utils/logger.js';
@@ -31,6 +31,13 @@ import { handleModelCommand } from '../commands/model-cmd.js';
 import { getDb } from '../db/connection.js';
 import { saveUploadedFile } from '../commands/artifact.js';
 import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
+import {
+  buildWeworkFeedbackCard,
+  createAnswerFeedbackFromLatestTurn,
+  parseWeworkFeedbackEvent,
+  recordAnswerFeedbackAction,
+  type AnswerFeedbackRow,
+} from '../services/answer-feedback.js';
 
 interface WeworkBotInstance {
   botId: string;
@@ -136,6 +143,44 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
   });
 }
 
+function getWeworkFeedbackHandoffTarget(botId: string): string | null {
+  const row = getBotApp(botId);
+  if (!row?.config) return null;
+  try {
+    const cfg = JSON.parse(row.config);
+    const feedback = cfg.feedback ?? cfg.answer_feedback ?? cfg.wework_feedback;
+    const target = feedback?.handoffTargetId ?? feedback?.handoff_target_id;
+    return typeof target === 'string' && target.trim() ? target.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatHandoffMessage(row: AnswerFeedbackRow, clickedByUserId: string): string {
+  return [
+    '### Samata 转人工请求',
+    '',
+    `- 反馈ID：${row.feedback_id}`,
+    `- 用户：${row.user_id}`,
+    `- 点击人：${clickedByUserId}`,
+    `- Agent：${row.agent_id}`,
+    row.question_preview ? `- 问题：${row.question_preview}` : '',
+    row.answer_preview ? `- 回答摘要：${row.answer_preview}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function notifyHandoffIfConfigured(instance: WeworkBotInstance, row: AnswerFeedbackRow, clickedByUserId: string): Promise<void> {
+  const targetId = getWeworkFeedbackHandoffTarget(instance.botId);
+  if (!targetId) {
+    log.warn(`[企微:${instance.botName}] 未配置反馈转人工目标，仅记录请求: ${row.feedback_id}`);
+    return;
+  }
+  await instance.wsClient.sendMessage(targetId, {
+    msgtype: 'markdown',
+    markdown: { content: formatHandoffMessage(row, clickedByUserId) },
+  });
+}
+
 async function handleAIChat(
   instance: WeworkBotInstance,
   frame: WsFrameHeaders,
@@ -166,6 +211,7 @@ async function handleAIChat(
     const PLACEHOLDER = '思考中...';
 
     const pendingToolHints = new Map<string, string[]>();
+    const logTag = `[企微:${instance.botName}]`;
 
     const render = (answer: string | null): string => {
       const parts: string[] = [];
@@ -271,13 +317,33 @@ async function handleAIChat(
       clearInterval(heartbeatTimer);
       const rawText = textReply || '（无回复内容）';
       const finalText = stripUnreachableLocalMarkdownImages(rawText);
-      const logTag = `[企微:${instance.botName}]`;
+
       try {
         await ws.replyStream(frame, streamId, render(finalText), true);
       } catch {
         const retryStreamId = generateReqId('stream');
         await ws.replyStream(frame, retryStreamId, finalText, true);
       }
+
+      try {
+        const chatId = (frame as any).body?.chatid ?? userId;
+        const feedback = createAnswerFeedbackFromLatestTurn({
+          userId: session.user.id,
+          agentId: agentConfig.id,
+          channel: 'wework',
+          appId: instance.botId,
+          chatId,
+          questionPreview: userInput,
+          answerPreview: finalText,
+        });
+        if (feedback) {
+          await ws.replyTemplateCard(frame, feedback.card);
+          log.dim(`${logTag} 已发送回答反馈卡片: ${feedback.feedbackId}`);
+        }
+      } catch (e: any) {
+        log.warn(`${logTag} 发送回答反馈卡片失败: ${e?.message ?? e}`);
+      }
+
       await pushWeworkSandboxImages(ws, frame, deliveryContext.pendingWeworkImagePaths, logTag);
       return finalText;
     } catch (err: any) {
@@ -565,6 +631,48 @@ async function handleEnterChat(instance: WeworkBotInstance, frame: WsFrame<Event
   }
 }
 
+async function handleTemplateCardEvent(
+  instance: WeworkBotInstance,
+  frame: WsFrame<EventMessageWith<TemplateCardEventData>>,
+): Promise<void> {
+  const eventPayload = (frame.body?.event ?? frame.body ?? {}) as TemplateCardEventData & Record<string, unknown>;
+  const templateCardEvent = (eventPayload.template_card_event ?? eventPayload) as Record<string, unknown>;
+  log.dim(`[企微:${instance.botName}] 收到模板卡片事件: task_id=${String(templateCardEvent.task_id ?? '')} event_key=${String(templateCardEvent.event_key ?? templateCardEvent.key ?? templateCardEvent.button_key ?? templateCardEvent.selected_key ?? templateCardEvent.value ?? '')}`);
+  const parsed = parseWeworkFeedbackEvent(eventPayload);
+  if (!parsed) return;
+
+  const clickedRawUserId = frame.body?.from?.userid ?? 'unknown';
+  const clickedByUserId = buildCanonicalUserId('wework', { userid: clickedRawUserId });
+  const row = recordAnswerFeedbackAction({
+    feedbackId: parsed.feedbackId,
+    action: parsed.action,
+    clickedByUserId,
+  });
+
+  if (!row) {
+    log.warn(`[企微:${instance.botName}] 未找到反馈记录: ${parsed.feedbackId}`);
+    return;
+  }
+
+  try {
+    await instance.wsClient.updateTemplateCard(
+      frame,
+      buildWeworkFeedbackCard(parsed.feedbackId, parsed.action),
+    );
+    log.dim(`[企微:${instance.botName}] 已更新反馈卡片: ${parsed.feedbackId} -> ${parsed.action}`);
+  } catch (e: any) {
+    log.warn(`[企微:${instance.botName}] 更新反馈卡片失败: ${e?.message ?? e}`);
+  }
+
+  if (parsed.action === 'handoff') {
+    try {
+      await notifyHandoffIfConfigured(instance, row, clickedByUserId);
+    } catch (e: any) {
+      log.warn(`[企微:${instance.botName}] 转人工通知发送失败: ${e?.message ?? e}`);
+    }
+  }
+}
+
 // --- Lifecycle ---
 
 export async function startWeworkBot(botId: string, botName?: string): Promise<void> {
@@ -638,6 +746,9 @@ export async function startWeworkBot(botId: string, botName?: string): Promise<v
   ));
 
   ws.on('event.enter_chat', (frame) => handleEnterChat(instance, frame));
+  ws.on('event.template_card_event', (frame) => handleTemplateCardEvent(instance, frame).catch(err =>
+    log.error(`[企微:${name}] 处理反馈按钮事件出错: ${err.message}`)
+  ));
 
   ws.connect();
 
