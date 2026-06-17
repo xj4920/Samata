@@ -2,8 +2,8 @@ import { v4 as uuid } from 'uuid';
 import type { TemplateCard } from '@wecom/aibot-node-sdk';
 import { getDb } from '../db/connection.js';
 
-export type AnswerFeedbackAction = 'helpful' | 'not_helpful' | 'handoff';
-export type AnswerFeedbackStatus = 'open' | 'recorded' | 'handoff_requested';
+export type AnswerFeedbackAction = 'helpful' | 'not_helpful';
+export type AnswerFeedbackStatus = 'open' | 'recorded';
 
 export interface AnswerFeedbackRow {
   feedback_id: string;
@@ -54,7 +54,6 @@ export interface AnswerFeedbackGateOptions {
 
 export interface AnswerFeedbackConfig extends Required<AnswerFeedbackGateOptions> {
   enabled: boolean;
-  handoffTargetId: string | null;
 }
 
 const DEFAULT_GATE: Required<AnswerFeedbackGateOptions> = {
@@ -66,7 +65,6 @@ const DEFAULT_CONFIG: AnswerFeedbackConfig = {
   enabled: true,
   minToolCalls: DEFAULT_GATE.minToolCalls,
   minDurationMs: DEFAULT_GATE.minDurationMs,
-  handoffTargetId: null,
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -94,15 +92,11 @@ export function parseAnswerFeedbackConfig(configJson: string | null | undefined)
     const minDurationMs = nonNegativeNumber(feedback.minDurationMs)
       ?? nonNegativeNumber(feedback.min_duration_ms)
       ?? DEFAULT_CONFIG.minDurationMs;
-    const handoffTarget = feedback.handoffTargetId ?? feedback.handoff_target_id;
 
     return {
       enabled: feedback.enabled === false ? false : DEFAULT_CONFIG.enabled,
       minToolCalls,
       minDurationMs,
-      handoffTargetId: typeof handoffTarget === 'string' && handoffTarget.trim()
-        ? handoffTarget.trim()
-        : null,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -132,7 +126,6 @@ export function buildWeworkFeedbackCard(feedbackId: string, selected?: AnswerFee
   const selectedButton: Record<AnswerFeedbackAction, { text: string; style: number }> = {
     helpful: { text: '👍 有帮助', style: 1 },
     not_helpful: { text: '👎 没帮助', style: 2 },
-    handoff: { text: '转人工', style: 3 },
   };
 
   if (selected) {
@@ -153,7 +146,6 @@ export function buildWeworkFeedbackCard(feedbackId: string, selected?: AnswerFee
     button_list: [
       { text: '👍 有帮助', key: 'helpful', style: 1 },
       { text: '👎 没帮助', key: 'not_helpful', style: 2 },
-      { text: '转人工', key: 'handoff', style: 3 },
     ],
     task_id: feedbackId,
   };
@@ -211,7 +203,7 @@ export function parseWeworkFeedbackEvent(event: {
   const payload = event.template_card_event ?? event;
   if (!payload.task_id?.startsWith('fb_')) return null;
   const eventKey = payload.event_key ?? payload.key ?? payload.button_key ?? payload.selected_key ?? payload.value;
-  if (eventKey !== 'helpful' && eventKey !== 'not_helpful' && eventKey !== 'handoff') {
+  if (eventKey !== 'helpful' && eventKey !== 'not_helpful') {
     return null;
   }
   return { feedbackId: payload.task_id, action: eventKey };
@@ -222,8 +214,6 @@ export function recordAnswerFeedbackAction(input: {
   action: AnswerFeedbackAction;
   clickedByUserId: string;
 }): AnswerFeedbackRow | null {
-  const status: AnswerFeedbackStatus = input.action === 'handoff' ? 'handoff_requested' : 'recorded';
-
   getDb().prepare(`
     UPDATE answer_feedback
     SET rating = ?,
@@ -231,7 +221,7 @@ export function recordAnswerFeedbackAction(input: {
         clicked_by_user_id = ?,
         updated_at = datetime('now')
     WHERE feedback_id = ?
-  `).run(input.action, status, input.clickedByUserId, input.feedbackId);
+  `).run(input.action, 'recorded', input.clickedByUserId, input.feedbackId);
 
   return getAnswerFeedback(input.feedbackId);
 }

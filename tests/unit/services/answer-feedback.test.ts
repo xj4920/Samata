@@ -4,14 +4,14 @@ import { useUnitDb } from '../../helpers/unit-harness.js';
 describe('answer feedback service', () => {
   const unit = useUnitDb();
 
-  it('creates a WeWork feedback card with helpful, not helpful, and handoff buttons', async () => {
+  it('creates a WeWork feedback card with helpful and not helpful buttons', async () => {
     const { buildWeworkFeedbackCard } = await import('../../../src/services/answer-feedback.js');
 
     const card = buildWeworkFeedbackCard('fb_test');
 
     expect(card.card_type).toBe('button_interaction');
     expect(card.task_id).toBe('fb_test');
-    expect(card.button_list?.map(button => button.key)).toEqual(['helpful', 'not_helpful', 'handoff']);
+    expect(card.button_list?.map(button => button.key)).toEqual(['helpful', 'not_helpful']);
   });
 
   it('updates the feedback card to only show the selected action', async () => {
@@ -124,7 +124,6 @@ describe('answer feedback service', () => {
       enabled: true,
       minToolCalls: 10,
       minDurationMs: 60_000,
-      handoffTargetId: null,
     });
 
     expect(parseAnswerFeedbackConfig(JSON.stringify({
@@ -132,26 +131,22 @@ describe('answer feedback service', () => {
         enabled: false,
         minToolCalls: 3,
         minDurationMs: 15_000,
-        handoffTargetId: 'user-1',
       },
     }))).toEqual({
       enabled: false,
       minToolCalls: 3,
       minDurationMs: 15_000,
-      handoffTargetId: 'user-1',
     });
 
     expect(parseAnswerFeedbackConfig(JSON.stringify({
       wework_feedback: {
         min_tool_calls: 4,
         min_duration_ms: 30_000,
-        handoff_target_id: 'user-2',
       },
     }))).toEqual({
       enabled: true,
       minToolCalls: 4,
       minDurationMs: 30_000,
-      handoffTargetId: 'user-2',
     });
   });
 
@@ -180,10 +175,10 @@ describe('answer feedback service', () => {
     })!;
 
     const parsed = parseWeworkFeedbackEvent({
-      event_key: 'handoff',
+      event_key: 'not_helpful',
       task_id: created.feedbackId,
     });
-    expect(parsed).toEqual({ feedbackId: created.feedbackId, action: 'handoff' });
+    expect(parsed).toEqual({ feedbackId: created.feedbackId, action: 'not_helpful' });
 
     const recorded = recordAnswerFeedbackAction({
       feedbackId: created.feedbackId,
@@ -191,8 +186,8 @@ describe('answer feedback service', () => {
       clickedByUserId: 'wework_user_alice',
     });
 
-    expect(recorded?.rating).toBe('handoff');
-    expect(recorded?.status).toBe('handoff_requested');
+    expect(recorded?.rating).toBe('not_helpful');
+    expect(recorded?.status).toBe('recorded');
 
     const row = unit.db.prepare('SELECT * FROM answer_feedback WHERE feedback_id = ?').get(created.feedbackId) as any;
     expect(row.clicked_by_user_id).toBe('wework_user_alice');
@@ -205,6 +200,15 @@ describe('answer feedback service', () => {
       button_key: 'helpful',
       task_id: 'fb_test',
     })).toEqual({ feedbackId: 'fb_test', action: 'helpful' });
+  });
+
+  it('ignores unsupported handoff feedback events', async () => {
+    const { parseWeworkFeedbackEvent } = await import('../../../src/services/answer-feedback.js');
+
+    expect(parseWeworkFeedbackEvent({
+      event_key: 'handoff',
+      task_id: 'fb_test',
+    })).toBeNull();
   });
 
   it('parses nested template_card_event payloads from WeWork callbacks', async () => {

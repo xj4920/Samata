@@ -38,7 +38,6 @@ import {
   parseWeworkFeedbackEvent,
   recordAnswerFeedbackAction,
   type AnswerFeedbackConfig,
-  type AnswerFeedbackRow,
 } from '../services/answer-feedback.js';
 
 interface WeworkBotInstance {
@@ -148,31 +147,6 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
 function getWeworkFeedbackConfig(botId: string): AnswerFeedbackConfig {
   const row = getBotApp(botId);
   return parseAnswerFeedbackConfig(row?.config);
-}
-
-function formatHandoffMessage(row: AnswerFeedbackRow, clickedByUserId: string): string {
-  return [
-    '### Samata 转人工请求',
-    '',
-    `- 反馈ID：${row.feedback_id}`,
-    `- 用户：${row.user_id}`,
-    `- 点击人：${clickedByUserId}`,
-    `- Agent：${row.agent_id}`,
-    row.question_preview ? `- 问题：${row.question_preview}` : '',
-    row.answer_preview ? `- 回答摘要：${row.answer_preview}` : '',
-  ].filter(Boolean).join('\n');
-}
-
-async function notifyHandoffIfConfigured(instance: WeworkBotInstance, row: AnswerFeedbackRow, clickedByUserId: string): Promise<void> {
-  const targetId = getWeworkFeedbackConfig(instance.botId).handoffTargetId;
-  if (!targetId) {
-    log.warn(`[企微:${instance.botName}] 未配置反馈转人工目标，仅记录请求: ${row.feedback_id}`);
-    return;
-  }
-  await instance.wsClient.sendMessage(targetId, {
-    msgtype: 'markdown',
-    markdown: { content: formatHandoffMessage(row, clickedByUserId) },
-  });
 }
 
 async function handleAIChat(
@@ -657,14 +631,6 @@ async function handleTemplateCardEvent(
     log.dim(`[企微:${instance.botName}] 已更新反馈卡片: ${parsed.feedbackId} -> ${parsed.action}`);
   } catch (e: any) {
     log.warn(`[企微:${instance.botName}] 更新反馈卡片失败: ${e?.message ?? e}`);
-  }
-
-  if (parsed.action === 'handoff') {
-    try {
-      await notifyHandoffIfConfigured(instance, row, clickedByUserId);
-    } catch (e: any) {
-      log.warn(`[企微:${instance.botName}] 转人工通知发送失败: ${e?.message ?? e}`);
-    }
   }
 }
 

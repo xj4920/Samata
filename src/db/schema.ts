@@ -314,9 +314,9 @@ export function initSchema(): void {
       app_id             TEXT,
       chat_id            TEXT,
       rating             TEXT NOT NULL DEFAULT 'pending'
-                         CHECK(rating IN ('pending', 'helpful', 'not_helpful', 'handoff')),
+                         CHECK(rating IN ('pending', 'helpful', 'not_helpful')),
       status             TEXT NOT NULL DEFAULT 'open'
-                         CHECK(status IN ('open', 'recorded', 'handoff_requested')),
+                         CHECK(status IN ('open', 'recorded')),
       question_preview   TEXT NOT NULL DEFAULT '',
       answer_preview     TEXT NOT NULL DEFAULT '',
       created_at         TEXT NOT NULL DEFAULT (datetime('now')),
