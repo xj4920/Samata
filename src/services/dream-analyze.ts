@@ -16,7 +16,20 @@ const DREAM_MIN_LENGTH = 200;
 const DREAM_MIN_SECTION_COUNT = 1;
 const DREAM_MAX_SHRINK_RATIO = 0.35;
 const DREAM_MAX_SHRINK_FLOOR = 800;
+const DREAM_MAX_TOKENS = 4000;
+const DREAM_RETRY_MAX_TOKENS = 6000;
+const DREAM_COMPLETE_MARKER = '<!-- DREAM_COMPLETE -->';
 const warnedInvalidDreamFiles = new Set<string>();
+
+const TOKEN_LIMIT_STOP_REASONS = new Set(['max_tokens', 'length']);
+const RETRYABLE_VALIDATION_REASONS = new Set([
+  '模型输出触达 token 上限',
+  '缺少完成标记',
+  '代码块未闭合',
+  '最后一个工具分节不完整',
+  '最后一行疑似未完成',
+  '疑似截断结尾',
+]);
 
 function getDreamsDir(): string {
   return resolve(process.cwd(), 'data/dreams');
@@ -179,6 +192,7 @@ const DREAM_SYSTEM_PROMPT = `你是一个 AI 系统的"梦境分析器"。你的
 - 按工具名或工具组合分小节（### tool_name 或 ### tool_a + tool_b）
 - 每条经验包含"场景 → 正确做法"的因果结构
 - 总字数控制在 4000 字以内
+- 最后一行必须输出完成标记：${DREAM_COMPLETE_MARKER}
 
 ## 重点提炼
 
@@ -206,19 +220,92 @@ function countDreamSections(text: string): number {
   return (text.match(/^###\s+/gm) ?? []).length;
 }
 
+function stripDreamCompletionMarker(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.endsWith(DREAM_COMPLETE_MARKER)
+    ? trimmed.slice(0, -DREAM_COMPLETE_MARKER.length).trim()
+    : trimmed;
+}
+
+function hasCompletionMarker(text: string): boolean {
+  return text.trim().endsWith(DREAM_COMPLETE_MARKER);
+}
+
+function hasUnclosedCodeFence(text: string): boolean {
+  return ((text.match(/```/g) ?? []).length % 2) !== 0;
+}
+
+function hasUnbalancedBrackets(line: string): boolean {
+  const pairs: Array<[string, string]> = [
+    ['(', ')'],
+    ['（', '）'],
+    ['[', ']'],
+    ['【', '】'],
+    ['{', '}'],
+    ['《', '》'],
+  ];
+
+  return pairs.some(([open, close]) => {
+    const opens = line.split(open).length - 1;
+    const closes = line.split(close).length - 1;
+    return opens > closes;
+  });
+}
+
+function hasIncompleteTrailingSyntax(text: string): boolean {
+  const lines = text.trim().split('\n').map(line => line.trim()).filter(Boolean);
+  const last = lines[lines.length - 1] ?? '';
+  if (!last) return true;
+  if (/^[-*+]\s*$/.test(last) || /^\d+\.\s*$/.test(last)) return true;
+  if (/[，,、：:；;（(\[【{《“‘-]$/.test(last)) return true;
+  if (/(?:和|或|与|及|以及|并|且|但|如果|因为|所以|例如|如|从|把|将|为)$/.test(last)) return true;
+  if (((last.match(/`/g) ?? []).length % 2) !== 0) return true;
+  return hasUnbalancedBrackets(last);
+}
+
 function endsLikeCompleteMarkdown(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   return /[。！？.!?）)\]】`"']$/.test(trimmed);
 }
 
+function getDreamSections(text: string): string[] {
+  return text.split(/^###\s+/m).slice(1);
+}
+
+function hasIncompleteLastSection(text: string): boolean {
+  const sections = getDreamSections(text);
+  const last = sections[sections.length - 1]?.trim() ?? '';
+  if (!last) return true;
+  const bodyLines = last.split('\n').slice(1).map(line => line.trim()).filter(Boolean);
+  if (bodyLines.length === 0) return true;
+  return !/场景(?:\*\*)?\s*[：:]/.test(last) || !/正确做法(?:\*\*)?\s*[：:]/.test(last);
+}
+
+function hasSectionMissingRequiredStructure(text: string): boolean {
+  return getDreamSections(text).some(section =>
+    !/场景(?:\*\*)?\s*[：:]/.test(section) || !/正确做法(?:\*\*)?\s*[：:]/.test(section),
+  );
+}
+
+function isTokenLimitStopReason(stopReason: string | undefined): boolean {
+  return TOKEN_LIMIT_STOP_REASONS.has((stopReason ?? '').toLowerCase());
+}
+
 /** Validate dream output quality before writing or prompt injection */
 export function validateDream(
   text: string,
-  options: { existingDream?: string } = {},
-): { pass: boolean; reasons: string[] } {
+  options: {
+    existingDream?: string;
+    requireCompletionMarker?: boolean;
+    stopReason?: string;
+    strictSections?: boolean;
+  } = {},
+): { pass: boolean; reasons: string[]; retryable: boolean } {
   const reasons: string[] = [];
-  const trimmed = text.trim();
+  const trimmed = stripDreamCompletionMarker(text);
+  if (isTokenLimitStopReason(options.stopReason)) reasons.push('模型输出触达 token 上限');
+  if (options.requireCompletionMarker && !hasCompletionMarker(text)) reasons.push('缺少完成标记');
   if (trimmed.length < DREAM_MIN_LENGTH) reasons.push(`内容过短(${trimmed.length}字符)`);
   if (/\d+\s*ms\b/i.test(text)) reasons.push('包含延时数值(ms)');
   if (/\d+\s*[次秒s]\s*(调用|失败|成功)/i.test(text)) reasons.push('包含调用次数统计');
@@ -227,7 +314,14 @@ export function validateDream(
   if (countDreamSections(trimmed) < DREAM_MIN_SECTION_COUNT) reasons.push('缺少工具分节');
   if (!/场景(?:\*\*)?\s*[：:]/.test(trimmed)) reasons.push('缺少场景结构');
   if (!/正确做法(?:\*\*)?\s*[：:]/.test(trimmed)) reasons.push('缺少正确做法结构');
-  if (!endsLikeCompleteMarkdown(trimmed)) reasons.push('疑似截断结尾');
+  if (hasUnclosedCodeFence(trimmed)) reasons.push('代码块未闭合');
+  if (options.strictSections) {
+    if (hasIncompleteLastSection(trimmed)) reasons.push('最后一个工具分节不完整');
+    if (hasIncompleteTrailingSyntax(trimmed)) reasons.push('最后一行疑似未完成');
+    if (hasSectionMissingRequiredStructure(trimmed)) reasons.push('工具分节缺少场景或正确做法');
+  } else if (!endsLikeCompleteMarkdown(trimmed)) {
+    reasons.push('疑似截断结尾');
+  }
 
   const existing = options.existingDream?.trim();
   if (existing && existing.length >= 1200) {
@@ -237,7 +331,25 @@ export function validateDream(
     }
   }
 
-  return { pass: reasons.length === 0, reasons };
+  return {
+    pass: reasons.length === 0,
+    reasons,
+    retryable: reasons.some(reason => RETRYABLE_VALIDATION_REASONS.has(reason)),
+  };
+}
+
+function buildDreamSystemPrompt(retry: boolean): string {
+  if (!retry) return DREAM_SYSTEM_PROMPT;
+  return `${DREAM_SYSTEM_PROMPT}
+
+## 重试要求
+
+上一轮输出疑似被截断。请压缩历史经验，只保留最可复用的规则，必须完整输出并以 ${DREAM_COMPLETE_MARKER} 作为最后一行。`;
+}
+
+function extractDreamText(result: { content: any[] }): string {
+  const textBlocks = result.content.filter(b => b.type === 'text');
+  return textBlocks.map(b => (b as any).text).join('\n').trim();
 }
 
 /** Run dream analysis for a single agent */
@@ -264,25 +376,36 @@ export async function runDreamForAgent(agentId: string, agentName: string, dateS
   try {
     const { provider, model } = getDreamProvider();
 
-    const result = await provider.createMessage({
-      model,
-      max_tokens: 4000,
-      system: DREAM_SYSTEM_PROMPT,
-      tools: [],
-      messages: [{ role: 'user', content: userMessage }],
-    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await provider.createMessage({
+        model,
+        max_tokens: attempt === 0 ? DREAM_MAX_TOKENS : DREAM_RETRY_MAX_TOKENS,
+        system: buildDreamSystemPrompt(attempt > 0),
+        tools: [],
+        messages: [{ role: 'user', content: userMessage }],
+      });
 
-    const textBlocks = result.content.filter(b => b.type === 'text');
-    const dreamText = textBlocks.map(b => (b as any).text).join('\n').trim();
+      const dreamText = extractDreamText(result);
+      if (!dreamText) continue;
 
-    if (dreamText) {
-      const validation = validateDream(dreamText, { existingDream });
+      const validation = validateDream(dreamText, {
+        existingDream,
+        requireCompletionMarker: true,
+        stopReason: result.stop_reason,
+        strictSections: true,
+      });
       if (!validation.pass) {
-        log.warn(`[dream] ${agentName}: 质量检测未通过 [${validation.reasons.join('; ')}]，跳过写入`);
+        const detail = validation.reasons.join('; ');
+        if (attempt === 0 && validation.retryable) {
+          log.warn(`[dream] ${agentName}: 质量检测未通过 [${detail}]，准备重试一次`);
+          continue;
+        }
+        log.warn(`[dream] ${agentName}: 质量检测未通过 [${detail}]，跳过写入`);
         return false;
       }
-      writeDreamFile(agentName, dateStr, dreamText);
-      log.file(`[dream] ${agentName}: 已生成 dream (${dreamText.length} 字符)`);
+      const dreamContent = stripDreamCompletionMarker(dreamText);
+      writeDreamFile(agentName, dateStr, dreamContent);
+      log.file(`[dream] ${agentName}: 已生成 dream (${dreamContent.length} 字符)`);
       return true;
     }
   } catch (err: any) {

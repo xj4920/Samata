@@ -182,6 +182,12 @@ export function convertMessages(system: string, messages: Anthropic.MessageParam
  * OpenAI 响应 → Anthropic ContentBlock[] + stop_reason
  * ---------------------------------------------------------------- */
 
+function mapOpenAIStopReason(finishReason: string | null | undefined): string {
+  if (finishReason === 'tool_calls') return 'tool_use';
+  if (finishReason === 'length') return 'max_tokens';
+  return 'end_turn';
+}
+
 export function convertResponse(data: any, providerLabel: string): {
   content: Anthropic.ContentBlock[];
   stop_reason: string;
@@ -231,7 +237,7 @@ export function convertResponse(data: any, providerLabel: string): {
     content.push({ type: 'text', text: '' } as Anthropic.TextBlock);
   }
 
-  const stop_reason = choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
+  const stop_reason = mapOpenAIStopReason(choice.finish_reason);
   return { content, stop_reason, usage };
 }
 
@@ -318,7 +324,7 @@ export async function* parseSSEStream(
         if (content.length === 0) {
           content.push({ type: 'text', text: '' } as Anthropic.TextBlock);
         }
-        const stop_reason = finish === 'tool_calls' ? 'tool_use' : 'end_turn';
+        const stop_reason = mapOpenAIStopReason(finish);
         const usage = data.usage
           ? { input_tokens: data.usage.prompt_tokens ?? 0, output_tokens: data.usage.completion_tokens ?? 0 }
           : undefined;

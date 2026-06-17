@@ -841,6 +841,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
   ],
   "dream": [
     {
+      "title": "Dream 截断保护增强",
+      "link": "/plan/2026-06-17_dream-truncation-guard",
+      "sourcePath": "docs/plan/2026-06-17_dream-truncation-guard.md",
+      "sortKey": "2026-06-17_dream-truncation-guard.md",
+      "date": "2026-06-17",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/dream/quality"
+      ],
+      "topic": "质量与观测"
+    },
+    {
       "title": "Dream 内置调度与输出质量保护",
       "link": "/plan/2026-06-10_dream-scheduler-and-output-guard",
       "sourcePath": "docs/plan/2026-06-10_dream-scheduler-and-output-guard.md",

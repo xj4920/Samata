@@ -74,4 +74,87 @@ describe('dream analyze quality guards', () => {
     expect(result.pass).toBe(false);
     expect(result.reasons.some(r => r.includes('异常缩水'))).toBe(true);
   });
+
+  it('requires a completion marker for newly generated dream output', async () => {
+    const { validateDream } = await import('../../../src/services/dream-analyze.js');
+
+    const missing = validateDream(validDream(), { requireCompletionMarker: true, strictSections: true });
+    const complete = validateDream(`${validDream()}\n\n<!-- DREAM_COMPLETE -->`, {
+      requireCompletionMarker: true,
+      strictSections: true,
+    });
+
+    expect(missing.pass).toBe(false);
+    expect(missing.reasons).toContain('缺少完成标记');
+    expect(missing.retryable).toBe(true);
+    expect(complete.pass).toBe(true);
+  });
+
+  it('rejects unclosed markdown fences in newly generated dream output', async () => {
+    const broken = [
+      validDream(),
+      '',
+      '```ts',
+      'const unfinished = true;',
+      '',
+      '<!-- DREAM_COMPLETE -->',
+    ].join('\n');
+
+    const { validateDream } = await import('../../../src/services/dream-analyze.js');
+    const result = validateDream(broken, { requireCompletionMarker: true, strictSections: true });
+
+    expect(result.pass).toBe(false);
+    expect(result.reasons).toContain('代码块未闭合');
+    expect(result.retryable).toBe(true);
+  });
+
+  it('retries truncated generation once and writes the completed dream without marker', async () => {
+    const provider = {
+      name: 'mock',
+      defaultModel: 'mock-dream',
+      createMessage: vi.fn()
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: validDream('第一次输出') }],
+          stop_reason: 'max_tokens',
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: `${validDream('重试输出')}\n\n<!-- DREAM_COMPLETE -->` }],
+          stop_reason: 'end_turn',
+        }),
+    };
+    const db = {
+      prepare: vi.fn(() => ({
+        all: vi.fn(() => [{
+          agent_id: 'agent-1',
+          channel: 'wework',
+          loop_rounds: 4,
+          total_tool_calls: 1,
+          tools_json: JSON.stringify([{
+            name: 'sandbox_exec',
+            success: false,
+            input: '{"language":"shell"}',
+            error: 'missing language',
+          }]),
+          answer_preview: '用户需要分析 CSV 文件。',
+          model: 'mock-dream',
+        }]),
+      })),
+    };
+
+    vi.doMock('../../../src/llm/provider.js', () => ({
+      getDreamProvider: () => ({ provider, model: 'mock-dream' }),
+    }));
+    vi.doMock('../../../src/db/connection.js', () => ({
+      getDb: () => db,
+    }));
+
+    const { runDreamForAgent } = await import('../../../src/services/dream-analyze.js');
+    const ok = await runDreamForAgent('agent-1', 'ticlaw', '2026-06-16');
+
+    expect(ok).toBe(true);
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
+    const written = fs.readFileSync(path.join(tmpDir, 'data', 'dreams', 'ticlaw', '2026-06-16.md'), 'utf-8');
+    expect(written).toContain('重试输出');
+    expect(written).not.toContain('DREAM_COMPLETE');
+  });
 });
