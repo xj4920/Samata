@@ -87,8 +87,8 @@ docker inspect samata --format '{{.State.Status}} {{if .State.Health}}{{.State.H
 
 ## Commit Hash
 
-- 实现提交：待提交后回填。
-- 留档回填提交：待提交后回填。
+- 实现提交：`7b335b27410cca76929d2c8700fa5d7edcc36be3`
+- 留档回填提交：本文件记录实现提交 hash；docs-only 回填提交见最终回复。
 
 ## 构建与运行影响
 
