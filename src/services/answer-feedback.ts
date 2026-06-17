@@ -52,10 +52,62 @@ export interface AnswerFeedbackGateOptions {
   minDurationMs?: number;
 }
 
+export interface AnswerFeedbackConfig extends Required<AnswerFeedbackGateOptions> {
+  enabled: boolean;
+  handoffTargetId: string | null;
+}
+
 const DEFAULT_GATE: Required<AnswerFeedbackGateOptions> = {
   minToolCalls: 10,
   minDurationMs: 60_000,
 };
+
+const DEFAULT_CONFIG: AnswerFeedbackConfig = {
+  enabled: true,
+  minToolCalls: DEFAULT_GATE.minToolCalls,
+  minDurationMs: DEFAULT_GATE.minDurationMs,
+  handoffTargetId: null,
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+export function parseAnswerFeedbackConfig(configJson: string | null | undefined): AnswerFeedbackConfig {
+  if (!configJson) return { ...DEFAULT_CONFIG };
+  try {
+    const root = asRecord(JSON.parse(configJson));
+    const feedback = asRecord(root?.feedback)
+      ?? asRecord(root?.answer_feedback)
+      ?? asRecord(root?.wework_feedback);
+    if (!feedback) return { ...DEFAULT_CONFIG };
+
+    const minToolCalls = nonNegativeNumber(feedback.minToolCalls)
+      ?? nonNegativeNumber(feedback.min_tool_calls)
+      ?? DEFAULT_CONFIG.minToolCalls;
+    const minDurationMs = nonNegativeNumber(feedback.minDurationMs)
+      ?? nonNegativeNumber(feedback.min_duration_ms)
+      ?? DEFAULT_CONFIG.minDurationMs;
+    const handoffTarget = feedback.handoffTargetId ?? feedback.handoff_target_id;
+
+    return {
+      enabled: feedback.enabled === false ? false : DEFAULT_CONFIG.enabled,
+      minToolCalls,
+      minDurationMs,
+      handoffTargetId: typeof handoffTarget === 'string' && handoffTarget.trim()
+        ? handoffTarget.trim()
+        : null,
+    };
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
+}
 
 function latestTurnFor(input: CreateAnswerFeedbackInput): AnswerFeedbackTurn | null {
   return getDb().prepare(`
@@ -109,8 +161,9 @@ export function buildWeworkFeedbackCard(feedbackId: string, selected?: AnswerFee
 
 export function createAnswerFeedbackFromLatestTurn(
   input: CreateAnswerFeedbackInput,
-  gateOptions?: AnswerFeedbackGateOptions,
+  gateOptions?: AnswerFeedbackGateOptions & { enabled?: boolean },
 ): CreatedAnswerFeedback | null {
+  if (gateOptions?.enabled === false) return null;
   const turn = latestTurnFor(input);
   if (!turn || !shouldCreateAnswerFeedback(turn, gateOptions)) return null;
 

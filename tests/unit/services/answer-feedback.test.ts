@@ -69,6 +69,92 @@ describe('answer feedback service', () => {
     expect(row.answer_preview).toBe('复杂分析结果');
   });
 
+  it('does not create feedback when disabled by config', async () => {
+    const { createAnswerFeedbackFromLatestTurn } = await import('../../../src/services/answer-feedback.js');
+
+    unit.db.prepare(`
+      INSERT INTO telemetry_turn (
+        turn_id, session_id, user_id, agent_id, channel,
+        started_at, ended_at, user_question, answer_preview, total_tool_calls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'disabled-turn', 'test-user', 'test-user', 'agent-otcclaw', 'wework',
+      1000, 2000, '复杂问题', '复杂回答', 100,
+    );
+
+    const feedback = createAnswerFeedbackFromLatestTurn({
+      userId: 'test-user',
+      agentId: 'agent-otcclaw',
+      channel: 'wework',
+      appId: 'bot-1',
+    }, { enabled: false });
+
+    expect(feedback).toBeNull();
+    const count = unit.db.prepare('SELECT COUNT(*) as c FROM answer_feedback').get() as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  it('uses configured feedback thresholds', async () => {
+    const { createAnswerFeedbackFromLatestTurn } = await import('../../../src/services/answer-feedback.js');
+
+    unit.db.prepare(`
+      INSERT INTO telemetry_turn (
+        turn_id, session_id, user_id, agent_id, channel,
+        started_at, ended_at, user_question, answer_preview, total_tool_calls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'configured-threshold-turn', 'test-user', 'test-user', 'agent-otcclaw', 'wework',
+      1000, 2000, '中等问题', '中等回答', 3,
+    );
+
+    const feedback = createAnswerFeedbackFromLatestTurn({
+      userId: 'test-user',
+      agentId: 'agent-otcclaw',
+      channel: 'wework',
+      appId: 'bot-1',
+    }, { minToolCalls: 3, minDurationMs: 60_000 });
+
+    expect(feedback?.turnId).toBe('configured-threshold-turn');
+  });
+
+  it('parses feedback config with defaults and legacy aliases', async () => {
+    const { parseAnswerFeedbackConfig } = await import('../../../src/services/answer-feedback.js');
+
+    expect(parseAnswerFeedbackConfig(null)).toEqual({
+      enabled: true,
+      minToolCalls: 10,
+      minDurationMs: 60_000,
+      handoffTargetId: null,
+    });
+
+    expect(parseAnswerFeedbackConfig(JSON.stringify({
+      feedback: {
+        enabled: false,
+        minToolCalls: 3,
+        minDurationMs: 15_000,
+        handoffTargetId: 'user-1',
+      },
+    }))).toEqual({
+      enabled: false,
+      minToolCalls: 3,
+      minDurationMs: 15_000,
+      handoffTargetId: 'user-1',
+    });
+
+    expect(parseAnswerFeedbackConfig(JSON.stringify({
+      wework_feedback: {
+        min_tool_calls: 4,
+        min_duration_ms: 30_000,
+        handoff_target_id: 'user-2',
+      },
+    }))).toEqual({
+      enabled: true,
+      minToolCalls: 4,
+      minDurationMs: 30_000,
+      handoffTargetId: 'user-2',
+    });
+  });
+
   it('records a clicked feedback action', async () => {
     const {
       createAnswerFeedbackFromLatestTurn,

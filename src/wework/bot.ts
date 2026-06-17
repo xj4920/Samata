@@ -34,8 +34,10 @@ import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../s
 import {
   buildWeworkFeedbackCard,
   createAnswerFeedbackFromLatestTurn,
+  parseAnswerFeedbackConfig,
   parseWeworkFeedbackEvent,
   recordAnswerFeedbackAction,
+  type AnswerFeedbackConfig,
   type AnswerFeedbackRow,
 } from '../services/answer-feedback.js';
 
@@ -143,17 +145,9 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
   });
 }
 
-function getWeworkFeedbackHandoffTarget(botId: string): string | null {
+function getWeworkFeedbackConfig(botId: string): AnswerFeedbackConfig {
   const row = getBotApp(botId);
-  if (!row?.config) return null;
-  try {
-    const cfg = JSON.parse(row.config);
-    const feedback = cfg.feedback ?? cfg.answer_feedback ?? cfg.wework_feedback;
-    const target = feedback?.handoffTargetId ?? feedback?.handoff_target_id;
-    return typeof target === 'string' && target.trim() ? target.trim() : null;
-  } catch {
-    return null;
-  }
+  return parseAnswerFeedbackConfig(row?.config);
 }
 
 function formatHandoffMessage(row: AnswerFeedbackRow, clickedByUserId: string): string {
@@ -170,7 +164,7 @@ function formatHandoffMessage(row: AnswerFeedbackRow, clickedByUserId: string): 
 }
 
 async function notifyHandoffIfConfigured(instance: WeworkBotInstance, row: AnswerFeedbackRow, clickedByUserId: string): Promise<void> {
-  const targetId = getWeworkFeedbackHandoffTarget(instance.botId);
+  const targetId = getWeworkFeedbackConfig(instance.botId).handoffTargetId;
   if (!targetId) {
     log.warn(`[企微:${instance.botName}] 未配置反馈转人工目标，仅记录请求: ${row.feedback_id}`);
     return;
@@ -327,6 +321,7 @@ async function handleAIChat(
 
       try {
         const chatId = (frame as any).body?.chatid ?? userId;
+        const feedbackConfig = getWeworkFeedbackConfig(instance.botId);
         const feedback = createAnswerFeedbackFromLatestTurn({
           userId: session.user.id,
           agentId: agentConfig.id,
@@ -335,7 +330,7 @@ async function handleAIChat(
           chatId,
           questionPreview: userInput,
           answerPreview: finalText,
-        });
+        }, feedbackConfig);
         if (feedback) {
           await ws.replyTemplateCard(frame, feedback.card);
           log.dim(`${logTag} 已发送回答反馈卡片: ${feedback.feedbackId}`);
