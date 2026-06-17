@@ -16,9 +16,6 @@ const WIKI_ROOT = path.resolve(__dirname, '../../data/wiki');
 const RG_MAX_BUFFER_BYTES = Number(process.env.RG_MAX_BUFFER_BYTES || 40 * 1024 * 1024);
 const RG_TIMEOUT_MS = Number(process.env.RG_TIMEOUT_MS || 15_000);
 const RG_MAX_FILESIZE = process.env.RG_MAX_FILESIZE || '2M';
-const RG_DEFAULT_CONTEXT_LINES = 2;
-const RG_DEFAULT_MAX_COUNT = 50;
-const RG_FALLBACK_MAX_COUNT = 20;
 
 export interface GrepSearchResult {
   source: 'document';
@@ -137,28 +134,20 @@ function rgAvailable(): boolean {
   }
 }
 
-interface RgRecord {
-  type: 'match' | 'context' | string;
-  data: {
-    path: { text: string };
-    lines: { text: string };
-    line_number: number;
-    submatches?: { match: { text: string }; start: number; end: number }[];
-  };
+function isInsideDir(parent: string, candidate: string): boolean {
+  const rel = path.relative(parent, candidate);
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-function buildRipgrepArgs(
+function buildRipgrepFileArgs(
   terms: string[],
   searchDir: string,
   glob: string,
-  options: { contextLines: number; maxCount: number },
 ): string[] {
   const args: string[] = [
     '-F',
     '-i',
-    '--json',
-    '-C', String(options.contextLines),
-    '--max-count', String(options.maxCount),
+    '--files-with-matches',
     '--max-filesize', RG_MAX_FILESIZE,
     '--glob', glob,
   ];
@@ -169,66 +158,40 @@ function buildRipgrepArgs(
   return args;
 }
 
-function parseRipgrepJson(raw: Buffer): RgRecord[] {
-  const lines = raw.toString().trim().split('\n').filter(Boolean);
-  const records: RgRecord[] = [];
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line);
-      if (obj.type === 'match' || obj.type === 'context') records.push(obj);
-    } catch {
-      // skip non-JSON output from rg
-    }
-  }
-  return records;
-}
-
 function isRipgrepBufferOverflow(e: any): boolean {
   return e?.code === 'ENOBUFS' || String(e?.message || '').includes('ENOBUFS');
 }
 
-function execRipgrepJson(
+function execRipgrepFileList(
   args: string[],
   warnLabel: string,
-  makeFallbackArgs: () => string[],
-): RgRecord[] {
+  searchDir: string,
+): string[] | null {
   try {
     const raw = execFileSync('rg', args, { maxBuffer: RG_MAX_BUFFER_BYTES, timeout: RG_TIMEOUT_MS });
-    return parseRipgrepJson(raw);
+    return raw.toString().split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(filePath => path.isAbsolute(filePath) ? filePath : path.resolve(searchDir, filePath))
+      .filter(filePath => isInsideDir(searchDir, filePath));
   } catch (e: any) {
     if (e.status === 1) return [];
     if (isRipgrepBufferOverflow(e)) {
-      log.warn(`${warnLabel}: output exceeded ${RG_MAX_BUFFER_BYTES} bytes, retrying with reduced context`);
-      try {
-        const raw = execFileSync('rg', makeFallbackArgs(), { maxBuffer: RG_MAX_BUFFER_BYTES, timeout: RG_TIMEOUT_MS });
-        return parseRipgrepJson(raw);
-      } catch (retryError: any) {
-        if (retryError.status === 1) return [];
-        log.warn(`${warnLabel} fallback failed: ${retryError.message}`);
-        return [];
-      }
+      log.warn(`${warnLabel}: candidate file list exceeded ${RG_MAX_BUFFER_BYTES} bytes, falling back to Node scan`);
+      return null;
     }
     log.warn(`${warnLabel}: ${e.message}`);
-    return [];
+    return null;
   }
 }
 
 /**
- * Invoke ripgrep with the ordered list of terms. Returns raw per-line records
- * (both matches and context rows). Never throws on "no match" (exit code 1).
+ * Use ripgrep only to identify candidate files. Matching and snippet assembly
+ * happen inside Node so broad queries cannot overflow child-process stdout.
  */
-function runRipgrep(terms: string[], agentId: string): RgRecord[] {
-  const searchDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
+function listRipgrepCandidateFiles(terms: string[], searchDir: string, glob: string, warnLabel: string): string[] | null {
   if (!fs.existsSync(searchDir)) return [];
-
-  const args = buildRipgrepArgs(terms, searchDir, '**/parsed.md', {
-    contextLines: RG_DEFAULT_CONTEXT_LINES,
-    maxCount: RG_DEFAULT_MAX_COUNT,
-  });
-  return execRipgrepJson(args, 'ripgrep search failed', () => buildRipgrepArgs(terms, searchDir, '**/parsed.md', {
-    contextLines: 0,
-    maxCount: RG_FALLBACK_MAX_COUNT,
-  }));
+  return execRipgrepFileList(buildRipgrepFileArgs(terms, searchDir, glob), warnLabel, searchDir);
 }
 
 // --- Per-file aggregation ---------------------------------------------------
@@ -246,55 +209,92 @@ interface FileState {
   fmRange: { start: number; end: number } | null;
 }
 
-function readFileState(filePath: string): Pick<FileState, 'frontmatter' | 'fmRange'> {
+function scanMarkdownFile(filePath: string, termsLower: string[]): FileState | null {
+  let content: string;
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const { frontmatter, range } = parseFrontmatter(content);
-    return { frontmatter, fmRange: range };
+    content = fs.readFileSync(filePath, 'utf-8');
   } catch {
-    return { frontmatter: {}, fmRange: null };
+    return null;
   }
+
+  const { frontmatter, range: fmRange } = parseFrontmatter(content);
+  const lines = content.split('\n');
+  const state: FileState = {
+    filePath,
+    lines: new Map(),
+    matchLines: [],
+    submatchesByLine: new Map(),
+    frontmatter,
+    fmRange,
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNumber = i + 1;
+    state.lines.set(lineNumber, lines[i]);
+    const lower = lines[i].toLowerCase();
+    const hits: string[] = [];
+    for (const term of termsLower) {
+      if (lower.includes(term)) hits.push(term);
+    }
+    if (hits.length > 0) {
+      state.matchLines.push(lineNumber);
+      state.submatchesByLine.set(lineNumber, hits);
+    }
+  }
+
+  return state.matchLines.length > 0 ? state : null;
 }
 
-function assembleRecords(records: RgRecord[]): Map<string, FileState> {
-  const states = new Map<string, FileState>();
+function scoreMarkdownFiles(
+  filePaths: string[],
+  terms: string[],
+  termTiers: Map<string, KeywordTier>,
+  options: { skipIndexAndLog?: boolean } = {},
+): ScoredFile[] {
+  const scored: ScoredFile[] = [];
+  const termsLower = terms.map(t => t.toLowerCase());
 
-  for (const rec of records) {
-    const filePath = rec.data.path.text;
-    const lineNumber = rec.data.line_number;
-    const lineText = rec.data.lines.text.replace(/\n$/, '');
-
-    let state = states.get(filePath);
-    if (!state) {
-      const { frontmatter, fmRange } = readFileState(filePath);
-      state = {
-        filePath,
-        lines: new Map(),
-        matchLines: [],
-        submatchesByLine: new Map(),
-        frontmatter,
-        fmRange,
-      };
-      states.set(filePath, state);
+  for (const filePath of filePaths) {
+    if (options.skipIndexAndLog) {
+      const name = path.basename(filePath);
+      if (name === 'index.md' || name === 'log.md') continue;
     }
 
-    if (!state.lines.has(lineNumber)) {
-      state.lines.set(lineNumber, lineText);
-    }
+    const state = scanMarkdownFile(filePath, termsLower);
+    if (!state) continue;
 
-    if (rec.type === 'match') {
-      if (!state.submatchesByLine.has(lineNumber)) {
-        state.matchLines.push(lineNumber);
-        state.submatchesByLine.set(lineNumber, []);
-      }
-      const bucket = state.submatchesByLine.get(lineNumber)!;
-      for (const sm of rec.data.submatches ?? []) {
-        bucket.push(sm.match.text.toLowerCase());
+    const item = scoreFile(state, termTiers);
+    if (item.relevance > 0) scored.push(item);
+  }
+
+  return scored;
+}
+
+function listDocumentMarkdownFiles(agentDir: string): string[] {
+  const files: string[] = [];
+  for (const docDir of fs.readdirSync(agentDir)) {
+    const mdPath = path.join(agentDir, docDir, 'parsed.md');
+    if (fs.existsSync(mdPath)) files.push(mdPath);
+  }
+  return files;
+}
+
+function listMarkdownFilesRecursive(searchDir: string): string[] {
+  const files: string[] = [];
+
+  function walk(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.name.endsWith('.md') && entry.name !== 'index.md' && entry.name !== 'log.md') {
+        files.push(fullPath);
       }
     }
   }
 
-  return states;
+  walk(searchDir);
+  return files;
 }
 
 // --- Scoring & snippet ------------------------------------------------------
@@ -368,52 +368,7 @@ function fallbackScan(
   const agentDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
   if (!fs.existsSync(agentDir)) return [];
 
-  const results: ScoredFile[] = [];
-  const docDirs = fs.readdirSync(agentDir);
-  const termsLower = terms.map(t => t.toLowerCase());
-
-  for (const docDir of docDirs) {
-    const mdPath = path.join(agentDir, docDir, 'parsed.md');
-    if (!fs.existsSync(mdPath)) continue;
-
-    let content: string;
-    try {
-      content = fs.readFileSync(mdPath, 'utf-8');
-    } catch { continue; }
-
-    const { frontmatter, range: fmRange } = parseFrontmatter(content);
-    const lines = content.split('\n');
-
-    // Build synthetic FileState for consistent scoring
-    const state: FileState = {
-      filePath: mdPath,
-      lines: new Map(),
-      matchLines: [],
-      submatchesByLine: new Map(),
-      frontmatter,
-      fmRange,
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      state.lines.set(i + 1, lines[i]);
-      const lower = lines[i].toLowerCase();
-      const hits: string[] = [];
-      for (let t = 0; t < termsLower.length; t++) {
-        if (lower.includes(termsLower[t])) hits.push(termsLower[t]);
-      }
-      if (hits.length > 0) {
-        state.matchLines.push(i + 1);
-        state.submatchesByLine.set(i + 1, hits);
-      }
-    }
-
-    if (state.matchLines.length === 0) continue;
-
-    const scored = scoreFile(state, termTiers);
-    if (scored.relevance > 0) results.push(scored);
-  }
-
-  return results;
+  return scoreMarkdownFiles(listDocumentMarkdownFiles(agentDir), terms, termTiers);
 }
 
 // --- Public API -------------------------------------------------------------
@@ -443,12 +398,10 @@ export function grepSearchDocuments(
   for (const c of classified) termTiers.set(c.term.toLowerCase(), c.tier);
 
   let scored: ScoredFile[];
+  const searchDir = path.join(DOCUMENTS_ROOT, getAgentFsName(agentId));
   if (rgAvailable()) {
-    const records = runRipgrep(terms, agentId);
-    const states = assembleRecords(records);
-    scored = [...states.values()]
-      .map(s => scoreFile(s, termTiers))
-      .filter(s => s.relevance > 0);
+    const files = listRipgrepCandidateFiles(terms, searchDir, '**/parsed.md', 'ripgrep search failed');
+    scored = files === null ? fallbackScan(terms, termTiers, agentId) : scoreMarkdownFiles(files, terms, termTiers);
   } else {
     scored = fallbackScan(terms, termTiers, agentId);
   }
@@ -559,71 +512,13 @@ export function searchWikiEntitiesExact(
   return results.slice(0, limit);
 }
 
-function runRipgrepOnDir(terms: string[], searchDir: string): RgRecord[] {
-  if (!fs.existsSync(searchDir)) return [];
-
-  const args = buildRipgrepArgs(terms, searchDir, '**/*.md', {
-    contextLines: RG_DEFAULT_CONTEXT_LINES,
-    maxCount: RG_DEFAULT_MAX_COUNT,
-  });
-  return execRipgrepJson(args, 'ripgrep wiki search failed', () => buildRipgrepArgs(terms, searchDir, '**/*.md', {
-    contextLines: 0,
-    maxCount: RG_FALLBACK_MAX_COUNT,
-  }));
-}
-
 function fallbackScanDir(
   terms: string[],
   termTiers: Map<string, KeywordTier>,
   searchDir: string,
 ): ScoredFile[] {
   if (!fs.existsSync(searchDir)) return [];
-
-  const results: ScoredFile[] = [];
-  const termsLower = terms.map(t => t.toLowerCase());
-
-  function scanRecursive(dir: string): void {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        scanRecursive(path.join(dir, entry.name));
-      } else if (entry.name.endsWith('.md') && entry.name !== 'index.md' && entry.name !== 'log.md') {
-        const mdPath = path.join(dir, entry.name);
-        let content: string;
-        try { content = fs.readFileSync(mdPath, 'utf-8'); } catch { continue; }
-
-        const { frontmatter, range: fmRange } = parseFrontmatter(content);
-        const lines = content.split('\n');
-        const state: FileState = {
-          filePath: mdPath,
-          lines: new Map(),
-          matchLines: [],
-          submatchesByLine: new Map(),
-          frontmatter,
-          fmRange,
-        };
-
-        for (let i = 0; i < lines.length; i++) {
-          state.lines.set(i + 1, lines[i]);
-          const lower = lines[i].toLowerCase();
-          const hits: string[] = [];
-          for (const t of termsLower) {
-            if (lower.includes(t)) hits.push(t);
-          }
-          if (hits.length > 0) {
-            state.matchLines.push(i + 1);
-            state.submatchesByLine.set(i + 1, hits);
-          }
-        }
-
-        if (state.matchLines.length === 0) continue;
-        const scored = scoreFile(state, termTiers);
-        if (scored.relevance > 0) results.push(scored);
-      }
-    }
-  }
-
-  scanRecursive(searchDir);
-  return results;
+  return scoreMarkdownFiles(listMarkdownFilesRecursive(searchDir), terms, termTiers);
 }
 
 /**
@@ -649,11 +544,10 @@ export function grepSearchWiki(
 
   let scored: ScoredFile[];
   if (rgAvailable()) {
-    const records = runRipgrepOnDir(terms, searchDir);
-    const states = assembleRecords(records);
-    scored = [...states.values()]
-      .map(s => scoreFile(s, termTiers))
-      .filter(s => s.relevance > 0);
+    const files = listRipgrepCandidateFiles(terms, searchDir, '**/*.md', 'ripgrep wiki search failed');
+    scored = files === null
+      ? fallbackScanDir(terms, termTiers, searchDir)
+      : scoreMarkdownFiles(files, terms, termTiers, { skipIndexAndLog: true });
   } else {
     scored = fallbackScanDir(terms, termTiers, searchDir);
   }

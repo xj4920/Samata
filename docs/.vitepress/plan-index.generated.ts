@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Ripgrep 知识检索 Buffer 溢出修复",
+      "link": "/plan/2026-06-17_ripgrep-search-buffer-guard",
+      "sourcePath": "docs/plan/2026-06-17_ripgrep-search-buffer-guard.md",
+      "sortKey": "2026-06-17_ripgrep-search-buffer-guard.md",
+      "date": "2026-06-17",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "知识检索限流与告警修复"
+    },
+    {
       "title": "Hedge Ratio Venv Runtime Permission Follow-up",
       "link": "/plan/2026-06-17_hedge-ratio-venv-runtime-permission",
       "sourcePath": "docs/plan/2026-06-17_hedge-ratio-venv-runtime-permission.md",
