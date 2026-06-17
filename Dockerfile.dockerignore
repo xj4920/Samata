@@ -11,6 +11,12 @@
 **/.git/**
 **/node_modules
 **/node_modules/**
+**/.venv
+**/.venv/**
+**/__pycache__
+**/__pycache__/**
+**/.pytest_cache
+**/.pytest_cache/**
 **/.env*
 !samata/.env.example
 !samata/.env.langfuse.example
@@ -19,3 +25,9 @@ samata/data
 samata/data/**
 samata/logs
 samata/logs/**
+samata-plugin-work/hedge-ratio/attachments
+samata-plugin-work/hedge-ratio/attachments/**
+samata-plugin-work/hedge-ratio/data/**
+!samata-plugin-work/hedge-ratio/data/
+!samata-plugin-work/hedge-ratio/data/1800/
+!samata-plugin-work/hedge-ratio/data/1800/**

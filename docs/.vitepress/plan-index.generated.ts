@@ -37,6 +37,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Hedge Ratio Venv Runtime Permission Follow-up",
+      "link": "/plan/2026-06-17_hedge-ratio-venv-runtime-permission",
+      "sourcePath": "docs/plan/2026-06-17_hedge-ratio-venv-runtime-permission.md",
+      "sortKey": "2026-06-17_hedge-ratio-venv-runtime-permission.md",
+      "date": "2026-06-17",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "Docker 插件运行时权限"
+    },
+    {
+      "title": "Hedge Ratio Python Venv 权限修复",
+      "link": "/plan/2026-06-16_hedge-ratio-python-venv-permission",
+      "sourcePath": "docs/plan/2026-06-16_hedge-ratio-python-venv-permission.md",
+      "sortKey": "2026-06-16_hedge-ratio-python-venv-permission.md",
+      "date": "2026-06-16",
+      "status": "superseded",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "Docker 插件运行时权限"
+    },
+    {
       "title": "Samata 日志观测与告警降噪优化",
       "link": "/plan/2026-06-14_samata-log-observability-optimization",
       "sourcePath": "docs/plan/2026-06-14_samata-log-observability-optimization.md",

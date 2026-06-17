@@ -71,7 +71,11 @@ COPY samata-plugin-work/trade-query/package.json ./trade-query/package.json
 COPY samata-plugin-work/wiki-sync/package.json ./wiki-sync/package.json
 RUN npm ci --include=dev
 COPY samata-plugin-work ./
-RUN rm -rf logyi-mcp
+RUN rm -rf logyi-mcp \
+  && rm -rf hedge-ratio/.venv hedge-ratio/attachments \
+  && mkdir -p hedge-ratio/attachments hedge-ratio/data \
+  && chown node:node hedge-ratio \
+  && chown -R node:node hedge-ratio/attachments hedge-ratio/data
 
 WORKDIR /app/samata-plugin-work/logyi-mcp
 COPY samata-plugin-work/logyi-mcp/package.json samata-plugin-work/logyi-mcp/package-lock.json ./
@@ -82,6 +86,9 @@ RUN npm run build
 WORKDIR /app/samata
 COPY samata ./
 RUN chmod +x scripts/docker-entrypoint.sh \
+  && for dir in /app/samata /app/plugins /app/work-plugins /app/samata-plugin-work; do \
+    find "$dir" -path '*/node_modules' -prune -o -exec chmod u=rwX,go=rX {} +; \
+  done \
   && mkdir -p data logs \
   && chown -R node:node data logs
 
