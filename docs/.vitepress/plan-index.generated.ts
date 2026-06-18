@@ -49,6 +49,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent Dream 运行经验"
     },
     {
+      "title": "Samata 通用 Subagent Runtime Roadmap",
+      "link": "/plan/2026-06-18_subagent-runtime-roadmap",
+      "sourcePath": "docs/plan/2026-06-18_subagent-runtime-roadmap.md",
+      "sortKey": "2026-06-18_subagent-runtime-roadmap.md",
+      "date": "2026-06-18",
+      "status": "planned",
+      "canonicalDocs": [
+        "/platform/agent-capability-model"
+      ],
+      "topic": "Subagent 运行时路线图"
+    },
+    {
       "title": "Docker 生产部署目录切换到 /opt/samata",
       "link": "/plan/2026-06-18_opt-samata-deploy-root",
       "sourcePath": "docs/plan/2026-06-18_opt-samata-deploy-root.md",
