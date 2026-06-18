@@ -64,4 +64,4 @@ rm -rf /tmp/samata-runtime-missing && SAMATA_DEPLOY_ROOT=/tmp/samata-runtime-mis
 
 ## Commit Hash
 
-- 实现提交：待提交，用户确认提交后回填。
+- 实现提交：`52d8915867b5929b930299aec54aa5eb97327983`。
