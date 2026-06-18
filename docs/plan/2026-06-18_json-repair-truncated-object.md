@@ -36,4 +36,4 @@ git diff --check -- src/utils/json-repair.ts docs/plan/2026-06-18_json-repair-tr
 
 ## Commit
 
-- implementation commit hash: 待提交
+- implementation commit hash: `d7315d3`
