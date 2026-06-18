@@ -59,7 +59,7 @@ curl http://127.0.0.1:3457/health
 CLI_SERVER_URL=http://127.0.0.1:3457 npm run cli
 ```
 
-`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs` 和 `node_modules/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。`samata-plugin-work/logyi-mcp` 是 MCP 服务，不走插件扫描，会单独构建到 `/app/samata-plugin-work/logyi-mcp`。
+`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过 `config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
 
 镜像内会准备 sandbox 基础运行环境：Node.js 22、系统 Python 3、`python`/`python3`、pip、venv、bubblewrap 隔离工具，以及 sandbox 工具说明中声明的常用 Python 数据处理依赖（`psycopg2`、`pandas`、`numpy`、`matplotlib`、`openpyxl`、`xlrd`、`requests`、`beautifulsoup4`、`lxml`、`pillow`、`paramiko`、`cryptography`）。sandbox 代码会优先使用 `SANDBOX_PYTHON_BIN` 或 `SANDBOX_PYTHON_ROOT` 指定的 Python；容器中默认自动落到系统 Python。
 
