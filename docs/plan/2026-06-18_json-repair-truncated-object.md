@@ -63,4 +63,4 @@ git diff --check -- src/utils/json-repair.ts docs/plan/2026-06-18_json-repair-tr
 ## Commit Hash
 
 - 实现提交：`d7315d3d4541b58a265729bdd721ec62cb30a48f`
-- 留档补充：待提交。
+- 留档补充：`de7f1f89b6db29901f33b0a397868390b21ba5bb`。

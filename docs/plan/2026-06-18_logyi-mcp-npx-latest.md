@@ -81,3 +81,4 @@ docker logs --since 5m samata 2>&1 | rg 'MCP \[logyi\].*已连接'
 ## Commit
 
 - implementation commit hash: `a323345`
+- metadata commit hash: `de7f1f89b6db29901f33b0a397868390b21ba5bb`

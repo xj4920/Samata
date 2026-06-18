@@ -74,7 +74,7 @@ git diff --check -- data/dreams/ticlaw/2026-06-18.md docs/plan/2026-06-18_ticlaw
 
 ## Commit Hash
 
-- 留档提交：待提交。
+- 留档提交：`de7f1f89b6db29901f33b0a397868390b21ba5bb`。
 
 ## 构建与重启判断
 
