@@ -125,13 +125,18 @@ Docker 空白部署：
 #   samata-plugins/
 #   samata-plugin-work/
 
-cp .env.example .env
-# 编辑 .env，配置 LLM、插件目录、外部数据与观测端点
+sudo mkdir -p /opt/samata/data /opt/samata/logs
+sudo chown -R "$USER:$USER" /opt/samata
+cp .env.example /opt/samata/.env
+chmod 600 /opt/samata/.env
+# 编辑 /opt/samata/.env，配置 LLM、插件目录、外部数据与观测端点
 
 npm run docker:samata:build
 npm run docker:samata:up
 curl http://127.0.0.1:3457/health
 ```
+
+Docker Compose 默认从 `/opt/samata/.env` 只读挂载生产配置，并把运行数据、日志写到 `/opt/samata/data`、`/opt/samata/logs`；如需换目录，可设置 `SAMATA_DEPLOY_ROOT`。
 
 如果 Docker build 拉取基础镜像时报 `proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`，说明 Docker daemon 配置了本机代理但该端口没有服务。检查 `/etc/systemd/system/docker.service.d/http-proxy.conf`，启动本机代理、改成可达代理，或移除 daemon 代理配置后重启 Docker。
 

@@ -16,6 +16,7 @@ Build tags are derived from package.json:
 Environment overrides:
   SAMATA_IMAGE_REPO   Image repository name, default: samata
   SAMATA_IMAGE_TAG    Primary image tag, default: <version>-<git-sha>[-dirty-YYYYMMDDHHMMSS]
+  SAMATA_DEPLOY_ROOT  Runtime config/data/log root, default: /opt/samata
 USAGE
 }
 
@@ -27,6 +28,7 @@ case "$command" in
 esac
 
 image_repo="${SAMATA_IMAGE_REPO:-samata}"
+deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
 version="$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); if (!pkg.version) throw new Error('package.json missing version'); process.stdout.write(pkg.version)")"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'nogit')"
 
@@ -41,8 +43,37 @@ export SAMATA_IMAGE_REPO="$image_repo"
 export SAMATA_IMAGE_TAG="$primary_tag"
 export SAMATA_VERSION="$version"
 export SAMATA_COMMIT="$commit"
+export SAMATA_DEPLOY_ROOT="$deploy_root"
 
 compose=(docker compose --env-file /dev/null)
+
+ensure_deploy_root() {
+  if [[ ! -f "$deploy_root/.env" ]]; then
+    cat >&2 <<EOF
+Missing Samata deployment env file: $deploy_root/.env
+
+Prepare the runtime directory before starting:
+  sudo mkdir -p "$deploy_root/data" "$deploy_root/logs"
+  sudo chown -R "$(id -un):$(id -gn)" "$deploy_root"
+  cp .env.example "$deploy_root/.env"
+  chmod 600 "$deploy_root/.env"
+
+Then edit $deploy_root/.env with production values and rerun this command.
+EOF
+    exit 1
+  fi
+
+  if ! mkdir -p "$deploy_root/data" "$deploy_root/logs"; then
+    cat >&2 <<EOF
+Failed to create runtime directories under $deploy_root.
+
+Check ownership or prepare them manually:
+  sudo mkdir -p "$deploy_root/data" "$deploy_root/logs"
+  sudo chown -R "$(id -un):$(id -gn)" "$deploy_root"
+EOF
+    exit 1
+  fi
+}
 
 if [[ "$command" == "prune" ]]; then
   docker image prune -f
@@ -52,6 +83,7 @@ fi
 if [[ "$command" == "build" ]]; then
   "${compose[@]}" build samata
 else
+  ensure_deploy_root
   "${compose[@]}" up -d --build samata
 fi
 

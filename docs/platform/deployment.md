@@ -39,13 +39,16 @@ source/
 从 `samata/` 目录启动：
 
 ```bash
-cp .env.example .env
-# 编辑 .env，配置 LLM Provider、插件和外部服务密钥；Bot app 凭证通过 CLI 写入 SQLite
+sudo mkdir -p /opt/samata/data /opt/samata/logs
+sudo chown -R "$USER:$USER" /opt/samata
+cp .env.example /opt/samata/.env
+chmod 600 /opt/samata/.env
+# 编辑 /opt/samata/.env，配置 LLM Provider、插件和外部服务密钥；Bot app 凭证通过 CLI 写入 SQLite
 npm run docker:samata:up
 docker compose --env-file /dev/null logs -f samata
 ```
 
-Samata 容器通过只读挂载读取 `./.env`；`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
+Samata 容器通过只读挂载读取 `/opt/samata/.env`，并把 SQLite 数据和日志持久化到 `/opt/samata/data`、`/opt/samata/logs`。`scripts/docker-samata.sh` 默认检查 `/opt/samata/.env` 是否存在；如需使用其他运行目录，可设置 `SAMATA_DEPLOY_ROOT=/path/to/samata-runtime`。`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
 
 `npm run docker:samata:up` 会从 `package.json` 读取版本号并生成主 tag：`samata:<version>-<git-sha>`；同时打上 `samata:<version>` 和 `samata:latest` 两个别名。需要只构建不启动时使用 `npm run docker:samata:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:samata:prune`。
 
@@ -56,7 +59,7 @@ curl http://127.0.0.1:3457/health
 CLI_SERVER_URL=http://127.0.0.1:3457 npm run cli
 ```
 
-`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs` 和 `node_modules/` 不会打进镜像；运行时会只读挂载 `./.env`，并挂载 `./data` 和 `./logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。`samata-plugin-work/logyi-mcp` 是 MCP 服务，不走插件扫描，会单独构建到 `/app/samata-plugin-work/logyi-mcp`。
+`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs` 和 `node_modules/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。`samata-plugin-work/logyi-mcp` 是 MCP 服务，不走插件扫描，会单独构建到 `/app/samata-plugin-work/logyi-mcp`。
 
 镜像内会准备 sandbox 基础运行环境：Node.js 22、系统 Python 3、`python`/`python3`、pip、venv、bubblewrap 隔离工具，以及 sandbox 工具说明中声明的常用 Python 数据处理依赖（`psycopg2`、`pandas`、`numpy`、`matplotlib`、`openpyxl`、`xlrd`、`requests`、`beautifulsoup4`、`lxml`、`pillow`、`paramiko`、`cryptography`）。sandbox 代码会优先使用 `SANDBOX_PYTHON_BIN` 或 `SANDBOX_PYTHON_ROOT` 指定的 Python；容器中默认自动落到系统 Python。
 
@@ -73,7 +76,7 @@ docker network create samata-wind-sync || true
 docker network connect --alias wind_sync_pg samata-wind-sync wind_sync_pg || true
 ```
 
-`.env` 通过只读挂载提供给容器内应用，由 Samata 启动时的 dotenv 加载，不会进入镜像。不要把 `.env` 配成 compose `env_file`，密钥中如果包含 `$` 可能会被 Compose 当变量插值处理。`environment` 中显式配置的容器内地址会覆盖 `.env` 里的本地开发地址。
+`/opt/samata/.env` 通过只读挂载提供给容器内应用，由 Samata 启动时的 dotenv 加载，不会进入镜像。不要把 `.env` 配成 compose `env_file`，密钥中如果包含 `$` 可能会被 Compose 当变量插值处理。`environment` 中显式配置的容器内地址会覆盖 `.env` 里的本地开发地址。
 
 容器内访问内网 LLM 网关需要使用企业 DNS。compose 已为 Samata 配置 `10.55.66.66`、`10.80.66.66`，避免 Docker 默认 DNS 无法解析 `llm.smart-zone-dev.gf.com.cn`。
 

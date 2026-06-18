@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Docker 生产部署目录切换到 /opt/samata",
+      "link": "/plan/2026-06-18_opt-samata-deploy-root",
+      "sourcePath": "docs/plan/2026-06-18_opt-samata-deploy-root.md",
+      "sortKey": "2026-06-18_opt-samata-deploy-root.md",
+      "date": "2026-06-18",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "Docker 生产部署目录"
+    },
+    {
       "title": "Ripgrep 知识检索 Buffer 溢出修复",
       "link": "/plan/2026-06-17_ripgrep-search-buffer-guard",
       "sourcePath": "docs/plan/2026-06-17_ripgrep-search-buffer-guard.md",

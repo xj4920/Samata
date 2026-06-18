@@ -36,9 +36,9 @@ services:
     ports:
       - "3457:3457"
     volumes:
-      - ./.env:/app/samata/.env:ro
-      - ./data:/app/samata/data
-      - ./logs:/app/samata/logs
+      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/.env:/app/samata/.env:ro
+      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/data:/app/samata/data
+      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/logs:/app/samata/logs
     networks:
       - default
       - wind-sync
