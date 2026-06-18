@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "ticlaw LogYi Dream 使用规则沉淀",
+      "link": "/plan/2026-06-18_ticlaw-logyi-dream-guidance",
+      "sourcePath": "docs/plan/2026-06-18_ticlaw-logyi-dream-guidance.md",
+      "sortKey": "2026-06-18_ticlaw-logyi-dream-guidance.md",
+      "date": "2026-06-18",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "Agent Dream 运行经验"
+    },
+    {
       "title": "Docker 生产部署目录切换到 /opt/samata",
       "link": "/plan/2026-06-18_opt-samata-deploy-root",
       "sourcePath": "docs/plan/2026-06-18_opt-samata-deploy-root.md",
@@ -47,6 +59,42 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/deployment"
       ],
       "topic": "Docker 生产部署目录"
+    },
+    {
+      "title": "MAX_TOOL_ROUNDS 运行配置放宽",
+      "link": "/plan/2026-06-18_max-tool-rounds-env",
+      "sourcePath": "docs/plan/2026-06-18_max-tool-rounds-env.md",
+      "sortKey": "2026-06-18_max-tool-rounds-env.md",
+      "date": "2026-06-18",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "运行时工具轮次配置"
+    },
+    {
+      "title": "LogYi MCP 切换到 npm latest",
+      "link": "/plan/2026-06-18_logyi-mcp-npx-latest",
+      "sourcePath": "docs/plan/2026-06-18_logyi-mcp-npx-latest.md",
+      "sortKey": "2026-06-18_logyi-mcp-npx-latest.md",
+      "date": "2026-06-18",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "LogYi MCP 部署来源"
+    },
+    {
+      "title": "截断 JSON 对象修复",
+      "link": "/plan/2026-06-18_json-repair-truncated-object",
+      "sourcePath": "docs/plan/2026-06-18_json-repair-truncated-object.md",
+      "sortKey": "2026-06-18_json-repair-truncated-object.md",
+      "date": "2026-06-18",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "LLM JSON 输出修复"
     },
     {
       "title": "Ripgrep 知识检索 Buffer 溢出修复",

@@ -1,39 +1,66 @@
-# JSON 对象截断修复提交
+---
+docModules:
+  - platform
+docTopics:
+  platform: LLM JSON 输出修复
+canonicalDocs:
+  - /platform/common-tools
+status: implemented
+---
+
+# 截断 JSON 对象修复
 
 ## 背景
 
-`src/utils/json-repair.ts` 用于修复和解析 LLM 输出的 JSON。已有逻辑支持数组截断修复，但对象解析在缺少末尾 `}` 时会直接失败；同时对象内部尾随逗号也需要与数组解析保持一致处理。
+运行日志中出现 workspace 摘要 JSON 解析失败，典型输入是模型输出到一半的对象字符串，例如只包含开头 `{ "summary": "..."`，导致 `parseLLMJsonObject` 只能抛错，摘要更新为空或残缺。
 
 ## 决策
 
-- `parseLLMJsonObject` 在找到 `{` 后允许对象末尾缺失 `}`，保留从首个 `{` 开始的文本进入修复流程。
-- 对象解析前统一清理 `,]` 与 `,}` 这类尾随逗号。
-- 新增 `repairTruncatedJsonObject`，基于栈补齐未闭合的 `}` / `]`，并在字符串截断时补齐闭合引号。
-- 修复失败时抛出明确错误，避免静默返回错误数据。
+- 保持现有 `parseLLMJsonObject` 入口不变，避免影响调用方。
+- 在正常 `JSON.parse` 失败后，对截断对象做最小修复：补齐未闭合字符串、对象和数组闭合符，并移除尾逗号。
+- 仅在修复结果可被 `JSON.parse` 验证时返回，否则继续抛出明确错误，避免吞掉真实脏数据。
+- 不修改 Samata 运行时 memory 数据库，不写入 `data/samata.db` 的 `memory` 表。
 
 ## 改动清单
 
 - `src/utils/json-repair.ts`
-  - 放宽对象截取逻辑，支持缺失末尾 `}` 的截断对象。
-  - 对对象解析加入尾随逗号清理。
-  - 新增对象截断修复函数。
+  - 放宽对象截取逻辑，允许缺少最后一个 `}` 的截断对象进入修复流程。
+  - 在对象解析前移除尾逗号。
+  - 新增 `repairTruncatedJsonObject`，按栈补齐 `{`、`[` 对应闭合符，并处理未闭合字符串。
 
 ## 验证命令
 
-计划执行：
+已执行：
 
 ```bash
+npx tsc --noEmit
 node --import tsx/esm - <<'NODE'
 import { parseLLMJsonObject } from './src/utils/json-repair.ts';
-console.log(parseLLMJsonObject('{"ok":true, "items":[1,2,'));
+const cases = [
+  ['valid', '{"summary":"ok","items":[1,2]}'],
+  ['trailing commas', '{"summary":"ok",}'],
+  ['truncated object', '{"summary":"修改TRS合约不自动重跑估值，仅标记检查失败'],
+  ['nested truncated', '{"summary":"ok","items":[{"a":1}'],
+];
+for (const [name, input] of cases) {
+  const out = parseLLMJsonObject(input);
+  console.log(name, JSON.stringify(out));
+}
 NODE
 git diff --check -- src/utils/json-repair.ts docs/plan/2026-06-18_json-repair-truncated-object.md
 ```
 
-## 构建影响
+结果：
 
-本次仅修改 TypeScript 工具函数和文档留档，不涉及 Dockerfile、依赖、数据库迁移或插件构建产物。运行中的 Docker 服务未重建。
+- TypeScript 类型检查通过。
+- `git diff --check` 通过。
+- 有效 JSON、尾逗号、截断 object、嵌套截断 object 均可解析。
 
-## Commit
+## 构建与发布
 
-- implementation commit hash: `d7315d3`
+本次改动影响 Samata 运行时代码，需要重新构建 Samata Docker image 并重启容器。不涉及依赖变更、插件构建产物或数据库迁移。
+
+## Commit Hash
+
+- 实现提交：`d7315d3d4541b58a265729bdd721ec62cb30a48f`
+- 留档补充：待提交。

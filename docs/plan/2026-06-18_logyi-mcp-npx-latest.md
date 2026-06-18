@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: LogYi MCP 部署来源
+canonicalDocs:
+  - /platform/common-tools
+status: implemented
+---
+
 # LogYi MCP 切换到 npm latest
 
 ## 背景
