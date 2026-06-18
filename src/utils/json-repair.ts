@@ -56,13 +56,25 @@ export function parseLLMJsonObject<T = unknown>(raw: string): T {
 
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
-  if (firstBrace < 0 || lastBrace <= firstBrace) {
+  if (firstBrace < 0) {
     throw new Error('未找到 JSON 对象');
   }
-  text = text.substring(firstBrace, lastBrace + 1);
+  text = lastBrace > firstBrace
+    ? text.substring(firstBrace, lastBrace + 1)
+    : text.substring(firstBrace);
 
-  text = fixJsonStringValues(text);
-  return JSON.parse(text);
+  text = fixJsonStringValues(text)
+    .replace(/,\s*]/g, ']')
+    .replace(/,\s*}/g, '}')
+    .trim();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const repaired = repairTruncatedJsonObject(text);
+    if (repaired) return JSON.parse(repaired);
+    throw new Error('JSON 对象解析失败且无法修复');
+  }
 }
 
 /**
@@ -181,4 +193,37 @@ function repairTruncatedJsonArray(text: string): string | null {
 
   if (lastCompleteObjectEnd <= 0) return null;
   return (trimmed.substring(0, lastCompleteObjectEnd + 1) + ']').replace(/,\s*]$/, ']');
+}
+
+function repairTruncatedJsonObject(text: string): string | null {
+  const trimmed = text.trim().replace(/,\s*$/, '');
+  if (!trimmed.startsWith('{')) return null;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (escapeNext) { escapeNext = false; continue; }
+    if (ch === '\\' && inString) { escapeNext = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === '{') stack.push('}');
+    if (ch === '[') stack.push(']');
+    if (ch === '}' || ch === ']') {
+      if (stack[stack.length - 1] !== ch) return null;
+      stack.pop();
+    }
+  }
+
+  const closed = `${trimmed}${inString ? '"' : ''}${stack.reverse().join('')}`
+    .replace(/,\s*([}\]])/g, '$1');
+  try {
+    JSON.parse(closed);
+    return closed;
+  } catch {
+    return null;
+  }
 }
