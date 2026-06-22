@@ -72,5 +72,5 @@ npm view @gf/logyi-mcp@latest version dist.tarball --registry http://npm.gf.com.
 
 ## Commit Hash
 
-- implementation commit hash: 待提交
+- implementation commit hash: `00dbe8e00d218072ce0ace55279a22911ef7b18e`
 - 当前基线 commit: `ac26fd2`
