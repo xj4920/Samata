@@ -22,7 +22,7 @@ export type QueryTradesInput = { client?: string; party?: string; user?: string;
 export type PlotTradesInput  = { client?: string; party?: string; limit?: number };
 
 // --- Knowledge ---
-export type SearchKnowledgeInput        = { keyword: string };
+export type SearchKnowledgeInput        = { keyword: string; date_from?: string; date_to?: string; include_undated?: boolean };
 export type ReadKnowledgeDocumentInput  = { document_id: string; max_chars?: number };
 export type ReadWikiPageInput           = { page: string; max_chars?: number };
 export type AddKnowledgeInput           = { question: string; answer: string; tags?: string; related_users?: string };

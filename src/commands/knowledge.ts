@@ -5,7 +5,7 @@ import { recordEvent } from '../models/event.js';
 import { log } from '../utils/logger.js';
 import { isInteractive, remoteInput } from '../runtime/execution-context.js';
 import { v4 as uuid } from 'uuid';
-import { grepSearchDocuments, grepSearchWiki, searchWikiEntitiesExact, type GrepSearchResult, type WikiSearchResult } from '../utils/grep-search.js';
+import { grepSearchDocuments, grepSearchWiki, searchWikiEntitiesExact, type DocumentSearchOptions, type GrepSearchResult, type WikiSearchResult } from '../utils/grep-search.js';
 import { discoverLinks } from '../services/wiki-links.js';
 import { BROAD_BUSINESS_TERMS, expandCJKKeywords } from '../utils/keyword-weights.js';
 
@@ -126,7 +126,11 @@ const DOC_LIMIT = 5;
  */
 const WIKI_LIMIT = 5;
 
-export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeSearchResult {
+export interface FetchKnowledgeOptions {
+  documentDate?: DocumentSearchOptions;
+}
+
+export function fetchKnowledge(keyword?: string, agentId?: string, options: FetchKnowledgeOptions = {}): KnowledgeSearchResult {
   if (!keyword) {
     const db = getDb();
     const docFilter = 'WHERE k.document_id IS NULL';
@@ -146,7 +150,7 @@ export function fetchKnowledge(keyword?: string, agentId?: string): KnowledgeSea
     : [];
   const wiki = [...exactWiki, ...grepWiki].slice(0, WIKI_LIMIT);
 
-  const documents = agentId ? grepSearchDocuments(keyword, agentId, DOC_LIMIT) : [];
+  const documents = agentId ? grepSearchDocuments(keyword, agentId, DOC_LIMIT, options.documentDate) : [];
   const faq = searchFAQs(keyword, agentId).slice(0, FAQ_LIMIT);
 
   // Phase 2: async link discovery (fire-and-forget)

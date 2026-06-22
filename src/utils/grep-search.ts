@@ -25,6 +25,7 @@ export interface GrepSearchResult {
   snippet: string;
   relevance: number;
   tags: string | null;
+  doc_date?: string | null;
 }
 
 interface Frontmatter {
@@ -35,6 +36,7 @@ interface Frontmatter {
   file_type?: string;
   created_by?: string;
   created_at?: string;
+  doc_date?: string;
 }
 
 // --- Frontmatter parsing ----------------------------------------------------
@@ -321,6 +323,27 @@ interface ScoredFile {
   filePath: string;
 }
 
+export interface DocumentSearchOptions {
+  dateFrom?: string;
+  dateTo?: string;
+  includeUndated?: boolean;
+}
+
+function isIsoDate(value: string | undefined): value is string {
+  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isDocumentDateAllowed(frontmatter: Frontmatter, options: DocumentSearchOptions): boolean {
+  const hasDateFilter = !!options.dateFrom || !!options.dateTo;
+  if (!hasDateFilter) return true;
+
+  const docDate = frontmatter.doc_date;
+  if (!isIsoDate(docDate)) return options.includeUndated === true;
+  if (options.dateFrom && docDate < options.dateFrom) return false;
+  if (options.dateTo && docDate > options.dateTo) return false;
+  return true;
+}
+
 function scoreFile(
   state: FileState,
   termTiers: Map<string, KeywordTier>,
@@ -387,6 +410,7 @@ export function grepSearchDocuments(
   keyword: string,
   agentId: string,
   limit = 5,
+  options: DocumentSearchOptions = {},
 ): GrepSearchResult[] {
   const rawKeywords = keyword.split(/\s+/).filter(Boolean);
   if (rawKeywords.length === 0) return [];
@@ -406,6 +430,7 @@ export function grepSearchDocuments(
     scored = fallbackScan(terms, termTiers, agentId);
   }
 
+  scored = scored.filter(s => isDocumentDateAllowed(s.frontmatter, options));
   scored.sort((a, b) => b.relevance - a.relevance);
 
   const results: GrepSearchResult[] = [];
@@ -419,6 +444,7 @@ export function grepSearchDocuments(
       snippet: s.snippet,
       relevance: s.relevance,
       tags: s.frontmatter.tags || null,
+      doc_date: s.frontmatter.doc_date || null,
     });
   }
   return results;

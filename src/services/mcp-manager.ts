@@ -47,8 +47,10 @@ const RECONNECT_COOLDOWN_MS = 10_000;
 const BACKGROUND_RETRY_INTERVAL_MS = 30_000;
 const DEVTOOLS_HINT = '\n\n⚠️ 成功仅表示浏览器指令已发送，不保证页面状态已按预期改变。如果重复操作后页面无变化，请停止使用浏览器工具，基于当前已有的信息直接给出答复。';
 const DEVTOOLS_STOP_HINT = '不要继续猜测或重复打开 URL；请基于当前已有信息直接回答，必要时说明外部页面不可用。';
+const LOGYI_TIME_RANGE_HINT = 'LogYi 日志搜索必须显式携带绝对时间范围。用户未给时间时，默认使用 Asia/Shanghai 当日 00:00:00 到当前时间。不要自行跨日、跨年或扩大到历史年份；信息不足时请用户补充具体时间、账号、服务或关键字段。';
 const MAX_REPEATED_DEVTOOLS_NAVIGATIONS = 3;
 const REPEATED_DEVTOOLS_NAVIGATION_WINDOW_MS = 5 * 60_000;
+const LOGYI_MAX_UNCONFIRMED_RANGE_DAYS = 7;
 let retryTimer: NodeJS.Timeout | null = null;
 
 let lastDevtoolsNavigation: { url: string; count: number; at: number } | null = null;
@@ -190,7 +192,21 @@ export function isMcpToolAllowedForAgent(toolName: string, agentName?: string): 
   return isServerAllowedForAgent(srv, agentName);
 }
 
+function isLogyiSearchTool(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  if (/(?:result|status|list|fetch|cancel|delete)/.test(name)) return false;
+  return /(?:search|query|submit)/.test(name);
+}
+
 function buildMcpToolDescription(serverName: string, toolName: string, description: string): string {
+  if (serverName === 'logyi' && isLogyiSearchTool(toolName)) {
+    return [
+      description,
+      `时间范围约束：${LOGYI_TIME_RANGE_HINT}`,
+      '超过 7 天、跨日扩大、跨年或历史回溯必须由用户明确给出绝对日期范围；没有充分信息时不要扩大搜索范围。',
+    ].filter(Boolean).join('\n\n');
+  }
+
   if (serverName !== 'devtools') return description;
   if (toolName !== 'navigate_page' && toolName !== 'new_page') return description;
   return [
@@ -215,6 +231,208 @@ function normalizeUrl(url: string): string {
 
 function mcpError(error: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ error, ...extra });
+}
+
+const LOGYI_CONFIRM_KEYS = [
+  'time_range_confirmed',
+  'confirmed_time_range',
+  'confirm_time_range',
+  'user_confirmed_time_range',
+  'allow_wide_time_range',
+  'allow_historical_range',
+];
+
+const LOGYI_START_KEYS = [
+  'start_time', 'startTime', 'from_time', 'fromTime', 'time_from', 'timeFrom',
+  'begin_time', 'beginTime', 'start_date', 'startDate', 'date_from', 'from',
+  'begin', 'start',
+];
+
+const LOGYI_END_KEYS = [
+  'end_time', 'endTime', 'to_time', 'toTime', 'time_to', 'timeTo',
+  'finish_time', 'finishTime', 'end_date', 'endDate', 'date_to', 'to',
+  'end', 'stop',
+];
+
+const LOGYI_DATE_KEYS = ['date', 'day', 'log_date', 'logDate', 'biz_date', 'bizDate', 'trade_date', 'tradeDate'];
+const LOGYI_RANGE_KEYS = ['time_range', 'timeRange', 'range', 'date_range', 'dateRange'];
+
+interface ParsedLogyiDate {
+  date: string;
+  year: number;
+  timeMs: number;
+}
+
+interface LogyiTimeRange {
+  start?: ParsedLogyiDate;
+  end?: ParsedLogyiDate;
+  hasPartial: boolean;
+}
+
+function getRecordValue(input: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (input[key] !== undefined && input[key] !== null && input[key] !== '') return input[key];
+  }
+  return undefined;
+}
+
+function parseLogyiDateValue(value: unknown, endOfDay = false): ParsedLogyiDate | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const date = value.toISOString().slice(0, 10);
+    return { date, year: Number(date.slice(0, 4)), timeMs: value.getTime() };
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value > 10_000_000_000 ? value : value * 1000;
+    const date = new Date(ms).toISOString().slice(0, 10);
+    return { date, year: Number(date.slice(0, 4)), timeMs: ms };
+  }
+
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const compact = raw.match(/\b(\d{4})(\d{2})(\d{2})\b/);
+  if (compact) {
+    const date = `${compact[1]}-${compact[2]}-${compact[3]}`;
+    const suffix = endOfDay ? 'T23:59:59+08:00' : 'T00:00:00+08:00';
+    const timeMs = Date.parse(`${date}${suffix}`);
+    if (Number.isNaN(timeMs)) return null;
+    return { date, year: Number(compact[1]), timeMs };
+  }
+
+  const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/);
+  if (!iso) return null;
+
+  const date = iso[1];
+  const time = iso[2] ?? (endOfDay ? '23:59:59' : '00:00:00');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})\b/.test(raw);
+  const normalized = hasTimezone
+    ? raw.match(/\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b/)?.[0]?.replace(' ', 'T')
+    : `${date}T${time}+08:00`;
+  const timeMs = Date.parse(normalized ?? `${date}T${time}+08:00`);
+  if (Number.isNaN(timeMs)) return null;
+  return { date, year: Number(date.slice(0, 4)), timeMs };
+}
+
+function parseLogyiRangeObject(value: unknown): LogyiTimeRange {
+  if (Array.isArray(value)) {
+    return {
+      start: parseLogyiDateValue(value[0]),
+      end: parseLogyiDateValue(value[1], true),
+      hasPartial: value.length > 0,
+    };
+  }
+
+  if (value && typeof value === 'object') {
+    return extractLogyiTimeRange(value as Record<string, unknown>);
+  }
+
+  if (typeof value === 'string') {
+    const matches = [...value.matchAll(/\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g)].map(m => m[0]);
+    if (matches.length >= 2) {
+      return {
+        start: parseLogyiDateValue(matches[0]),
+        end: parseLogyiDateValue(matches[1], true),
+        hasPartial: true,
+      };
+    }
+    if (matches.length === 1) {
+      const start = parseLogyiDateValue(matches[0]);
+      const end = parseLogyiDateValue(matches[0], true);
+      return { start, end, hasPartial: true };
+    }
+  }
+
+  return { hasPartial: false };
+}
+
+function extractLogyiTimeRange(input: Record<string, unknown>): LogyiTimeRange {
+  const singleDate = getRecordValue(input, LOGYI_DATE_KEYS);
+  if (singleDate !== undefined) {
+    const start = parseLogyiDateValue(singleDate);
+    const end = parseLogyiDateValue(singleDate, true);
+    return { start, end, hasPartial: true };
+  }
+
+  for (const key of LOGYI_RANGE_KEYS) {
+    if (input[key] !== undefined && input[key] !== null && input[key] !== '') {
+      const parsed = parseLogyiRangeObject(input[key]);
+      if (parsed.start || parsed.end || parsed.hasPartial) return parsed;
+    }
+  }
+
+  const startRaw = getRecordValue(input, LOGYI_START_KEYS);
+  const endRaw = getRecordValue(input, LOGYI_END_KEYS);
+  return {
+    start: parseLogyiDateValue(startRaw),
+    end: parseLogyiDateValue(endRaw, true),
+    hasPartial: startRaw !== undefined || endRaw !== undefined,
+  };
+}
+
+function hasConfirmedLogyiTimeRange(input: Record<string, unknown>): boolean {
+  return LOGYI_CONFIRM_KEYS.some(key => input[key] === true || input[key] === 'true' || input[key] === 1 || input[key] === '1');
+}
+
+function stripLogyiGuardOnlyKeys(input: Record<string, unknown>): Record<string, unknown> {
+  const cleaned = { ...input };
+  for (const key of LOGYI_CONFIRM_KEYS) delete cleaned[key];
+  return cleaned;
+}
+
+function diffInclusiveDays(start: ParsedLogyiDate, end: ParsedLogyiDate): number {
+  const startMs = Date.parse(`${start.date}T00:00:00Z`);
+  const endMs = Date.parse(`${end.date}T00:00:00Z`);
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
+
+function guardLogyiSearchTimeRange(originalName: string, input: Record<string, unknown>): { error?: string; input: Record<string, unknown> } {
+  if (!isLogyiSearchTool(originalName)) return { input };
+
+  const confirmed = hasConfirmedLogyiTimeRange(input);
+  const cleaned = stripLogyiGuardOnlyKeys(input);
+  const range = extractLogyiTimeRange(input);
+
+  if (!range.start && !range.end) {
+    return {
+      input: cleaned,
+      error: 'LogYi 搜索缺少绝对时间范围，已拒绝执行。请按当前问题补充 start_time/end_time；用户未给时间时默认只查 Asia/Shanghai 当日。',
+    };
+  }
+
+  if (!range.start || !range.end) {
+    return {
+      input: cleaned,
+      error: 'LogYi 搜索时间范围不完整，已拒绝执行。请同时提供 start_time 和 end_time；信息不足时请用户补充具体时间范围。',
+    };
+  }
+
+  if (range.start.timeMs > range.end.timeMs) {
+    return {
+      input: cleaned,
+      error: 'LogYi 搜索时间范围无效：start_time 晚于 end_time，已拒绝执行。',
+    };
+  }
+
+  const days = diffInclusiveDays(range.start, range.end);
+  const crossesYear = range.start.year !== range.end.year;
+
+  if (crossesYear && !confirmed) {
+    return {
+      input: cleaned,
+      error: `LogYi 搜索跨年范围 ${range.start.date} ~ ${range.end.date} 未经用户明确确认，已拒绝执行。请先向用户确认绝对日期范围，避免把历史日志当成当前故障证据。`,
+    };
+  }
+
+  if (days > LOGYI_MAX_UNCONFIRMED_RANGE_DAYS && !confirmed) {
+    return {
+      input: cleaned,
+      error: `LogYi 搜索范围 ${range.start.date} ~ ${range.end.date} 共 ${days} 天，超过 ${LOGYI_MAX_UNCONFIRMED_RANGE_DAYS} 天，已拒绝执行。请缩小窗口，或在用户明确确认历史回溯后再查询。`,
+    };
+  }
+
+  return { input: cleaned };
 }
 
 function isJsonErrorPayload(text: string): boolean {
@@ -326,6 +544,12 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     return JSON.stringify({ error: `MCP 工具 ${toolName} 未授权给当前 agent: ${agentName}` });
   }
 
+  if (serverName === 'logyi') {
+    const guarded = guardLogyiSearchTimeRange(originalName, input);
+    if (guarded.error) return mcpError(guarded.error, { hint: LOGYI_TIME_RANGE_HINT });
+    input = guarded.input;
+  }
+
   if (!sessions.has(serverName)) {
     const ok = await ensureConnected(serverName);
     if (!ok) return JSON.stringify({ error: `MCP 服务器未连接: ${serverName}` });
@@ -379,3 +603,8 @@ export async function stopMcpServers(): Promise<void> {
   }
   sessions.clear();
 }
+
+export const __mcpManagerTest = {
+  buildMcpToolDescription,
+  guardLogyiSearchTimeRange,
+};

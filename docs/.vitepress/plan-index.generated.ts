@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "TIClaw 日志与知识检索时间范围收敛",
+      "link": "/plan/2026-06-22_ticlaw-log-time-guard",
+      "sourcePath": "docs/plan/2026-06-22_ticlaw-log-time-guard.md",
+      "sortKey": "2026-06-22_ticlaw-log-time-guard.md",
+      "date": "2026-06-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "TIClaw LogYi 时间范围护栏"
+    },
+    {
       "title": "ticlaw LogYi Dream 使用规则沉淀",
       "link": "/plan/2026-06-18_ticlaw-logyi-dream-guidance",
       "sourcePath": "docs/plan/2026-06-18_ticlaw-logyi-dream-guidance.md",

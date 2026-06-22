@@ -10,11 +10,14 @@ import { recordKnowledge as recordKnowledgeTelemetry } from '../telemetry/emitte
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_knowledge',
-    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考；如需展开 wiki 页面全文，调用 read_wiki_page 并传入 wiki[].page。文档结果会返回 document_id 和片段；只有读取导入文档全文时才调用 read_knowledge_document 并传 documents[].document_id，不要把 wiki[].page 传给 read_knowledge_document，也不要用 read_file 读取 data/documents。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。',
+    description: '搜索 Wiki（编译知识）、FAQ 和文档，返回 `{ wiki: [...], faq: [...], documents: [...] }`。Wiki 结果是已综合提炼的知识，优先参考；如需展开 wiki 页面全文，调用 read_wiki_page 并传入 wiki[].page。文档结果会返回 document_id、doc_date 和片段；只有读取导入文档全文时才调用 read_knowledge_document 并传 documents[].document_id，不要把 wiki[].page 传给 read_knowledge_document，也不要用 read_file 读取 data/documents。关键词用空格分隔，匹配任一即返回。中文短语可直接传入，也可拆成 2-4 字短词以提高命中率。需要当前或指定日期材料时传 date_from/date_to（YYYY-MM-DD），有日期过滤时无 doc_date 的文档默认排除，除非 include_undated=true。',
     input_schema: {
       type: 'object' as const,
       properties: {
         keyword: { type: 'string', description: '搜索关键词（多个关键词用空格分隔，匹配任一即返回，全部匹配排在前面）' },
+        date_from: { type: 'string', description: '文档材料日期下限（含），YYYY-MM-DD；只过滤导入文档，不过滤 Wiki/FAQ' },
+        date_to: { type: 'string', description: '文档材料日期上限（含），YYYY-MM-DD；只过滤导入文档，不过滤 Wiki/FAQ' },
+        include_undated: { type: 'boolean', description: '设置日期过滤时是否保留缺少 doc_date 的文档，默认 false' },
       },
       required: ['keyword'],
     },
@@ -129,6 +132,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
 
 const MAX_SEARCH_RESULT_CHARS = 3000;
 const MAX_SNIPPET_LEN = 500;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 根据关键词位置提取 answer 中最相关的片段，而不是盲取开头 */
 function extractRelevantSnippet(answer: string, keyword: string): string {
@@ -168,8 +172,24 @@ function extractRelevantSnippet(answer: string, keyword: string): string {
 }
 
 function handleSearchKnowledge(input: SearchKnowledgeInput): string {
+  if (input.date_from && !ISO_DATE_RE.test(input.date_from)) {
+    return JSON.stringify({ error: `date_from 格式无效: ${input.date_from}，请使用 YYYY-MM-DD` });
+  }
+  if (input.date_to && !ISO_DATE_RE.test(input.date_to)) {
+    return JSON.stringify({ error: `date_to 格式无效: ${input.date_to}，请使用 YYYY-MM-DD` });
+  }
+  if (input.date_from && input.date_to && input.date_from > input.date_to) {
+    return JSON.stringify({ error: 'date_from 不能晚于 date_to' });
+  }
+
   const agentId = getCurrentAgent()?.id;
-  const { faq, documents, wiki } = fetchKnowledge(input.keyword, agentId);
+  const { faq, documents, wiki } = fetchKnowledge(input.keyword, agentId, {
+    documentDate: {
+      dateFrom: input.date_from,
+      dateTo: input.date_to,
+      includeUndated: input.include_undated === true,
+    },
+  });
 
   // Record knowledge search hit for telemetry
   const totalHits = faq.length + documents.length + wiki.length;
@@ -225,6 +245,7 @@ function handleSearchKnowledge(input: SearchKnowledgeInput): string {
       title: doc.title,
       snippet: doc.snippet,
       tags: doc.tags,
+      doc_date: doc.doc_date ?? null,
       relevance: doc.relevance,
       read_tool: 'read_knowledge_document',
     };
