@@ -82,4 +82,4 @@ curl -fsS -X POST http://127.0.0.1:3457/api/cli/execute ... '/agent info'
 
 ## Commit Hash
 
-- 实现提交：待提交。
+- 实现提交：`81e80dab732c27a5c6aa9abb17726bc15fb5961c`。
