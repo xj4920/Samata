@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Agent 维度 LogYi MCP 凭据",
+      "link": "/plan/2026-06-25_agent-logyi-per-agent-credentials",
+      "sourcePath": "docs/plan/2026-06-25_agent-logyi-per-agent-credentials.md",
+      "sortKey": "2026-06-25_agent-logyi-per-agent-credentials.md",
+      "date": "2026-06-25",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "Agent 维度 LogYi 凭据"
+    },
+    {
       "title": "TIClaw 日志与知识检索时间范围收敛",
       "link": "/plan/2026-06-22_ticlaw-log-time-guard",
       "sourcePath": "docs/plan/2026-06-22_ticlaw-log-time-guard.md",

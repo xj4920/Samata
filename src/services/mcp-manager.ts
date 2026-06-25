@@ -12,6 +12,8 @@ import { chromiumToolsDisabledMessage, isChromiumMcpServerDisabled } from '../ru
 interface McpServerBase {
   description?: string;
   tools?: string[];
+  /** Logical server kind. Multiple server names can share one kind, such as per-agent LogYi credentials. */
+  kind?: string;
   /** Agent names this MCP server is exposed to. Omitted means globally available. */
   agents?: string[];
 }
@@ -198,8 +200,13 @@ function isLogyiSearchTool(toolName: string): boolean {
   return /(?:search|query|submit)/.test(name);
 }
 
+function isLogyiServer(serverName: string): boolean {
+  const srv = serverConfigs.get(serverName);
+  return serverName === 'logyi' || srv?.kind === 'logyi';
+}
+
 function buildMcpToolDescription(serverName: string, toolName: string, description: string): string {
-  if (serverName === 'logyi' && isLogyiSearchTool(toolName)) {
+  if (isLogyiServer(serverName) && isLogyiSearchTool(toolName)) {
     return [
       description,
       `时间范围约束：${LOGYI_TIME_RANGE_HINT}`,
@@ -544,7 +551,7 @@ export async function callMcpTool(toolName: string, input: Record<string, unknow
     return JSON.stringify({ error: `MCP 工具 ${toolName} 未授权给当前 agent: ${agentName}` });
   }
 
-  if (serverName === 'logyi') {
+  if (isLogyiServer(serverName)) {
     const guarded = guardLogyiSearchTimeRange(originalName, input);
     if (guarded.error) return mcpError(guarded.error, { hint: LOGYI_TIME_RANGE_HINT });
     input = guarded.input;
@@ -607,4 +614,5 @@ export async function stopMcpServers(): Promise<void> {
 export const __mcpManagerTest = {
   buildMcpToolDescription,
   guardLogyiSearchTimeRange,
+  serverConfigs,
 };

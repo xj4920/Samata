@@ -11,6 +11,14 @@ describe('LogYi MCP time range guard', () => {
     expect(description).toContain('不要自行跨日、跨年或扩大到历史年份');
   });
 
+  it('adds LogYi guidance to per-agent LogYi server instances', () => {
+    __mcpManagerTest.serverConfigs.set('logyiotcmsclaw', { kind: 'logyi', command: 'npx', agents: ['OtcmsClaw'] });
+    const description = __mcpManagerTest.buildMcpToolDescription('logyiotcmsclaw', 'logyi_submit_search', 'submit logs');
+    expect(description).toContain('时间范围约束');
+    expect(description).toContain('默认使用 Asia/Shanghai 当日');
+    __mcpManagerTest.serverConfigs.delete('logyiotcmsclaw');
+  });
+
   it('rejects search tools without an absolute time range', () => {
     const result = guard('logyi_submit_search', { query: 'Future IF2506 has expire' });
     expect(result.error).toContain('缺少绝对时间范围');
