@@ -39,7 +39,7 @@ source/
 从 `samata/` 目录启动：
 
 ```bash
-sudo mkdir -p /opt/samata/data /opt/samata/logs
+sudo mkdir -p /opt/samata/data /opt/samata/logs /opt/samata/ssh
 sudo chown -R "$USER:$USER" /opt/samata
 cp .env.example /opt/samata/.env
 chmod 600 /opt/samata/.env
@@ -48,7 +48,44 @@ npm run docker:samata:up
 docker compose --env-file /dev/null logs -f samata
 ```
 
-Samata 容器通过只读挂载读取 `/opt/samata/.env`，并把 SQLite 数据和日志持久化到 `/opt/samata/data`、`/opt/samata/logs`。`scripts/docker-samata.sh` 默认检查 `/opt/samata/.env` 是否存在；如需使用其他运行目录，可设置 `SAMATA_DEPLOY_ROOT=/path/to/samata-runtime`。`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
+Samata 容器通过只读挂载读取 `/opt/samata/.env`，把 `/opt/samata/ssh` 只读挂载到容器内 `/home/node/.ssh`，并把 SQLite 数据和日志持久化到 `/opt/samata/data`、`/opt/samata/logs`。`scripts/docker-samata.sh` 默认检查 `/opt/samata/.env` 是否存在；如需使用其他运行目录，可设置 `SAMATA_DEPLOY_ROOT=/path/to/samata-runtime`。`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
+
+如果部署环境里的插件需要通过 SSH 访问公司 Code 平台，例如 `titans-code-search` 同步 `libra-server`，需要在 `/opt/samata/ssh` 准备专用 SSH 配置。不要把个人完整 `~/.ssh` 目录挂进容器，只放最小必要文件：
+
+```bash
+install -m 700 -d /opt/samata/ssh
+install -m 600 ~/.ssh/id_ed25519_gf /opt/samata/ssh/id_ed25519_gf
+ssh-keyscan -p 30004 code.gf.com.cn > /opt/samata/ssh/known_hosts
+chmod 644 /opt/samata/ssh/known_hosts
+```
+
+`/opt/samata/ssh/config` 建议固定为只允许 Code 平台使用专用 key，并启用严格 host key 校验：
+
+```sshconfig
+Host code.gf.com.cn
+  HostName code.gf.com.cn
+  Port 30004
+  User git
+  IdentityFile /home/node/.ssh/id_ed25519_gf
+  IdentitiesOnly yes
+  StrictHostKeyChecking yes
+  UserKnownHostsFile /home/node/.ssh/known_hosts
+```
+
+权限建议保持为：
+
+```bash
+chmod 600 /opt/samata/ssh/config /opt/samata/ssh/id_ed25519_gf
+chmod 644 /opt/samata/ssh/known_hosts
+```
+
+修改 SSH 挂载后需要重建 `samata` 容器挂载配置，但不需要重打镜像：
+
+```bash
+docker compose --env-file /dev/null up -d --no-build samata
+docker exec -u node samata ssh -T code.gf.com.cn
+docker exec -u node samata git ls-remote --heads ssh://git@code.gf.com.cn:30004/gf/libra/libra-server.git release-1.68.x
+```
 
 镜像内 `/app/samata/config/agents` 会在构建和启动时授权给 `node` 用户，系统管理员可通过 CLI 工具创建或编辑 Agent prompt 文件。默认 compose 不持久化该目录，容器内临时创建的 prompt 会随着容器重建丢失；生产 Agent prompt 仍应提交到仓库的 `config/agents/<agent-name>.md` 并重新构建/部署镜像。Agent prompt 文件名按 `agent.name` 精确匹配；交互式 `/agent create` 要求小写英文名称，例如显示名可为 `OtcmsClaw`，但 name 和文件建议为 `otcmsclaw` / `config/agents/otcmsclaw.md`。
 
@@ -93,7 +130,7 @@ curl http://127.0.0.1:3457/health
 CLI_SERVER_URL=http://127.0.0.1:3457 npm run cli
 ```
 
-`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过 `config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
+`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`ssh`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env` 和 `/opt/samata/ssh`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过 `config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
 
 多个 Agent 需要使用不同 LogYi 凭据时，在 `config/mcp-servers.json` 中配置多个 MCP server 实例，并为每个实例设置 `kind: "logyi"` 和对应 `agents` 白名单。`kind: "logyi"` 会让所有 LogYi 实例复用同一套时间范围护栏；server name 决定工具名前缀，例如 `logyi` 暴露 `mcp_logyi_*`，`logyiotcmsclaw` 暴露 `mcp_logyiotcmsclaw_*`。密钥只放在 `/opt/samata/.env`，仓库配置只引用变量名，例如：
 
