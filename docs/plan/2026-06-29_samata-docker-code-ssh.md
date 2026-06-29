@@ -54,4 +54,4 @@ docker exec -u node samata git ls-remote --heads ssh://git@code.gf.com.cn:30004/
 
 ## Commit
 
-- Commit hash: 4939b61
+- Commit hash: 3a2e2fb
