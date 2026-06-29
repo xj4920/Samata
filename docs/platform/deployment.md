@@ -50,7 +50,41 @@ docker compose --env-file /dev/null logs -f samata
 
 Samata 容器通过只读挂载读取 `/opt/samata/.env`，并把 SQLite 数据和日志持久化到 `/opt/samata/data`、`/opt/samata/logs`。`scripts/docker-samata.sh` 默认检查 `/opt/samata/.env` 是否存在；如需使用其他运行目录，可设置 `SAMATA_DEPLOY_ROOT=/path/to/samata-runtime`。`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
 
+镜像内 `/app/samata/config/agents` 会在构建和启动时授权给 `node` 用户，系统管理员可通过 CLI 工具创建或编辑 Agent prompt 文件。默认 compose 不持久化该目录，容器内临时创建的 prompt 会随着容器重建丢失；生产 Agent prompt 仍应提交到仓库的 `config/agents/<agent-name>.md` 并重新构建/部署镜像。Agent prompt 文件名按 `agent.name` 精确匹配；交互式 `/agent create` 要求小写英文名称，例如显示名可为 `OtcmsClaw`，但 name 和文件建议为 `otcmsclaw` / `config/agents/otcmsclaw.md`。
+
 `npm run docker:samata:up` 会从 `package.json` 读取版本号并生成主 tag：`samata:<version>-<git-sha>`；同时打上 `samata:<version>` 和 `samata:latest` 两个别名。需要只构建不启动时使用 `npm run docker:samata:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:samata:prune`。
+
+### 推送到 Code 平台制品库
+
+Samata 镜像发布脚本支持把同一套版本 tag 推送到 Code 平台制品库。制品库地址以 Code 平台项目页面展示为准，脚本不会在仓库中保存 registry 账号、密码或 token；发布前需要在本机先完成 Docker 登录。
+
+```bash
+docker login <code-registry-host>
+SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata npm run docker:samata:push
+```
+
+`docker:samata:push` 会先执行一次镜像构建，再推送三个 tag：
+
+```text
+<code-registry-host>/<namespace>/samata:<version>-<git-sha>
+<code-registry-host>/<namespace>/samata:<version>
+<code-registry-host>/<namespace>/samata:latest
+```
+
+如果工作区存在未提交改动，主 tag 会追加 `dirty-YYYYMMDDHHMMSS`，用于避免覆盖同一个版本 sha tag。生产发布建议使用干净工作区构建；如需固定发布 tag，可显式设置 `SAMATA_IMAGE_TAG`。脚本会拒绝在未设置 `SAMATA_IMAGE_REPO` 时执行 push，避免把默认本地镜像名误推到公共 registry。
+
+部署机需要拉取 Code 制品库镜像时，使用同一个 `SAMATA_IMAGE_REPO` 和目标 `SAMATA_IMAGE_TAG`：
+
+```bash
+docker login <code-registry-host>
+SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata \
+SAMATA_IMAGE_TAG=<version>-<git-sha> \
+docker compose --env-file /dev/null pull samata
+
+SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata \
+SAMATA_IMAGE_TAG=<version>-<git-sha> \
+docker compose --env-file /dev/null up -d --no-build samata
+```
 
 容器内 Samata 监听 `0.0.0.0:3457`，宿主机可访问：
 

@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Docker Agent Prompt 运行时写权限修复",
+      "link": "/plan/2026-06-25_agent-prompt-runtime-permission",
+      "sourcePath": "docs/plan/2026-06-25_agent-prompt-runtime-permission.md",
+      "sortKey": "2026-06-25_agent-prompt-runtime-permission.md",
+      "date": "2026-06-25",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "Docker Agent prompt 权限"
+    },
+    {
       "title": "Agent 维度 LogYi MCP 凭据",
       "link": "/plan/2026-06-25_agent-logyi-per-agent-credentials",
       "sourcePath": "docs/plan/2026-06-25_agent-logyi-per-agent-credentials.md",
@@ -47,6 +59,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/deployment"
       ],
       "topic": "Agent 维度 LogYi 凭据"
+    },
+    {
+      "title": "Code 平台制品库 Docker 推送",
+      "link": "/plan/2026-06-23_code-artifact-docker-push",
+      "sourcePath": "docs/plan/2026-06-23_code-artifact-docker-push.md",
+      "sortKey": "2026-06-23_code-artifact-docker-push.md",
+      "date": "2026-06-23",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
     },
     {
       "title": "TIClaw 日志与知识检索时间范围收敛",

@@ -82,8 +82,8 @@ RUN chmod +x scripts/docker-entrypoint.sh \
   && for dir in /app/samata /app/plugins /app/work-plugins; do \
     find "$dir" -path '*/node_modules' -prune -o -exec chmod u=rwX,go=rX {} +; \
   done \
-  && mkdir -p data logs \
-  && chown -R node:node data logs
+  && mkdir -p config/agents data logs \
+  && chown -R node:node config/agents data logs
 
 EXPOSE 3457
 

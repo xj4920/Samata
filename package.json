@@ -22,6 +22,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "docker:samata:up": "bash scripts/docker-samata.sh up",
     "docker:samata:build": "bash scripts/docker-samata.sh build",
+    "docker:samata:push": "bash scripts/docker-samata.sh push",
     "docker:samata:prune": "bash scripts/docker-samata.sh prune",
     "test": "bash scripts/test.sh",
     "test:unit": "bash scripts/test.sh",

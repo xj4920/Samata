@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 usage() {
   cat <<'USAGE'
-Usage: bash scripts/docker-samata.sh [up|build|prune]
+Usage: bash scripts/docker-samata.sh [up|build|push|prune]
 
 Build tags are derived from package.json:
   samata:<version>-<git-sha>
@@ -17,12 +17,16 @@ Environment overrides:
   SAMATA_IMAGE_REPO   Image repository name, default: samata
   SAMATA_IMAGE_TAG    Primary image tag, default: <version>-<git-sha>[-dirty-YYYYMMDDHHMMSS]
   SAMATA_DEPLOY_ROOT  Runtime config/data/log root, default: /opt/samata
+
+Push to a remote registry:
+  docker login <code-registry-host>
+  SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata bash scripts/docker-samata.sh push
 USAGE
 }
 
 command="${1:-up}"
 case "$command" in
-  up|build|prune) ;;
+  up|build|push|prune) ;;
   -h|--help|help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -75,12 +79,30 @@ EOF
   fi
 }
 
+ensure_remote_image_repo() {
+  if [[ -z "${SAMATA_IMAGE_REPO:-}" || "$image_repo" == "samata" ]]; then
+    cat >&2 <<'EOF'
+Refusing to push the default local image name "samata".
+
+Set SAMATA_IMAGE_REPO to the Code artifact registry repository first, for example:
+  SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata bash scripts/docker-samata.sh push
+
+Make sure docker login has already succeeded for <code-registry-host>.
+EOF
+    exit 1
+  fi
+}
+
 if [[ "$command" == "prune" ]]; then
   docker image prune -f
   exit 0
 fi
 
-if [[ "$command" == "build" ]]; then
+if [[ "$command" == "push" ]]; then
+  ensure_remote_image_repo
+fi
+
+if [[ "$command" == "build" || "$command" == "push" ]]; then
   "${compose[@]}" build samata
 else
   ensure_deploy_root
@@ -90,6 +112,12 @@ fi
 docker image inspect "${image_repo}:${primary_tag}" >/dev/null
 docker tag "${image_repo}:${primary_tag}" "${image_repo}:${version}"
 docker tag "${image_repo}:${primary_tag}" "${image_repo}:latest"
+
+if [[ "$command" == "push" ]]; then
+  docker push "${image_repo}:${primary_tag}"
+  docker push "${image_repo}:${version}"
+  docker push "${image_repo}:latest"
+fi
 
 cat <<EOF
 Samata image tags:
