@@ -304,6 +304,25 @@ export function initSchema(): void {
       created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS answer_feedback (
+      feedback_id        TEXT PRIMARY KEY,
+      turn_id            TEXT,
+      user_id            TEXT NOT NULL,
+      clicked_by_user_id TEXT,
+      agent_id           TEXT NOT NULL,
+      channel            TEXT NOT NULL,
+      app_id             TEXT,
+      chat_id            TEXT,
+      rating             TEXT NOT NULL DEFAULT 'pending'
+                         CHECK(rating IN ('pending', 'helpful', 'not_helpful')),
+      status             TEXT NOT NULL DEFAULT 'open'
+                         CHECK(status IN ('open', 'recorded')),
+      question_preview   TEXT NOT NULL DEFAULT '',
+      answer_preview     TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS migrations (
       id         TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -318,6 +337,10 @@ export function initSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_telemetry_turn_agent ON telemetry_turn(agent_id);
     CREATE INDEX IF NOT EXISTS idx_telemetry_turn_started ON telemetry_turn(started_at);
     CREATE INDEX IF NOT EXISTS idx_telemetry_turn_channel ON telemetry_turn(channel);
+    CREATE INDEX IF NOT EXISTS idx_answer_feedback_turn ON answer_feedback(turn_id);
+    CREATE INDEX IF NOT EXISTS idx_answer_feedback_agent ON answer_feedback(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_answer_feedback_status ON answer_feedback(status);
+    CREATE INDEX IF NOT EXISTS idx_answer_feedback_created ON answer_feedback(created_at);
   `);
 
   ensurePlatformBootstrap();

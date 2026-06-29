@@ -107,28 +107,11 @@ vi.mock('../../src/telemetry/emitter.js', () => ({
   endTurn: () => {},
 }));
 
-// ─── FS migration auto-detection ───
-
-/**
- * Scan schema.ts runOnce IDs that touch the real filesystem.
- * Instead of a manual list, we mark ALL known FS-touching migrations.
- * New ones should be added here when created.
- */
-const FS_MIGRATIONS = [
-  'export-agents-system-prompt-to-md',
-  'migrate-doc-knowledge-to-files',
-  'migrate-documents-v2-cleanup',
-  'migrate-documents-use-agent-name',
-  'backfill-documents-content-hash',
-];
-
-function prefillFsMigrations(db: Database.Database) {
+function ensureMigrationsTable(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS migrations (
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
-  const ins = db.prepare('INSERT OR IGNORE INTO migrations (id) VALUES (?)');
-  for (const id of FS_MIGRATIONS) ins.run(id);
 }
 
 // ─── Public API ───
@@ -156,7 +139,7 @@ export async function setupUnitDb(options: SetupUnitDbOptions = {}): Promise<Uni
   memoryDb.pragma('journal_mode = WAL');
   memoryDb.pragma('foreign_keys = ON');
 
-  prefillFsMigrations(memoryDb);
+  ensureMigrationsTable(memoryDb);
 
   const { initDatabase } = await import('../../src/db/schema.js');
   await initDatabase();

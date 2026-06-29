@@ -62,18 +62,6 @@ export interface TestContext {
   cleanup: () => void;
 }
 
-/**
- * Migrations that touch the real file system (fs.rmSync, fs.cpSync, etc.).
- * Pre-mark them as done so initSchema() won't execute them on the test DB.
- */
-const FS_MIGRATIONS = [
-  'export-agents-system-prompt-to-md',
-  'migrate-doc-knowledge-to-files',
-  'migrate-documents-v2-cleanup',
-  'migrate-documents-use-agent-name',
-  'backfill-documents-content-hash',
-];
-
 function extractToolExecutions(history: Anthropic.MessageParam[]): ToolExecution[] {
   const useMap = new Map<string, { name: string; input: any }>();
   const executions: ToolExecution[] = [];
@@ -107,16 +95,11 @@ export async function setupTestAgent(agentName: string): Promise<TestContext> {
   memoryDb.pragma('journal_mode = WAL');
   memoryDb.pragma('foreign_keys = ON');
 
-  // Pre-create migrations table and mark FS-touching migrations as done,
-  // so initSchema() won't execute fs.rmSync / fs.cpSync / etc. on real files.
+  // Pre-create migrations table so the migration runner can record discovered migrations.
   memoryDb.exec(`CREATE TABLE IF NOT EXISTS migrations (
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
-  const insertMig = memoryDb.prepare('INSERT OR IGNORE INTO migrations (id) VALUES (?)');
-  for (const id of FS_MIGRATIONS) {
-    insertMig.run(id);
-  }
 
   const { initDatabase } = await import('../../src/db/schema.js');
   await initDatabase();

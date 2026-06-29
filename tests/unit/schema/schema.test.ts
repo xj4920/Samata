@@ -20,6 +20,7 @@ describe('schema integrity', () => {
       'documents', 'pricing_quotes', 'memory',
       'wrong_questions', 'wrong_question_assets',
       'scheduled_tasks', 'migrations', 'telemetry_turn',
+      'answer_feedback',
     ];
 
     for (const table of expectedTables) {
@@ -64,9 +65,19 @@ describe('schema integrity', () => {
       expect(columns.map(c => c.name)).toContain('locked_until');
     });
 
-    it('migrations table has entries', () => {
-      const count = ctx.db.prepare('SELECT COUNT(*) as c FROM migrations').get() as { c: number };
-      expect(count.c).toBeGreaterThan(0);
+    it('does not prefill legacy fs migration entries', () => {
+      const legacyIds = [
+        'export-agents-system-prompt-to-md',
+        'migrate-doc-knowledge-to-files',
+        'migrate-documents-v2-cleanup',
+        'migrate-documents-use-agent-name',
+        'backfill-documents-content-hash',
+      ];
+      const rows = ctx.db.prepare(`
+        SELECT id FROM migrations
+        WHERE id IN (${legacyIds.map(() => '?').join(',')})
+      `).all(...legacyIds) as { id: string }[];
+      expect(rows).toEqual([]);
     });
 
     it('running initSchema again does not duplicate migrations', async () => {
