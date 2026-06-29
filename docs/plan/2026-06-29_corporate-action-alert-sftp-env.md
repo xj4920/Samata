@@ -113,7 +113,7 @@ git status --short --ignored=matching -- .env docs/plan/2026-06-29_corporate-act
 
 ## Commit Hash
 
-- 待提交。
+- 运行配置留档提交：`fe065f8e958fe0f62be1df958447cbcd50652f4f`。
 
 ## 构建与重启判断
 
