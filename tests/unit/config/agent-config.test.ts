@@ -243,9 +243,11 @@ describe('getAgentTools', () => {
           'sync_normal_trading_summary',
           'query_normal_trading_summary',
           'calc_normal_trading_annual_turnover',
+          'sync_normal_trading_position_details',
+          'query_normal_trading_position_details_csv',
           'sync_fast_trading_summary',
         ],
-        ['add_client', 'sync_normal_trading_summary', 'sync_fast_trading_summary'],
+        ['add_client', 'sync_normal_trading_summary', 'sync_normal_trading_position_details', 'sync_fast_trading_summary'],
       );
 
       const adminNames = await getToolNames('otcclaw', true);
@@ -260,10 +262,14 @@ describe('getAgentTools', () => {
       expect(memberNames).not.toContain(legacyHedgeMigrationTool);
       expect(adminNames).toContain('sync_normal_trading_summary');
       expect(adminNames).toContain('calc_normal_trading_annual_turnover');
+      expect(adminNames).toContain('sync_normal_trading_position_details');
+      expect(adminNames).toContain('query_normal_trading_position_details_csv');
       expect(adminNames).toContain('sync_fast_trading_summary');
       expect(memberNames).toContain('query_normal_trading_summary');
       expect(memberNames).toContain('calc_normal_trading_annual_turnover');
+      expect(memberNames).toContain('query_normal_trading_position_details_csv');
       expect(memberNames).not.toContain('sync_normal_trading_summary');
+      expect(memberNames).not.toContain('sync_normal_trading_position_details');
       expect(memberNames).not.toContain('sync_fast_trading_summary');
     });
 
@@ -273,16 +279,20 @@ describe('getAgentTools', () => {
           'sync_normal_trading_summary',
           'query_normal_trading_summary',
           'calc_normal_trading_annual_turnover',
+          'sync_normal_trading_position_details',
+          'query_normal_trading_position_details_csv',
           'sync_fast_trading_summary',
         ],
-        ['sync_normal_trading_summary', 'sync_fast_trading_summary'],
+        ['sync_normal_trading_summary', 'sync_normal_trading_position_details', 'sync_fast_trading_summary'],
       );
 
       const names = await getToolNames('otcclaw', false);
 
       expect(names).toContain('calc_normal_trading_annual_turnover');
       expect(names).toContain('query_normal_trading_summary');
+      expect(names).toContain('query_normal_trading_position_details_csv');
       expect(names).not.toContain('sync_normal_trading_summary');
+      expect(names).not.toContain('sync_normal_trading_position_details');
       expect(names).not.toContain('sync_fast_trading_summary');
     });
 

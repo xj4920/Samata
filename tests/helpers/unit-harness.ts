@@ -46,14 +46,26 @@ vi.mock('../../src/plugins/registry.js', () => {
     'query_hedge_short', 'query_qfii_latest_valuation_report',
     'sync_sbl_data', 'analyze_sbl_usage',
     'sync_normal_trading_summary', 'query_normal_trading_summary', 'calc_normal_trading_annual_turnover',
+    'sync_normal_trading_position_details', 'query_normal_trading_position_details_csv',
     'titans_code_sync', 'titans_code_grep', 'titans_code_read', 'titans_code_list',
   ].map(name => ({ name, description: `[plugin] ${name}`, input_schema: { type: 'object', properties: {} } }));
+  const authorizationAwareTools = new Set([
+    'calc_etf_trades',
+    'sync_fast_trading_summary',
+    'sync_normal_trading_summary',
+    'sync_normal_trading_position_details',
+  ]);
+  const syncResultTools = new Set([
+    'sync_fast_trading_summary',
+    'sync_normal_trading_summary',
+    'sync_normal_trading_position_details',
+  ]);
 
   return {
     getPluginTools: () => pluginTools,
     getUniversalPluginTools: () => [],
     executePluginTool: async (name: string, input: any) => {
-      if (name === 'calc_etf_trades' || name === 'sync_fast_trading_summary' || name === 'sync_normal_trading_summary') {
+      if (authorizationAwareTools.has(name)) {
         const { getContextAgent, getExecutionChannel, isScheduledTaskAuthorized } = await import('../../src/runtime/execution-context.js');
         const { isAgentAdmin } = await import('../../src/auth/rbac.js');
         const agentId = getContextAgent()?.id;
@@ -64,6 +76,9 @@ vi.mock('../../src/plugins/registry.js', () => {
         if (name === 'sync_normal_trading_summary' && !authorized) {
           return JSON.stringify({ error: '仅管理员可同步常速成交与业务规模数据' });
         }
+        if (name === 'sync_normal_trading_position_details' && !authorized) {
+          return JSON.stringify({ error: '仅管理员可同步常速持仓明细数据' });
+        }
         const result: Record<string, unknown> = {
           ok: true,
           agentId,
@@ -71,7 +86,7 @@ vi.mock('../../src/plugins/registry.js', () => {
           isAdmin: authorized,
           input,
         };
-        if (name === 'sync_fast_trading_summary' || name === 'sync_normal_trading_summary') result.tool = name;
+        if (syncResultTools.has(name)) result.tool = name;
         return JSON.stringify(result);
       }
       return null;

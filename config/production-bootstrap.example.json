@@ -130,6 +130,8 @@
         "sync_normal_trading_summary",
         "query_normal_trading_summary",
         "calc_normal_trading_annual_turnover",
+        "sync_normal_trading_position_details",
+        "query_normal_trading_position_details_csv",
         "sync_fast_trading_summary",
         "sync_corporate_action_alerts",
         "query_corporate_action_alerts"
@@ -171,6 +173,7 @@
         "delete_scheduled_task",
         "calc_etf_trades",
         "sync_normal_trading_summary",
+        "sync_normal_trading_position_details",
         "sync_fast_trading_summary",
         "sync_corporate_action_alerts"
       ],

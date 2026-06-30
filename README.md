@@ -206,6 +206,32 @@ npx tsx scripts/bootstrap-production.ts \
 
 `admin` agent 由系统默认自举，不要写入 production bootstrap 的 `agents` 数组；`admin` 的企微 bot 可以保留在 `weworkBots` 中绑定。详细部署边界参见 [部署与模型](docs/platform/deployment.md)，本次 schema/bootstrap 清理记录见 [Schema Seed 清理与生产 Bootstrap 脚本](docs/plan/2026-06-10_schema-seed-production-bootstrap.md)。
 
+### Agent 加 Tool SOP
+
+插件工具是否对某个 Agent 可见，由插件 scope 和 Agent 的工具配置共同决定。`universal` 插件默认进入标准 Agent 工具池；`agent-bound` 插件必须把工具名加入目标 Agent 的 `tools_list`，普通成员权限再由 `user_tools_list` 控制。不要为业务插件工具在 `src/db/schema.ts` 新增 migration。
+
+标准流程：
+
+1. 确认插件已加载：启动日志应出现 `Plugin [name]: N tools loaded`，且插件 `toolDefinitions` 中包含目标工具名。
+2. 确认插件 scope：`agent-bound` 需要绑定到具体 Agent；`universal` 通常不需要额外绑定。
+3. 先 dry-run 预览工具差异：
+
+   ```bash
+   npx tsx scripts/bind-agent-tools.ts \
+     --agent otcclaw \
+     --add sync_normal_trading_position_details,query_normal_trading_position_details_csv \
+     --member-block sync_normal_trading_position_details \
+     --user admin \
+     --dry-run \
+     --json
+   ```
+
+4. 判断 member blocklist：同步、导入、删除、高成本刷新等写入类工具加入 `--member-block`；只读查询和只读计算通常只放入 `--add`。
+5. 确认 dry-run 符合预期后，去掉 `--dry-run --json` 执行绑定。
+6. 验证绑定结果：用 `get_agent`、`/agent info` 或只读查询 `agents.tools_list / user_tools_list`，分别确认 Agent admin 与普通成员可见工具符合预期。
+
+生产 bootstrap 配置也要同步维护：在 `config/production-bootstrap.local.json` 的目标 Agent `toolsList` 中加入新增工具；需要限制普通成员时，同步加入 `userToolsList`。仓库中的 `config/production-bootstrap.example.json` 仅提供示例和回归参考，真实 secret 与本地成员配置不要提交。
+
 ### 其他启动方式
 
 ```bash

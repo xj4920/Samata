@@ -853,6 +853,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
+      "title": "otcclaw 常速持仓明细工具注册",
+      "link": "/plan/2026-06-30_otcclaw-normal-position-details-tools",
+      "sourcePath": "docs/plan/2026-06-30_otcclaw-normal-position-details-tools.md",
+      "sortKey": "2026-06-30_otcclaw-normal-position-details-tools.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/plugins/bind-to-agent",
+        "/permissions/tool-access"
+      ],
+      "topic": "Agent 权限"
+    },
+    {
       "title": "Schema Seed 清理与生产 Bootstrap 脚本",
       "link": "/plan/2026-06-10_schema-seed-production-bootstrap",
       "sourcePath": "docs/plan/2026-06-10_schema-seed-production-bootstrap.md",
@@ -1108,6 +1121,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/agent-capability-model"
       ],
       "topic": "Skill 机制"
+    },
+    {
+      "title": "otcclaw 常速持仓明细工具注册",
+      "link": "/plan/2026-06-30_otcclaw-normal-position-details-tools",
+      "sourcePath": "docs/plan/2026-06-30_otcclaw-normal-position-details-tools.md",
+      "sortKey": "2026-06-30_otcclaw-normal-position-details-tools.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/plugins/bind-to-agent",
+        "/permissions/tool-access"
+      ],
+      "topic": "插件接入"
     },
     {
       "title": "公司行为提醒定时任务边界对齐",
