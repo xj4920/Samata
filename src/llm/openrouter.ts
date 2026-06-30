@@ -24,7 +24,7 @@ export function createOpenRouterProvider(): LLMProvider | null {
   return {
     name: 'openrouter',
     defaultModel,
-    async createMessage(params) {
+    async createMessage(params, options) {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -42,6 +42,7 @@ export function createOpenRouterProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
         ...fetchOptions,
       } as any);
 
@@ -59,7 +60,7 @@ export function createOpenRouterProvider(): LLMProvider | null {
       return convertResponse(data, 'OpenRouter');
     },
 
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -78,6 +79,7 @@ export function createOpenRouterProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
         ...fetchOptions,
       } as any);
 

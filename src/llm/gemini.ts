@@ -104,7 +104,7 @@ export function createGeminiProvider(): LLMProvider | null {
   return {
     name: 'gemini',
     defaultModel,
-    async createMessage(params) {
+    async createMessage(params, options) {
       
       const { contents, systemInstruction } = convertToGeminiFormat(params.system, params.messages);
       
@@ -126,6 +126,7 @@ export function createGeminiProvider(): LLMProvider | null {
         method: 'POST',
         headers: defaultHeaders,
         body: JSON.stringify(body),
+        signal: options?.signal,
         ...fetchOptions,
       } as any);
 
@@ -153,7 +154,7 @@ export function createGeminiProvider(): LLMProvider | null {
       };
     },
 
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
       const { contents, systemInstruction } = convertToGeminiFormat(params.system, params.messages);
       
       const body: any = { contents };
@@ -170,6 +171,7 @@ export function createGeminiProvider(): LLMProvider | null {
         method: 'POST',
         headers: defaultHeaders,
         body: JSON.stringify(body),
+        signal: options?.signal,
         ...fetchOptions,
       } as any);
 

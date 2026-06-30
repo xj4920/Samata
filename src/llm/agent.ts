@@ -41,6 +41,21 @@ export interface ImageInput {
   path?: string;
 }
 
+export class SupersededTurnError extends Error {
+  code = 'SUPERSEDED_TURN';
+
+  constructor(message = 'agent turn superseded by newer user input') {
+    super(message);
+    this.name = 'SupersededTurnError';
+  }
+}
+
+export function isSupersededTurnError(err: unknown): boolean {
+  return err instanceof SupersededTurnError
+    || (typeof err === 'object' && err !== null && (err as any).name === 'SupersededTurnError')
+    || (typeof err === 'object' && err !== null && (err as any).code === 'SUPERSEDED_TURN');
+}
+
 /** 从 Buffer magic bytes 检测图片 MIME 类型 */
 export function detectImageMediaType(buf: Buffer): ImageInput['mediaType'] {
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
@@ -587,6 +602,44 @@ function isTransientError(err: any): boolean {
     || /\b(502|503|504|520|529)\b/.test(msg);
 }
 
+function throwAbortSignal(signal?: AbortSignal): never {
+  const reason = signal?.reason;
+  if (reason instanceof SupersededTurnError) throw reason;
+  if (reason === 'superseded') throw new SupersededTurnError();
+  if (reason instanceof Error) throw reason;
+  throw new DOMException(typeof reason === 'string' ? reason : 'cancelled', 'AbortError');
+}
+
+function throwIfAgentAborted(signal?: AbortSignal): void {
+  throwIfAborted();
+  if (signal?.aborted) throwAbortSignal(signal);
+}
+
+function isAbortFromSignal(err: any, signal?: AbortSignal): boolean {
+  return !!signal?.aborted && (err?.name === 'AbortError' || err?.name === 'APIUserAbortError' || err?.code === 'ABORT_ERR');
+}
+
+async function delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAgentAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener('abort', onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      try {
+        throwAbortSignal(signal);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 const CALLLLM_MAX_RETRIES = 2;
 
 /**
@@ -601,17 +654,19 @@ async function callLLM(
   providerOverride?: import('./provider.js').LLMProvider,
   onTextChunk?: (chunk: string) => void,
   onProgress?: (event: ProgressEvent) => void,
+  abortSignal?: AbortSignal,
 ): Promise<{ result: CreateMessageResult; streamed: boolean }> {
   const provider = providerOverride ?? getProvider();
 
   for (let attempt = 0; ; attempt++) {
     try {
+      throwIfAgentAborted(abortSignal);
       if (streamText && provider.createMessageStream) {
         try {
           let result: CreateMessageResult | null = null;
           let buffer = '';
-          for await (const event of provider.createMessageStream(params)) {
-            throwIfAborted();
+          for await (const event of provider.createMessageStream(params, { signal: abortSignal })) {
+            throwIfAgentAborted(abortSignal);
             if (event.type === 'text_delta') {
               buffer += event.text;
             } else if (event.type === 'done') {
@@ -634,20 +689,22 @@ async function callLLM(
           if (!result) throw new Error('Stream ended without done event');
           return { result, streamed: !!buffer };
         } catch (err: any) {
+          if (isAbortFromSignal(err, abortSignal)) throwAbortSignal(abortSignal);
           if (isTransientError(err)) throw err;
           log.dim(`流式请求失败 (${err.message})，回退到非流式...`);
         }
       }
 
-      throwIfAborted();
-      return { result: await provider.createMessage(params), streamed: false };
+      throwIfAgentAborted(abortSignal);
+      return { result: await provider.createMessage(params, { signal: abortSignal }), streamed: false };
     } catch (err: any) {
+      if (isAbortFromSignal(err, abortSignal)) throwAbortSignal(abortSignal);
       if (attempt < CALLLLM_MAX_RETRIES && isTransientError(err)) {
-        throwIfAborted();
+        throwIfAgentAborted(abortSignal);
         const delay = 1000 * (attempt + 1);
         log.warn(`LLM 网络抖动 (${err.message})，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...`);
         onProgress?.({ type: 'tool_progress', message: `⚠️ 网络抖动，${delay / 1000}s 后重试 (${attempt + 1}/${CALLLLM_MAX_RETRIES})...` });
-        await new Promise(r => setTimeout(r, delay));
+        await delayWithAbort(delay, abortSignal);
         continue;
       }
       throw err;
@@ -667,6 +724,7 @@ export interface RunAgenticChatOptions {
   showThinking?: boolean;
   agentConfig?: AgentConfig;
   images?: ImageInput[];
+  abortSignal?: AbortSignal;
   onProgress?: (event: ProgressEvent) => void;
   onTextChunk?: (chunk: string) => void;
   deliveryContext?: DeliveryContext;
@@ -713,7 +771,7 @@ async function runAgenticChatInner(
   user: User,
   options: RunAgenticChatOptions = {}
 ): Promise<string> {
-  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, onProgress, onTextChunk, deliveryContext } = options;
+  const { streamEnabled = false, logPrefix = '', showThinking: showThinkingOpt = showThinking(), agentConfig, images, abortSignal, onProgress, onTextChunk, deliveryContext } = options;
 
   const agent = agentConfig;
   const agentProviderOverride = agent?.provider
@@ -748,7 +806,7 @@ async function runAgenticChatInner(
     const langfuseGeneration = startLangfuseGeneration(round, params);
     let r: { result: CreateMessageResult; streamed: boolean };
     try {
-      r = await callLLM(params, stream, showTh, provOverride, onChunk, onProg);
+      r = await callLLM(params, stream, showTh, provOverride, onChunk, onProg, abortSignal);
     } catch (err) {
       failLangfuseGeneration(langfuseGeneration, err);
       throw err;
@@ -883,7 +941,7 @@ async function runAgenticChatInner(
     try {
       const synthStartedAt = Date.now();
       synthGeneration = startLangfuseGeneration(round + 1, synthParams);
-      const { result: synthResponse } = await callLLM(synthParams, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress);
+      const { result: synthResponse } = await callLLM(synthParams, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress, abortSignal);
       finishLangfuseGeneration(synthGeneration, synthResponse, Date.now() - synthStartedAt);
       synthGeneration = null;
       recordLLM(telemetrySessionId, {
@@ -941,11 +999,34 @@ async function runAgenticChatInner(
   // Record context prep time
   const ctx_ms = Date.now() - ctxStartTime;
 
+  const throwIfTurnSuperseded = (currentRound: number): void => {
+    try {
+      throwIfAgentAborted(abortSignal);
+    } catch (err) {
+      if (isSupersededTurnError(err)) {
+        history.length = historyLenBefore;
+        endTurn(telemetrySessionId, {
+          loop_rounds: currentRound,
+          stop_reason: 'superseded',
+          answer_preview: '',
+          ctx_ms,
+          render_ms: 0,
+        });
+      }
+      throw err;
+    }
+  };
+
   let response: CreateMessageResult;
   let streamed: boolean;
   try {
     ({ result: response, streamed } = await trackedCallLLM(1, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
   } catch (err: any) {
+    if (isSupersededTurnError(err)) {
+      history.length = historyLenBefore;
+      endTurn(telemetrySessionId, { loop_rounds: 1, stop_reason: 'superseded', answer_preview: '', ctx_ms, render_ms: 0 });
+      throw err;
+    }
     endTurn(telemetrySessionId, { loop_rounds: 1, stop_reason: 'error', answer_preview: '', ctx_ms, render_ms: 0 });
     if (isOrphanToolError(err) && historyLenBefore > 0) {
       log.warn(`${logPrefix}检测到 orphan tool 消息，清理历史后重试...`);
@@ -986,7 +1067,7 @@ async function runAgenticChatInner(
   let devtoolsCallCount = 0;
   const docIdsHitThisTurn = new Set<string>();
   while (response.stop_reason === 'tool_use') {
-    throwIfAborted();
+    throwIfTurnSuperseded(round);
 
     if (round > MAX_TOOL_ROUNDS) {
       log.warn(`${logPrefix}达到最大工具调用轮次 (${MAX_TOOL_ROUNDS})，停止`);
@@ -1017,7 +1098,7 @@ async function runAgenticChatInner(
           log.dim(`${logPrefix}   参数: ${JSON.stringify(block.input)}`);
         }
         onProgress?.({ type: 'tool_start', name: block.name, input: block.input, round });
-        throwIfAborted();
+        throwIfTurnSuperseded(round);
         const toolStartedAt = Date.now();
         const langfuseTool = startLangfuseTool(block.name, round, block.input);
         let result: string;
@@ -1148,6 +1229,11 @@ async function runAgenticChatInner(
     try {
       ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));
     } catch (err: any) {
+      if (isSupersededTurnError(err)) {
+        history.length = historyLenBefore;
+        endTurn(telemetrySessionId, { loop_rounds: round, stop_reason: 'superseded', answer_preview: '', ctx_ms, render_ms: 0 });
+        throw err;
+      }
       if (isContextOverflowError(err) && history.length > historyLenBefore + 4) {
         log.warn(`${logPrefix}上下文溢出，截断历史后重试...`);
         // Keep the original user message + last 2 tool rounds (4 messages: assistant+toolResult x2)
@@ -1203,6 +1289,7 @@ async function runAgenticChatInner(
   // Wiki nudge: if multiple knowledge sources were synthesized but file_to_wiki was not called,
   // give the LLM one more chance to persist the insight.
   const preNudgeResponse = response;
+  throwIfTurnSuperseded(round);
   if (
     !wasInterrupted &&
     docIdsHitThisTurn.size >= 3 &&
@@ -1258,12 +1345,14 @@ async function runAgenticChatInner(
         }
       }
     } catch (err: any) {
+      if (isSupersededTurnError(err)) throw err;
       log.warn(`${logPrefix}[wiki-nudge] 失败，跳过: ${err.message}`);
     }
   }
 
   // Use pre-nudge response for user-facing text extraction
   const assistantContent = preNudgeResponse.content;
+  throwIfTurnSuperseded(round);
 
   if (wasInterrupted) {
     history.length = historyLenBefore;

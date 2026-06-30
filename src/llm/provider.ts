@@ -21,13 +21,17 @@ export interface CreateMessageResult {
   usage?: { input_tokens: number; output_tokens: number };
 }
 
+export interface CreateMessageOptions {
+  signal?: AbortSignal;
+}
+
 export interface LLMProvider {
   name: string;
   defaultModel: string;
   /** 可供 /model 命令枚举的模型白名单，可选 */
   availableModels?: string[];
-  createMessage(params: CreateMessageParams): Promise<CreateMessageResult>;
-  createMessageStream?(params: CreateMessageParams): AsyncGenerator<StreamEvent>;
+  createMessage(params: CreateMessageParams, options?: CreateMessageOptions): Promise<CreateMessageResult>;
+  createMessageStream?(params: CreateMessageParams, options?: CreateMessageOptions): AsyncGenerator<StreamEvent>;
   /** 将图片转为文字描述，imageDataUrl 格式为 data:image/xxx;base64,... */
   describeImage?(imageDataUrl: string, prompt: string): Promise<string>;
 }

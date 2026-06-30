@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Agent Loop 用户补充信息中断重启",
+      "link": "/plan/2026-06-30_agent-loop-user-supplement-restart",
+      "sourcePath": "docs/plan/2026-06-30_agent-loop-user-supplement-restart.md",
+      "sortKey": "2026-06-30_agent-loop-user-supplement-restart.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/channels-and-sessions",
+        "/platform/agent-capability-model"
+      ],
+      "topic": "Agent Loop 用户补充信息中断重启"
+    },
+    {
       "title": "Scheduled Task agent_chat CHECK 迁移",
       "link": "/plan/2026-06-29_scheduled-task-agent-chat-check-migration",
       "sourcePath": "docs/plan/2026-06-29_scheduled-task-agent-chat-check-migration.md",

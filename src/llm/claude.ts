@@ -57,8 +57,8 @@ export function createAnthropicProvider(): LLMProvider | null {
   return {
     name: 'anthropic',
     defaultModel,
-    async createMessage(params) {
-      const resp = await getClaude().messages.create(params);
+    async createMessage(params, options) {
+      const resp = await getClaude().messages.create(params, { signal: options?.signal });
       return {
         content: resp.content,
         stop_reason: resp.stop_reason ?? 'end_turn',
@@ -83,8 +83,8 @@ export function createAnthropicProvider(): LLMProvider | null {
       const block = resp.content[0];
       return block.type === 'text' ? block.text : '';
     },
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
-      const stream = getClaude().messages.stream(params);
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
+      const stream = getClaude().messages.stream(params, { signal: options?.signal });
       const content: Anthropic.ContentBlock[] = [];
       let currentText = '';
       let stopReason = 'end_turn';

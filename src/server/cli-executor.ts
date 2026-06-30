@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { route } from '../commands/router.js';
-import { runAgenticChat } from '../llm/agent.js';
 import { getAgent, getCurrentAgent } from '../llm/agents/config.js';
 import { log } from '../utils/logger.js';
 import { runWithCapturedOutput, runWithExecutionContext } from '../runtime/execution-context.js';
 import { getCliSession, resetCliSession, toCliSessionInfo, updateCliSession, waitForPromptReply } from './cli-session.js';
 import type { CliExecuteResponse, CliStreamEvent } from '../shared/cli-contract.js';
+import { cancelActiveAgentTurn, makeAgentTurnKey, runCoordinatedAgentTurn } from '../session/agent-turn-coordinator.js';
 
 function trimOutput(lines: string[]): string[] {
   return lines
@@ -19,6 +19,7 @@ export async function executeCliInput(sessionId: string, input: string): Promise
 
   try {
     if (input.trim() === '/reset') {
+      cancelActiveAgentTurn(makeAgentTurnKey('cli', undefined, session.id), 'CLI session reset');
       const next = resetCliSession(sessionId);
       return {
         ok: true,
@@ -43,13 +44,19 @@ export async function executeCliInput(sessionId: string, input: string): Promise
     }
 
     const reply = await runWithCapturedOutput({ channel: 'cli', user: session.user, agent }, async () => {
-      return await runAgenticChat(session.history, input, session.user, {
-        streamEnabled: false,
-        showThinking: false,
-        agentConfig: agent,
-        deliveryContext: {
-          channel: 'cli',
-          targetId: session.id,
+      return await runCoordinatedAgentTurn({
+        key: makeAgentTurnKey('cli', undefined, session.id),
+        history: session.history,
+        input,
+        user: session.user,
+        options: {
+          streamEnabled: false,
+          showThinking: false,
+          agentConfig: agent,
+          deliveryContext: {
+            channel: 'cli',
+            targetId: session.id,
+          },
         },
       });
     });
@@ -59,7 +66,10 @@ export async function executeCliInput(sessionId: string, input: string): Promise
       agentName: getCurrentAgent()?.name ?? session.agentName,
     });
 
-    const output = trimOutput([...reply.output, reply.result || '（无回复内容）']);
+    const finalReply = reply.result.status === 'superseded'
+      ? '已收到补充信息，转由最新消息继续处理'
+      : reply.result.reply || '（无回复内容）';
+    const output = trimOutput([...reply.output, finalReply]);
     return {
       ok: true,
       output,
@@ -85,6 +95,7 @@ export async function executeCliStream(
 
   try {
     if (input.trim() === '/reset') {
+      cancelActiveAgentTurn(makeAgentTurnKey('cli', undefined, session.id), 'CLI session reset');
       const next = resetCliSession(sessionId);
       emit({ type: 'log', line: 'AI 对话上下文已重置' });
       emit({ type: 'done', session: toCliSessionInfo(next) });
@@ -113,14 +124,23 @@ export async function executeCliStream(
     await runWithExecutionContext(
       { channel: 'cli', user: session.user, agent, interactive: true, promptFn, onOutputLine: line => emit({ type: 'log', line }) },
       async () => {
-        await runAgenticChat(session.history, input, session.user, {
-          streamEnabled: true,
-          showThinking: false,
-          agentConfig: agent,
-          onProgress: event => emit(event),
-          onTextChunk: chunk => emit({ type: 'text', chunk }),
-          deliveryContext: { channel: 'cli', targetId: session.id },
+        const result = await runCoordinatedAgentTurn({
+          key: makeAgentTurnKey('cli', undefined, session.id),
+          history: session.history,
+          input,
+          user: session.user,
+          options: {
+            streamEnabled: true,
+            showThinking: false,
+            agentConfig: agent,
+            onProgress: event => emit(event),
+            onTextChunk: chunk => emit({ type: 'text', chunk }),
+            deliveryContext: { channel: 'cli', targetId: session.id },
+          },
         });
+        if (result.status === 'superseded') {
+          emit({ type: 'log', line: '已收到补充信息，转由最新消息继续处理' });
+        }
       },
     );
 

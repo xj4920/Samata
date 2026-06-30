@@ -25,7 +25,7 @@ import { buildCard, buildThinkingCard } from './card.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
 import { getOrCreateUser, isAgentAdmin, listUserAliases, resolveExternalUser, type ExternalIdentityIds, type User } from '../auth/rbac.js';
-import { runAgenticChat, type ImageInput, type DeliveryContext, detectImageMediaType, getCurrentAgent } from '../llm/agent.js';
+import { type ImageInput, type DeliveryContext, detectImageMediaType, getCurrentAgent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, resolveAgent, AgentUnboundError, getBotAppLLM, type BotAppRow } from '../llm/agents/config.js';
 import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
@@ -43,6 +43,7 @@ import {
   formatError,
 } from './formatter.js';
 import { saveUploadedFile } from '../commands/artifact.js';
+import { cancelActiveAgentTurn, makeAgentTurnKey, runCoordinatedAgentTurn } from '../session/agent-turn-coordinator.js';
 
 type FeishuAppConfig = {
   appId: string;
@@ -496,19 +497,40 @@ async function handleAIChat(
     }
   };
 
-  let textReply = await runAgenticChat(session.history, effectiveUserInput, session.user, {
-    streamEnabled: false,
-    logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
-    showThinking: true,
-    agentConfig,
-    images,
-    onProgress,
-    deliveryContext: buildFeishuDeliveryContext(chatId, instance.appId),
+  const turnResult = await runCoordinatedAgentTurn({
+    key: makeAgentTurnKey('feishu', instance.appId, feishuUserId),
+    history: session.history,
+    input: effectiveUserInput,
+    user: session.user,
+    sourceMessageId: replyOpts?.messageId,
+    options: {
+      streamEnabled: false,
+      logPrefix: `[飞书:${instance.appName}][${traceId}][${session.user.username}] `,
+      showThinking: true,
+      agentConfig,
+      images,
+      onProgress,
+      deliveryContext: buildFeishuDeliveryContext(chatId, instance.appId),
+    },
   });
 
-  if (textReply) {
-    session.history.push({ role: 'assistant', content: textReply });
+  if (turnResult.status === 'superseded') {
+    await progressChain;
+    const hint = '已收到补充信息，正在重新处理';
+    if (progressMessageId) {
+      try {
+        await sendFeishuReply(instance, chatId, hint, {
+          ...replyOpts,
+          updateMessageId: progressMessageId,
+        });
+      } catch (err: any) {
+        log.warn(`[飞书:${instance.appName}] 更新 superseded 提示失败: ${err.message}`);
+      }
+    }
+    return { text: '' };
   }
+
+  let textReply = turnResult.reply;
 
   const { cleanText, mediaPaths } = extractMediaFromText(textReply);
   let processedText = cleanText ? await processImagesInText(instance, cleanText) : '';
@@ -1258,6 +1280,7 @@ async function handleEvent(instance: FeishuBotInstance, event: FeishuMessage): P
     }
 
     if (text === '/reset') {
+      cancelActiveAgentTurn(makeAgentTurnKey('feishu', instance.appId, senderId), 'Feishu session reset');
       resetSessionForInstance(instance, senderId);
       await sendFeishuReply(instance, chatId, '✅ 对话上下文已重置', replyOpts);
       return;

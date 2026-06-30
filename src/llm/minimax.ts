@@ -20,6 +20,9 @@ function makeMinimaxAgent(headersTimeout = 30000) {
 async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2, headersTimeout = 30000): Promise<Response> {
   let lastErr: unknown;
   for (let i = 0; i <= maxRetries; i++) {
+    if (init.signal?.aborted) {
+      throw init.signal.reason instanceof Error ? init.signal.reason : new DOMException('cancelled', 'AbortError');
+    }
     const agent = makeMinimaxAgent(headersTimeout);
     try {
       const res = await fetch(url, { ...init, dispatcher: agent } as any);
@@ -36,7 +39,14 @@ async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2, he
                         e?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
       if (!isTimeout || i === maxRetries) throw e;
     }
-    await new Promise(r => setTimeout(r, 500 * 2 ** i));
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, 500 * 2 ** i);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason instanceof Error ? init.signal.reason : new DOMException('cancelled', 'AbortError'));
+      };
+      init.signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
   throw lastErr;
 }
@@ -51,7 +61,7 @@ export function createMinimaxProvider(): LLMProvider | null {
   return {
     name: 'minimax',
     defaultModel,
-    async createMessage(params) {
+    async createMessage(params, options) {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -69,6 +79,7 @@ export function createMinimaxProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
@@ -109,7 +120,7 @@ export function createMinimaxProvider(): LLMProvider | null {
       return data.content ?? data.reply ?? data.choices?.[0]?.message?.content ?? JSON.stringify(data);
     },
 
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -128,6 +139,7 @@ export function createMinimaxProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {

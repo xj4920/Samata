@@ -14,7 +14,7 @@ import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, Mixe
 import { createWsClient, generateReqId } from './aibot-ws.js';
 import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
 import { buildCanonicalUserId, isAgentAdmin, listUserAliases } from '../auth/rbac.js';
-import { runAgenticChat, detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
+import { detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotApp, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -31,6 +31,7 @@ import { handleModelCommand } from '../commands/model-cmd.js';
 import { getDb } from '../db/connection.js';
 import { saveUploadedFile } from '../commands/artifact.js';
 import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
+import { cancelActiveAgentTurn, makeAgentTurnKey, runCoordinatedAgentTurn } from '../session/agent-turn-coordinator.js';
 import {
   buildWeworkFeedbackCard,
   createAnswerFeedbackFromLatestTurn,
@@ -272,17 +273,34 @@ async function handleAIChat(
     };
 
     try {
-      const textReply = await runAgenticChat(session.history, userInput, session.user, {
-        streamEnabled: false,
-        logPrefix: `[企微:${instance.botName}:${username}] `,
-        showThinking: true,
-        agentConfig,
-        images,
-        onProgress,
-        deliveryContext,
+      const turnResult = await runCoordinatedAgentTurn({
+        key: makeAgentTurnKey('wework', instance.botId, mapKey),
+        history: session.history,
+        input: userInput,
+        user: session.user,
+        options: {
+          streamEnabled: false,
+          logPrefix: `[企微:${instance.botName}:${username}] `,
+          showThinking: true,
+          agentConfig,
+          images,
+          onProgress,
+          deliveryContext,
+        },
       });
 
       clearInterval(heartbeatTimer);
+      if (turnResult.status === 'superseded') {
+        const hint = '已收到补充信息，转由最新消息继续处理';
+        try {
+          await ws.replyStream(frame, streamId, render(hint), true);
+        } catch {
+          log.warn(`${logTag} 发送 superseded 提示失败`);
+        }
+        return '';
+      }
+
+      const textReply = turnResult.reply;
       const rawText = textReply || '（无回复内容）';
       const finalText = stripUnreachableLocalMarkdownImages(rawText);
 
@@ -512,6 +530,7 @@ async function handleSlashCommand(
     }
 
     if (text === '/reset') {
+      cancelActiveAgentTurn(makeAgentTurnKey('wework', instance.botId, mapKey), 'Wework session reset');
       resetSession(instance.botId, instance.sessions, mapKey);
       return '对话上下文已重置';
     }

@@ -15,7 +15,7 @@ import { getSession, resetSession, cleanupSessions } from './session.js';
 import { getProvider } from '../llm/provider.js';
 import { handleModelCommand } from '../commands/model-cmd.js';
 import { type User, isAgentAdmin } from '../auth/rbac.js';
-import { runAgenticChat, type DeliveryContext } from '../llm/agent.js';
+import { type DeliveryContext } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, AgentUnboundError, getBotAppsByChannel, getBotAppLLM } from '../llm/agents/config.js';
 import { runWithExecutionContext } from '../runtime/execution-context.js';
@@ -28,6 +28,7 @@ import {
   formatKnowledge, formatSkillList,
   formatError,
 } from './formatter.js';
+import { cancelActiveAgentTurn, makeAgentTurnKey, runCoordinatedAgentTurn } from '../session/agent-turn-coordinator.js';
 
 interface TelegramBotConfig {
   botToken: string;
@@ -64,18 +65,25 @@ async function handleAIChat(chatId: number, userInput: string, telegramUserId: n
     : baseAgentConfig;
 
   return runWithExecutionContext({ channel: 'telegram', user: session.user, appId: botAppId ?? undefined, agent: agentConfig }, async () => {
-    const textReply = await runAgenticChat(session.history, userInput, session.user, {
-      streamEnabled: false,
-      logPrefix: `[TG:${telegramUsername}] `,
-      showThinking: true,
-      agentConfig,
-      deliveryContext: {
-        channel: 'telegram',
-        targetId: String(chatId),
-      } as DeliveryContext,
+    const turnResult = await runCoordinatedAgentTurn({
+      key: makeAgentTurnKey('telegram', botAppId ?? undefined, String(telegramUserId)),
+      history: session.history,
+      input: userInput,
+      user: session.user,
+      options: {
+        streamEnabled: false,
+        logPrefix: `[TG:${telegramUsername}] `,
+        showThinking: true,
+        agentConfig,
+        deliveryContext: {
+          channel: 'telegram',
+          targetId: String(chatId),
+        } as DeliveryContext,
+      },
     });
 
-    return textReply || '（无回复内容）';
+    if (turnResult.status === 'superseded') return '';
+    return turnResult.reply || '（无回复内容）';
   });
 }
 
@@ -176,6 +184,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     }
 
     if (text === '/reset') {
+      cancelActiveAgentTurn(makeAgentTurnKey('telegram', getTelegramBotAppId() ?? undefined, String(userId)), 'Telegram session reset');
       resetSession(userId);
       await api.sendMessage(chatId, '✅ 对话上下文已重置');
       return;
@@ -222,7 +231,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
 
     // 自然语言 → AI Agent
     const reply = await handleAIChat(chatId, text, userId, username);
-    await api.sendMessage(chatId, reply);
+    if (reply) await api.sendMessage(chatId, reply);
 
   } catch (err: any) {
     if (err instanceof AgentUnboundError) {

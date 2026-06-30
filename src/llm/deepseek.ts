@@ -27,7 +27,7 @@ export function createDeepseekProvider(): LLMProvider | null {
     defaultModel,
     availableModels: DEEPSEEK_AVAILABLE_MODELS,
 
-    async createMessage(params) {
+    async createMessage(params, options) {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -45,6 +45,7 @@ export function createDeepseekProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
@@ -61,7 +62,7 @@ export function createDeepseekProvider(): LLMProvider | null {
       return convertResponse(data, 'DeepSeek');
     },
 
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -80,6 +81,7 @@ export function createDeepseekProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {

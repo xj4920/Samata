@@ -66,7 +66,7 @@ export function createCustomProvider(): LLMProvider | null {
       return data.choices?.[0]?.message?.content ?? '';
     },
 
-    async createMessage(params) {
+    async createMessage(params, options) {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -84,6 +84,7 @@ export function createCustomProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
@@ -100,7 +101,7 @@ export function createCustomProvider(): LLMProvider | null {
       return convertResponse(data, 'Custom');
     },
 
-    async *createMessageStream(params): AsyncGenerator<StreamEvent> {
+    async *createMessageStream(params, options): AsyncGenerator<StreamEvent> {
       const body: Record<string, unknown> = {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -119,6 +120,7 @@ export function createCustomProvider(): LLMProvider | null {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
