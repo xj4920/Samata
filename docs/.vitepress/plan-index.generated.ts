@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Package Version 提交前递增规则",
+      "link": "/plan/2026-06-30_package-version-before-code-commit",
+      "sourcePath": "docs/plan/2026-06-30_package-version-before-code-commit.md",
+      "sortKey": "2026-06-30_package-version-before-code-commit.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/index"
+      ],
+      "topic": "工程协作规范"
+    },
+    {
       "title": "Agent Loop 用户补充信息中断重启",
       "link": "/plan/2026-06-30_agent-loop-user-supplement-restart",
       "sourcePath": "docs/plan/2026-06-30_agent-loop-user-supplement-restart.md",
