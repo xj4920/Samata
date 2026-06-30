@@ -1,9 +1,4 @@
 {
-  "notification": {
-    "enabled": true,
-    "channel": "wework:otcclaw-bot",
-    "target_id": "wework_guoxiaoyu"
-  },
   "sftp": {
     "remote_base": "/EQDHK_internal/data/CorporateActionAlert"
   },

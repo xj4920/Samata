@@ -132,7 +132,6 @@
         "calc_normal_trading_annual_turnover",
         "sync_fast_trading_summary",
         "sync_corporate_action_alerts",
-        "check_corporate_action_alerts",
         "query_corporate_action_alerts"
       ],
       "blockTools": ["generate_video"],
@@ -173,8 +172,7 @@
         "calc_etf_trades",
         "sync_normal_trading_summary",
         "sync_fast_trading_summary",
-        "sync_corporate_action_alerts",
-        "check_corporate_action_alerts"
+        "sync_corporate_action_alerts"
       ],
       "maxHistory": 80,
       "members": [

@@ -1110,6 +1110,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Skill 机制"
     },
     {
+      "title": "公司行为提醒定时任务边界对齐",
+      "link": "/plan/2026-06-30_corporate-action-query-tool-boundary",
+      "sourcePath": "docs/plan/2026-06-30_corporate-action-query-tool-boundary.md",
+      "sortKey": "2026-06-30_corporate-action-query-tool-boundary.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/channels-and-sessions"
+      ],
+      "topic": "插件机制"
+    },
+    {
       "title": "Agent-Tools 幂等绑定脚本与 Schema 清理",
       "link": "/plan/2026-06-09_agent-tool-binding-script-schema-cleanup",
       "sourcePath": "docs/plan/2026-06-09_agent-tool-binding-script-schema-cleanup.md",
@@ -1340,6 +1352,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
     }
   ],
   "external-data": [
+    {
+      "title": "公司行为提醒定时任务边界对齐",
+      "link": "/plan/2026-06-30_corporate-action-query-tool-boundary",
+      "sourcePath": "docs/plan/2026-06-30_corporate-action-query-tool-boundary.md",
+      "sortKey": "2026-06-30_corporate-action-query-tool-boundary.md",
+      "date": "2026-06-30",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/channels-and-sessions"
+      ],
+      "topic": "公司行为提醒"
+    },
     {
       "title": "Wind 新增同步表说明补齐",
       "link": "/plan/2026-06-12_wind-new-tables",

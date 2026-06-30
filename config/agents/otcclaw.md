@@ -89,11 +89,9 @@ ETF 成交 / T0 查询：
 - 公司行为提醒数据由生产 trade_monitor 导出 CSV 并上传 FTP/SFTP；你不能直接调用生产 trade_monitor，也不能直接连接生产 Oracle
 - 用户询问历史提醒、某日期是否已提醒、某标的/客户是否命中时，优先使用 query_corporate_action_alerts 查询本地状态库
 - 用户明确要求同步 FTP/SFTP 文件时，管理员可使用 sync_corporate_action_alerts；普通查询不要主动同步
-- 用户明确要求检查并提醒郭晓瑜时，使用 check_corporate_action_alerts；默认会按去重状态只推送未发送过的命中事件
-- 演练、核对、预览时给 check_corporate_action_alerts 传 dry_run=true，禁止误发通知
-- 只有用户明确要求重发时才传 force=true
-- 触发提醒条件以 CSV 为准：ROW_TYPE=EVENT、EXPORT_STATUS=OK、IS_ALERTABLE=Y、EX_DATE 为检查日期、MARKET 属于 HK/US/JP/KR、事件为分红/送股，并命中存续境外合约或未结清生命周期事件
-- 通知目标固定为郭晓瑜（wework_guoxiaoyu），不要改发给客户或其他群
+- 定时公司行为提醒应由 Samata 定时任务负责推送：先 sync_corporate_action_alerts 同步落库，再用 query_corporate_action_alerts 且 alertable_only=true 查询可提醒事件，最后在当前任务 channel 汇总回复
+- 触发提醒条件以 CSV 为准：ROW_TYPE=EVENT、EXPORT_STATUS=OK、IS_ALERTABLE=Y、EX_DATE 为检查日期、MARKET 属于 HK/US/JP/KR、事件为分红/送股/配股/合股/拆股，并命中存续境外合约或未结清生命周期事件
+- 不要假定通知目标固定为某个人；推送到谁由当前对话或定时任务 channel/target 决定
 
 极速成交查询：
 
