@@ -68,4 +68,58 @@ export async function up({ db }) {
     await storage.unlogMigration({ name: 'unit-storage-smoke', path: undefined, context: {} });
     expect(await storage.executed()).not.toContain('unit-storage-smoke');
   });
+
+  it('widens legacy scheduled_tasks CHECK constraint for agent_chat', async () => {
+    standaloneDb = new Database(':memory:');
+    standaloneDb.exec(`
+      CREATE TABLE scheduled_tasks (
+        id          TEXT PRIMARY KEY,
+        agent_id    TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        cron_expr   TEXT NOT NULL,
+        task_type   TEXT NOT NULL CHECK(task_type IN ('remind', 'sandbox_exec', 'tool_call')),
+        payload     TEXT NOT NULL,
+        channel     TEXT NOT NULL,
+        target_id   TEXT,
+        app_id      TEXT,
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        next_run_at INTEGER,
+        last_run_at INTEGER,
+        last_result TEXT,
+        created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+        created_by  TEXT
+      );
+      INSERT INTO scheduled_tasks (
+        id, agent_id, name, cron_expr, task_type, payload, channel, created_by
+      ) VALUES (
+        'legacy-reminder', 'agent-otcclaw', 'legacy remind', '30 8 * * 1-5',
+        'remind', '{"message":"早报"}', 'wework', 'admin-001'
+      );
+    `);
+
+    const { runMigrations } = await import('../../../src/db/migrate.js');
+    await runMigrations({ db: standaloneDb });
+
+    const table = standaloneDb.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'",
+    ).get() as { sql: string };
+    expect(table.sql).toContain("'agent_chat'");
+
+    const columns = standaloneDb.prepare('PRAGMA table_info(scheduled_tasks)').all() as Array<{ name: string }>;
+    expect(columns.map(column => column.name)).toContain('locked_until');
+
+    const legacy = standaloneDb.prepare(
+      'SELECT id, task_type, created_by FROM scheduled_tasks WHERE id = ?',
+    ).get('legacy-reminder') as { id: string; task_type: string; created_by: string };
+    expect(legacy).toEqual({ id: 'legacy-reminder', task_type: 'remind', created_by: 'admin-001' });
+
+    expect(() => standaloneDb!.prepare(`
+      INSERT INTO scheduled_tasks (
+        id, agent_id, name, cron_expr, task_type, payload, channel
+      ) VALUES (
+        'agent-chat-task', 'agent-otcclaw', '每日公司行为提醒', '30 8 * * 2-6',
+        'agent_chat', '{"prompt":"同步公司行为"}', 'wework'
+      )
+    `).run()).not.toThrow();
+  });
 });

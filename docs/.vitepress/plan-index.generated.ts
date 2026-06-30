@@ -37,6 +37,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Scheduled Task agent_chat CHECK 迁移",
+      "link": "/plan/2026-06-29_scheduled-task-agent-chat-check-migration",
+      "sourcePath": "docs/plan/2026-06-29_scheduled-task-agent-chat-check-migration.md",
+      "sortKey": "2026-06-29_scheduled-task-agent-chat-check-migration.md",
+      "date": "2026-06-29",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/common-tools"
+      ],
+      "topic": "调度与任务"
+    },
+    {
+      "title": "Corporate Action Alert SFTP Runtime Env",
+      "link": "/plan/2026-06-29_corporate-action-alert-sftp-env",
+      "sourcePath": "docs/plan/2026-06-29_corporate-action-alert-sftp-env.md",
+      "sortKey": "2026-06-29_corporate-action-alert-sftp-env.md",
+      "date": "2026-06-29",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/plugin-runtime"
+      ],
+      "topic": "corporate-action-alert SFTP runtime env"
+    },
+    {
       "title": "Docker Agent Prompt 运行时写权限修复",
       "link": "/plan/2026-06-25_agent-prompt-runtime-permission",
       "sourcePath": "docs/plan/2026-06-25_agent-prompt-runtime-permission.md",
@@ -1672,6 +1696,16 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "Samata Docker Code SSH 挂载",
+    "link": "/plan/2026-06-29_samata-docker-code-ssh",
+    "sourcePath": "docs/plan/2026-06-29_samata-docker-code-ssh.md",
+    "sortKey": "2026-06-29_samata-docker-code-ssh.md",
+    "date": "2026-06-29",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "Corporate Action Alert AM-only 配置简化",
     "link": "/plan/2026-06-10_corporate-action-alert-am-only",
