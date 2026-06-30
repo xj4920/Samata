@@ -59,6 +59,17 @@ node --import tsx/esm --input-type=module - <<'NODE'
 NODE
 ```
 
+已执行生产运行库验证：
+
+```text
+bash scripts/docker-samata.sh up
+docker ps --filter name='^/samata$' --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
+curl -fsS http://127.0.0.1:3457/health
+node --input-type=module - <<'NODE'
+// 只读查询 /opt/samata/data/samata.db 的 scheduled_tasks DDL 与 migrations 记录
+NODE
+```
+
 ## 验证结果
 
 - `npm run test:unit -- tests/unit/schema/migrations.test.ts tests/unit/tools/schedule.test.ts tests/unit/services/task-scheduler-agent-chat.test.ts` 通过：3 个测试文件，27 个测试。
@@ -67,14 +78,17 @@ NODE
 - `git diff --check` 通过。
 - `npx tsc --noEmit` 未通过，阻塞点为既有 `src/services/mcp-manager.ts` 中 `ParsedLogyiDate | null` 赋值给 `ParsedLogyiDate | undefined` 的类型错误；本次 migration 与测试文件未产生新的 tsc 错误。
 - 运行库副本验证通过：`before_has_agent_chat=false`，`after_has_agent_chat=true`，并成功插入一条 `agent_chat` smoke 任务；临时副本已删除。
+- 生产运行库验证通过：`scheduled_tasks_has_agent_chat=true`，`migrations` 表存在 `2026_06_29_scheduled_tasks_agent_chat_check`，`curl /health` 返回 `{"ok":true}`。
 
 ## Commit Hash
 
-- 待提交。
+- 实现提交：`1d7e4e2fb85b625dcaa6772f9015be2fb6a57b1d`
 
 ## 构建与运行影响
 
 - 影响 Samata runtime 的数据库迁移文件；生产容器需加载新代码并重启后才会自动修复 `/opt/samata/data/samata.db`。
 - 不影响插件构建产物、依赖和业务运行库任务 seed。
 - 本次不直接创建或修改 Otcclaw 公司行为定时任务；迁移生效后仍通过前端/聊天的 `create_scheduled_task` 或 `update_scheduled_task` 管理。
-- 生产运行库尚未原地迁移，Samata image 尚未重建，容器尚未重启。
+- 已重建 Samata image：`samata:3.0.13-1d7e4e2fb85b`、`samata:3.0.13`、`samata:latest`。
+- 已重建并重启 `samata` 容器，状态为 `healthy`。
+- 生产运行库已在启动时完成原地迁移。
