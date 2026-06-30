@@ -60,7 +60,7 @@ git status --short
 
 ## Commit Hash
 
-- 待提交。
+- 版本规则与版本修正提交：`0b64b99bcd5d6bf43d901e1d77cc0f312d4c62c7`
 
 ## 构建与运行影响
 
