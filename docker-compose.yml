@@ -37,6 +37,12 @@ services:
       - "3457:3457"
     volumes:
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/.env:/app/samata/.env:ro
+      - type: bind
+        source: ${SAMATA_DEPLOY_ROOT:-/opt/samata}/mcp-servers.json
+        target: /app/samata/config/mcp-servers.json
+        read_only: true
+        bind:
+          create_host_path: false
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/data:/app/samata/data
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/logs:/app/samata/logs
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/ssh:/home/node/.ssh:ro

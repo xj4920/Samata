@@ -67,6 +67,20 @@ EOF
     exit 1
   fi
 
+  if [[ ! -f "$deploy_root/mcp-servers.json" ]]; then
+    cat >&2 <<EOF
+Missing Samata MCP server config: $deploy_root/mcp-servers.json
+
+Prepare the runtime MCP config before starting:
+  cp config/mcp-servers.example.json "$deploy_root/mcp-servers.json"
+  chmod 600 "$deploy_root/mcp-servers.json"
+
+Then edit $deploy_root/mcp-servers.json for this environment if needed.
+Keep real credentials in $deploy_root/.env; the MCP config should reference environment variables only.
+EOF
+    exit 1
+  fi
+
   if ! mkdir -p "$deploy_root/data" "$deploy_root/logs"; then
     cat >&2 <<EOF
 Failed to create runtime directories under $deploy_root.

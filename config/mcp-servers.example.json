@@ -1,0 +1,53 @@
+{
+  "servers": {
+    "devtools": {
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9222",
+        "--no-usage-statistics"
+      ],
+      "description": "Chrome DevTools MCP via local Chrome CDP."
+    },
+    "logyi": {
+      "kind": "logyi",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--prefer-online",
+        "--registry",
+        "http://npm.gf.com.cn",
+        "@gf/logyi-mcp@latest"
+      ],
+      "env": {
+        "LOGYI_BASE_URL": "$TICLAW_LOGYI_BASE_URL",
+        "LOGYI_USERNAME": "$TICLAW_LOGYI_USERNAME",
+        "LOGYI_API_KEY": "$TICLAW_LOGYI_API_KEY"
+      },
+      "description": "LogYi production log search MCP for ticlaw. Credentials are read from TICLAW_LOGYI_* runtime environment variables.",
+      "agents": [
+        "ticlaw"
+      ]
+    },
+    "logyiotcmsclaw": {
+      "kind": "logyi",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--prefer-online",
+        "--registry",
+        "http://npm.gf.com.cn",
+        "@gf/logyi-mcp@latest"
+      ],
+      "env": {
+        "LOGYI_BASE_URL": "$OTCMSCLAW_LOGYI_BASE_URL",
+        "LOGYI_USERNAME": "$OTCMSCLAW_LOGYI_USERNAME",
+        "LOGYI_API_KEY": "$OTCMSCLAW_LOGYI_API_KEY"
+      },
+      "description": "LogYi production log search MCP for OtcmsClaw. Credentials are read from OTCMSCLAW_LOGYI_* runtime environment variables.",
+      "agents": [
+        "OtcmsClaw"
+      ]
+    }
+  }
+}

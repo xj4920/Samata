@@ -130,9 +130,16 @@ curl http://127.0.0.1:3457/health
 CLI_SERVER_URL=http://127.0.0.1:3457 npm run cli
 ```
 
-`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`ssh`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env` 和 `/opt/samata/ssh`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过 `config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
+`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`ssh`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；运行时会只读挂载 `/opt/samata/.env`、`/opt/samata/mcp-servers.json` 和 `/opt/samata/ssh`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过容器内 `/app/samata/config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
 
-多个 Agent 需要使用不同 LogYi 凭据时，在 `config/mcp-servers.json` 中配置多个 MCP server 实例，并为每个实例设置 `kind: "logyi"` 和对应 `agents` 白名单。`kind: "logyi"` 会让所有 LogYi 实例复用同一套时间范围护栏；server name 决定工具名前缀，例如 `logyi` 暴露 `mcp_logyi_*`，`logyiotcmsclaw` 暴露 `mcp_logyiotcmsclaw_*`。密钥只放在 `/opt/samata/.env`，仓库配置只引用变量名，例如：
+首次准备部署目录时，除 `.env` 外还必须准备 MCP server 配置：
+
+```bash
+cp config/mcp-servers.example.json /opt/samata/mcp-servers.json
+chmod 600 /opt/samata/mcp-servers.json
+```
+
+多个 Agent 需要使用不同 LogYi 凭据时，在 `/opt/samata/mcp-servers.json` 中配置多个 MCP server 实例，并为每个实例设置 `kind: "logyi"` 和对应 `agents` 白名单。`kind: "logyi"` 会让所有 LogYi 实例复用同一套时间范围护栏；server name 决定工具名前缀，例如 `logyi` 暴露 `mcp_logyi_*`，`logyiotcmsclaw` 暴露 `mcp_logyiotcmsclaw_*`。密钥只放在 `/opt/samata/.env`，MCP 配置只引用变量名，例如：
 
 ```bash
 TICLAW_LOGYI_BASE_URL=http://log.gf.com.cn

@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "LogYi MCP 配置改为部署挂载",
+      "link": "/plan/2026-07-01_logyi-mcp-config-mount",
+      "sourcePath": "docs/plan/2026-07-01_logyi-mcp-config-mount.md",
+      "sortKey": "2026-07-01_logyi-mcp-config-mount.md",
+      "date": "2026-07-01",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "LogYi MCP 配置挂载"
+    },
+    {
       "title": "Package Version 提交前递增规则",
       "link": "/plan/2026-06-30_package-version-before-code-commit",
       "sourcePath": "docs/plan/2026-06-30_package-version-before-code-commit.md",
