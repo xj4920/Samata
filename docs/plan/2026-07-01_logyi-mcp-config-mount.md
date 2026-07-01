@@ -60,5 +60,5 @@ docker logs --since 5m samata 2>&1 | rg 'MCP \[logyi\].*已连接'
 
 ## Commit Hash
 
-- implementation commit hash: 待用户确认提交后生成。
-- metadata commit hash: 待提交回填。
+- implementation commit hash: `d2ef83a`
+- metadata commit hash: docs-only 回填提交见最终回复。
