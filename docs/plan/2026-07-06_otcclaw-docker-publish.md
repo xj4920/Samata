@@ -88,4 +88,4 @@ npm run docker:otcclaw:build
 
 ## Commit Hash
 
-- 待提交后回填。
+- 实现提交：41555d53ec26e35641fa55667302681661fc780d
