@@ -52,7 +52,7 @@ npm run docs:plan-sync
 
 ## Commit
 
-- implementation commit hash：待提交后回填
+- implementation commit hash：`59c7f28`
 
 ## 构建与重启影响
 
