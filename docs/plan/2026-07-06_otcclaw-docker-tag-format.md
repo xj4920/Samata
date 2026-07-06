@@ -56,4 +56,4 @@ docker images --format '{{.Repository}}:{{.Tag}}' | grep '^otcclaw:v3.0.20-'
 
 ## Commit
 
-- 待提交后回填。
+- 实现提交：ba44e725cc69d15d936461b76761daed24ea3e8d
