@@ -145,6 +145,8 @@ npm run sqlite:baseline:refresh
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
 ```
 
+默认推送 tag 对齐 Code 制品库版本格式：`v<package.version>-<MMddHHmmssSSS>`，例如 `v3.0.20-0706151315996`。如需额外兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 同时推送 `<package.version>` 和 `latest` 别名。
+
 如果 Docker build 拉取基础镜像时报 `proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`，说明 Docker daemon 配置了本机代理但该端口没有服务。检查 `/etc/systemd/system/docker.service.d/http-proxy.conf`，启动本机代理、改成可达代理，或移除 daemon 代理配置后重启 Docker。
 
 批量导入文档时必须指定目标 agent，避免导入到默认 agent：

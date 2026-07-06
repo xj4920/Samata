@@ -9,17 +9,17 @@ usage() {
 Usage: bash scripts/docker-samata.sh [up|build|push|prune]
 
 Build tags are derived from package.json:
-  otcclaw:<version>-<git-sha>
-  otcclaw:<version>
-  otcclaw:latest
+  otcclaw:v<version>-<MMddHHmmssSSS>
 
 Environment overrides:
   OTCCLAW_IMAGE_REPO      Image repository name, default: otcclaw
-  OTCCLAW_IMAGE_TAG       Primary image tag, default: <version>-<git-sha>[-dirty-YYYYMMDDHHMMSS]
+  OTCCLAW_IMAGE_TAG       Primary image tag, default: v<version>-<MMddHHmmssSSS>
   SAMATA_IMAGE_REPO       Backward-compatible alias for OTCCLAW_IMAGE_REPO
   SAMATA_IMAGE_TAG        Backward-compatible alias for OTCCLAW_IMAGE_TAG
   SAMATA_DEPLOY_ROOT      Runtime config/data/log root, default: /opt/samata
   OTCCLAW_SQLITE_BASELINE SQLite baseline template, default: docker-baseline/samata.db
+  OTCCLAW_PUSH_ALIASES    Push <version> and latest compatibility tags when set to 1/true/yes/on
+  SAMATA_PUSH_ALIASES     Backward-compatible alias for OTCCLAW_PUSH_ALIASES
 
 Push to a remote registry:
   docker login <code-registry-host>
@@ -39,24 +39,24 @@ service_name="${OTCCLAW_COMPOSE_SERVICE:-${SAMATA_COMPOSE_SERVICE:-otcclaw}}"
 deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
 sqlite_baseline="${OTCCLAW_SQLITE_BASELINE:-docker-baseline/samata.db}"
 version="$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); if (!pkg.version) throw new Error('package.json missing version'); process.stdout.write(pkg.version)")"
-commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'nogit')"
-
-dirty_suffix=""
-if ! git diff --quiet --ignore-submodules -- 2>/dev/null || ! git diff --cached --quiet --ignore-submodules -- 2>/dev/null; then
-  dirty_suffix="-dirty-$(date +%Y%m%d%H%M%S)"
-fi
-
-primary_tag="${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-${version}-${commit}${dirty_suffix}}}"
+build_stamp="$(node -e "const d=new Date(); const p=(n,w=2)=>String(n).padStart(w,'0'); process.stdout.write(p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+p(d.getMilliseconds(),3));")"
+default_tag="v${version}-${build_stamp}"
+primary_tag="${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-${default_tag}}}"
+push_aliases="${OTCCLAW_PUSH_ALIASES:-${SAMATA_PUSH_ALIASES:-0}}"
 
 export OTCCLAW_IMAGE_REPO="$image_repo"
 export OTCCLAW_IMAGE_TAG="$primary_tag"
 export SAMATA_IMAGE_REPO="$image_repo"
 export SAMATA_IMAGE_TAG="$primary_tag"
 export SAMATA_VERSION="$version"
-export SAMATA_COMMIT="$commit"
 export SAMATA_DEPLOY_ROOT="$deploy_root"
 
 compose=(docker compose --env-file /dev/null)
+
+is_truthy() {
+  local value="${1,,}"
+  [[ "$value" =~ ^(1|true|yes|on)$ ]]
+}
 
 ensure_deploy_root() {
   if [[ ! -f "$deploy_root/.env" ]]; then
@@ -147,18 +147,25 @@ else
 fi
 
 docker image inspect "${image_repo}:${primary_tag}" >/dev/null
-docker tag "${image_repo}:${primary_tag}" "${image_repo}:${version}"
-docker tag "${image_repo}:${primary_tag}" "${image_repo}:latest"
 
 if [[ "$command" == "push" ]]; then
   docker push "${image_repo}:${primary_tag}"
-  docker push "${image_repo}:${version}"
-  docker push "${image_repo}:latest"
+  if is_truthy "$push_aliases"; then
+    docker tag "${image_repo}:${primary_tag}" "${image_repo}:${version}"
+    docker tag "${image_repo}:${primary_tag}" "${image_repo}:latest"
+    docker push "${image_repo}:${version}"
+    docker push "${image_repo}:latest"
+  fi
 fi
 
 cat <<EOF
 OtcClaw image tags:
   ${image_repo}:${primary_tag}
+EOF
+
+if is_truthy "$push_aliases"; then
+  cat <<EOF
   ${image_repo}:${version}
   ${image_repo}:latest
 EOF
+fi

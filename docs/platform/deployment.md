@@ -97,7 +97,7 @@ docker exec -u node otcclaw git ls-remote --heads ssh://git@code.gf.com.cn:30004
 
 镜像内 `/app/samata/config/agents` 会在构建和启动时授权给 `node` 用户，系统管理员可通过 CLI 工具创建或编辑 Agent prompt 文件。默认 compose 不持久化该目录，容器内临时创建的 prompt 会随着容器重建丢失；生产 Agent prompt 仍应提交到仓库的 `config/agents/<agent-name>.md` 并重新构建/部署镜像。Agent prompt 文件名按 `agent.name` 精确匹配；交互式 `/agent create` 要求小写英文名称，例如显示名可为 `OtcmsClaw`，但 name 和文件建议为 `otcmsclaw` / `config/agents/otcmsclaw.md`。
 
-`npm run docker:otcclaw:up` 会从 `package.json` 读取版本号并生成主 tag：`otcclaw:<version>-<git-sha>`；同时打上 `otcclaw:<version>` 和 `otcclaw:latest` 两个别名。需要只构建不启动时使用 `npm run docker:otcclaw:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:otcclaw:prune`。`docker:samata:*` 脚本保留为内部兼容入口。
+`npm run docker:otcclaw:up` 会从 `package.json` 读取版本号并生成主 tag：`otcclaw:v<version>-<MMddHHmmssSSS>`，例如 `otcclaw:v3.0.20-0706151315996`。默认只生成和推送这个对外版本 tag；如需兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 额外生成 `<version>` 和 `latest` 两个别名。需要只构建不启动时使用 `npm run docker:otcclaw:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:otcclaw:prune`。`docker:samata:*` 脚本保留为内部兼容入口。
 
 ### 推送到 Code 平台制品库
 
@@ -109,26 +109,24 @@ npm run sqlite:baseline:refresh
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
 ```
 
-`docker:otcclaw:push` 会先确认 `docker-baseline/samata.db` 存在，再执行一次镜像构建并推送三个 tag：
+`docker:otcclaw:push` 会先确认 `docker-baseline/samata.db` 存在，再执行一次镜像构建并推送对外版本 tag：
 
 ```text
-dockertest.gf.com.cn/titans/otcclaw:<version>-<git-sha>
-dockertest.gf.com.cn/titans/otcclaw:<version>
-dockertest.gf.com.cn/titans/otcclaw:latest
+dockertest.gf.com.cn/titans/otcclaw:v<version>-<MMddHHmmssSSS>
 ```
 
-如果工作区存在未提交改动，主 tag 会追加 `dirty-YYYYMMDDHHMMSS`，用于避免覆盖同一个版本 sha tag。生产发布建议使用干净工作区构建；如需固定发布 tag，可显式设置 `OTCCLAW_IMAGE_TAG` 或兼容变量 `SAMATA_IMAGE_TAG`。脚本会拒绝在未设置 `OTCCLAW_IMAGE_REPO`/`SAMATA_IMAGE_REPO` 时执行 push，避免把默认本地镜像名误推到公共 registry。
+发布版本 tag 使用当前构建时间生成，不再依赖 Git sha 或 dirty 状态；如需固定发布 tag，可显式设置 `OTCCLAW_IMAGE_TAG` 或兼容变量 `SAMATA_IMAGE_TAG`。设置 `OTCCLAW_PUSH_ALIASES=1` 时，脚本会额外推送 `<version>` 和 `latest` 两个兼容 tag。脚本会拒绝在未设置 `OTCCLAW_IMAGE_REPO`/`SAMATA_IMAGE_REPO` 时执行 push，避免把默认本地镜像名误推到公共 registry。
 
 部署机需要拉取 Code 制品库镜像时，使用同一个 `OTCCLAW_IMAGE_REPO` 和目标 `OTCCLAW_IMAGE_TAG`：
 
 ```bash
 docker login dockertest.gf.com.cn
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw \
-OTCCLAW_IMAGE_TAG=<version>-<git-sha> \
+OTCCLAW_IMAGE_TAG=v<version>-<MMddHHmmssSSS> \
 docker compose --env-file /dev/null pull otcclaw
 
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw \
-OTCCLAW_IMAGE_TAG=<version>-<git-sha> \
+OTCCLAW_IMAGE_TAG=v<version>-<MMddHHmmssSSS> \
 docker compose --env-file /dev/null up -d --no-build otcclaw
 ```
 
