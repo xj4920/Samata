@@ -6,10 +6,10 @@ x-samata-build: &samata-build
     SAMATA_COMMIT: ${SAMATA_COMMIT:-unknown}
 
 services:
-  samata:
+  otcclaw:
     build: *samata-build
-    image: ${SAMATA_IMAGE_REPO:-samata}:${SAMATA_IMAGE_TAG:-latest}
-    container_name: samata
+    image: ${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}:${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-latest}}
+    container_name: otcclaw
     restart: unless-stopped
     dns:
       - 10.55.66.66
@@ -23,14 +23,6 @@ services:
       SAMATA_PLUGINS_DIR: /app/plugins,/app/work-plugins
       PROVIDER_SUMMARY: custom
       MODEL_SUMMARY: external-deepseek-v4-pro
-      PG_WIND_HOST: wind_sync_pg
-      PG_WIND_PORT: 5432
-      FAST_TRADING_PG_HOST: wind_sync_pg
-      FAST_TRADING_PG_PORT: 5432
-      WIND_PG_HOST: wind_sync_pg
-      WIND_PG_PORT: 5432
-      LOG_PG_HOST: wind_sync_pg
-      LOG_PG_PORT: 5432
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       HEDGE_RATIO_BOOTSTRAP_PYTHON: python3
     ports:
@@ -46,21 +38,13 @@ services:
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/data:/app/samata/data
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/logs:/app/samata/logs
       - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/ssh:/home/node/.ssh:ro
-    networks:
-      - default
-      - wind-sync
 
   docs:
     build: *samata-build
-    image: ${SAMATA_IMAGE_REPO:-samata}:${SAMATA_IMAGE_TAG:-latest}
-    container_name: samata-docs
+    image: ${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}:${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-latest}}
+    container_name: otcclaw-docs
     profiles:
       - docs
     command: ["npm", "run", "docs:dev", "--", "--host", "0.0.0.0"]
     ports:
       - "5173:5173"
-
-networks:
-  wind-sync:
-    external: true
-    name: samata-wind-sync

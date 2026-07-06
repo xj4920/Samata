@@ -19,6 +19,8 @@ logs/*
 data/samata.db
 data/samata.db-shm
 data/samata.db-wal
+docker-baseline/*
+!docker-baseline/.gitkeep
 
 # Runtime
 .samata.pid

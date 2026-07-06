@@ -9,18 +9,21 @@ usage() {
 Usage: bash scripts/docker-samata.sh [up|build|push|prune]
 
 Build tags are derived from package.json:
-  samata:<version>-<git-sha>
-  samata:<version>
-  samata:latest
+  otcclaw:<version>-<git-sha>
+  otcclaw:<version>
+  otcclaw:latest
 
 Environment overrides:
-  SAMATA_IMAGE_REPO   Image repository name, default: samata
-  SAMATA_IMAGE_TAG    Primary image tag, default: <version>-<git-sha>[-dirty-YYYYMMDDHHMMSS]
-  SAMATA_DEPLOY_ROOT  Runtime config/data/log root, default: /opt/samata
+  OTCCLAW_IMAGE_REPO      Image repository name, default: otcclaw
+  OTCCLAW_IMAGE_TAG       Primary image tag, default: <version>-<git-sha>[-dirty-YYYYMMDDHHMMSS]
+  SAMATA_IMAGE_REPO       Backward-compatible alias for OTCCLAW_IMAGE_REPO
+  SAMATA_IMAGE_TAG        Backward-compatible alias for OTCCLAW_IMAGE_TAG
+  SAMATA_DEPLOY_ROOT      Runtime config/data/log root, default: /opt/samata
+  OTCCLAW_SQLITE_BASELINE SQLite baseline template, default: docker-baseline/samata.db
 
 Push to a remote registry:
   docker login <code-registry-host>
-  SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata bash scripts/docker-samata.sh push
+  OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw bash scripts/docker-samata.sh push
 USAGE
 }
 
@@ -31,8 +34,10 @@ case "$command" in
   *) usage >&2; exit 2 ;;
 esac
 
-image_repo="${SAMATA_IMAGE_REPO:-samata}"
+image_repo="${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}"
+service_name="${OTCCLAW_COMPOSE_SERVICE:-${SAMATA_COMPOSE_SERVICE:-otcclaw}}"
 deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
+sqlite_baseline="${OTCCLAW_SQLITE_BASELINE:-docker-baseline/samata.db}"
 version="$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); if (!pkg.version) throw new Error('package.json missing version'); process.stdout.write(pkg.version)")"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'nogit')"
 
@@ -41,8 +46,10 @@ if ! git diff --quiet --ignore-submodules -- 2>/dev/null || ! git diff --cached 
   dirty_suffix="-dirty-$(date +%Y%m%d%H%M%S)"
 fi
 
-primary_tag="${SAMATA_IMAGE_TAG:-${version}-${commit}${dirty_suffix}}"
+primary_tag="${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-${version}-${commit}${dirty_suffix}}}"
 
+export OTCCLAW_IMAGE_REPO="$image_repo"
+export OTCCLAW_IMAGE_TAG="$primary_tag"
 export SAMATA_IMAGE_REPO="$image_repo"
 export SAMATA_IMAGE_TAG="$primary_tag"
 export SAMATA_VERSION="$version"
@@ -94,14 +101,29 @@ EOF
 }
 
 ensure_remote_image_repo() {
-  if [[ -z "${SAMATA_IMAGE_REPO:-}" || "$image_repo" == "samata" ]]; then
+  if [[ -z "${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-}}" || "$image_repo" == "otcclaw" || "$image_repo" == "samata" ]]; then
     cat >&2 <<'EOF'
-Refusing to push the default local image name "samata".
+Refusing to push a default local image name.
 
-Set SAMATA_IMAGE_REPO to the Code artifact registry repository first, for example:
-  SAMATA_IMAGE_REPO=<code-registry-host>/<namespace>/samata bash scripts/docker-samata.sh push
+Set OTCCLAW_IMAGE_REPO to the Code artifact registry repository first, for example:
+  OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw bash scripts/docker-samata.sh push
 
 Make sure docker login has already succeeded for <code-registry-host>.
+EOF
+    exit 1
+  fi
+}
+
+ensure_sqlite_baseline() {
+  if [[ ! -s "$sqlite_baseline" ]]; then
+    cat >&2 <<EOF
+Missing SQLite baseline template: $sqlite_baseline
+
+Refresh it from the current runtime database before pushing:
+  npm run sqlite:baseline:refresh
+
+The baseline contains the full runtime SQLite database and must only be pushed
+to a controlled registry.
 EOF
     exit 1
   fi
@@ -114,13 +136,14 @@ fi
 
 if [[ "$command" == "push" ]]; then
   ensure_remote_image_repo
+  ensure_sqlite_baseline
 fi
 
 if [[ "$command" == "build" || "$command" == "push" ]]; then
-  "${compose[@]}" build samata
+  "${compose[@]}" build "$service_name"
 else
   ensure_deploy_root
-  "${compose[@]}" up -d --build samata
+  "${compose[@]}" up -d --build "$service_name"
 fi
 
 docker image inspect "${image_repo}:${primary_tag}" >/dev/null
@@ -134,7 +157,7 @@ if [[ "$command" == "push" ]]; then
 fi
 
 cat <<EOF
-Samata image tags:
+OtcClaw image tags:
   ${image_repo}:${primary_tag}
   ${image_repo}:${version}
   ${image_repo}:latest

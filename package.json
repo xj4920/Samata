@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.0.17",
+  "version": "3.0.19",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -20,6 +20,11 @@
     "docs:check": "npm run docs:plan-sync -- --check && vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "db:migrate": "tsx src/db/migrate.ts",
+    "sqlite:baseline:refresh": "tsx scripts/prepare-sqlite-baseline.ts",
+    "docker:otcclaw:up": "bash scripts/docker-samata.sh up",
+    "docker:otcclaw:build": "bash scripts/docker-samata.sh build",
+    "docker:otcclaw:push": "bash scripts/docker-samata.sh push",
+    "docker:otcclaw:prune": "bash scripts/docker-samata.sh prune",
     "docker:samata:up": "bash scripts/docker-samata.sh up",
     "docker:samata:build": "bash scripts/docker-samata.sh build",
     "docker:samata:push": "bash scripts/docker-samata.sh push",

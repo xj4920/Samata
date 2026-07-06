@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "OtcClaw Docker 发布与 SQLite Baseline 初始化",
+      "link": "/plan/2026-07-06_otcclaw-docker-publish",
+      "sourcePath": "docs/plan/2026-07-06_otcclaw-docker-publish.md",
+      "sortKey": "2026-07-06_otcclaw-docker-publish.md",
+      "date": "2026-07-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "LogYi MCP 配置改为部署挂载",
       "link": "/plan/2026-07-01_logyi-mcp-config-mount",
       "sourcePath": "docs/plan/2026-07-01_logyi-mcp-config-mount.md",

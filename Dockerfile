@@ -93,7 +93,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 ARG SAMATA_VERSION=unknown
 ARG SAMATA_COMMIT=unknown
 
-LABEL org.opencontainers.image.title="Samata" \
+LABEL org.opencontainers.image.title="OtcClaw" \
       org.opencontainers.image.version="${SAMATA_VERSION}" \
       org.opencontainers.image.revision="${SAMATA_COMMIT}"
 

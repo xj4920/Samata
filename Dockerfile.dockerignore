@@ -25,6 +25,8 @@ samata/data
 samata/data/**
 samata/logs
 samata/logs/**
+samata/docker-baseline/*.db-shm
+samata/docker-baseline/*.db-wal
 samata-plugin-work/hedge-ratio/attachments
 samata-plugin-work/hedge-ratio/attachments/**
 samata-plugin-work/hedge-ratio/data/**

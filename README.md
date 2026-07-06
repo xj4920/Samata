@@ -131,12 +131,19 @@ cp .env.example /opt/samata/.env
 chmod 600 /opt/samata/.env
 # 编辑 /opt/samata/.env，配置 LLM、插件目录、外部数据与观测端点
 
-npm run docker:samata:build
-npm run docker:samata:up
+npm run docker:otcclaw:build
+npm run docker:otcclaw:up
 curl http://127.0.0.1:3457/health
 ```
 
-Docker Compose 默认从 `/opt/samata/.env` 只读挂载生产配置，并把运行数据、日志写到 `/opt/samata/data`、`/opt/samata/logs`；如需换目录，可设置 `SAMATA_DEPLOY_ROOT`。
+Docker Compose 对外服务名和容器名为 `otcclaw`，内部应用路径仍是 `/app/samata`。默认从 `/opt/samata/.env` 只读挂载生产配置，并把运行数据、日志写到 `/opt/samata/data`、`/opt/samata/logs`；如需换目录，可设置 `SAMATA_DEPLOY_ROOT`。
+
+发布 OtcClaw 镜像前，先把当前运行库生成一致性 SQLite baseline。该 baseline 是完整运行库克隆，包含 bot secret、成员绑定、memory、knowledge、documents 和 telemetry，只允许进入受控 Docker registry，不提交到 Git：
+
+```bash
+npm run sqlite:baseline:refresh
+OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
+```
 
 如果 Docker build 拉取基础镜像时报 `proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`，说明 Docker daemon 配置了本机代理但该端口没有服务。检查 `/etc/systemd/system/docker.service.d/http-proxy.conf`，启动本机代理、改成可达代理，或移除 daemon 代理配置后重启 Docker。
 
@@ -301,7 +308,7 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_CAPTURE_CONTENT=false
 ```
 
-Samata 不需要 Dockerfile 改动；Langfuse 只是外部观测端点。默认不会上传对话正文、工具输入输出正文或 system prompt。
+OtcClaw 主镜像不打包 Langfuse；Langfuse 只是外部观测端点。默认不会上传对话正文、工具输入输出正文或 system prompt。
 
 ### LLM Provider 配置
 
@@ -359,6 +366,7 @@ samata/
 ├── data/
 │   ├── samata.db         # 主数据库（自动创建）
 │   └── plugins/          # Plugin 私有数据
+├── docker-baseline/       # Docker baseline 模板目录（*.db 本地生成，不提交）
 ├── logs/                 # 运行日志
 ├── packages/plugin-sdk/  # Plugin SDK（类型定义）
 ├── scripts/
