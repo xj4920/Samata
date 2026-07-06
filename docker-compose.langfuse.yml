@@ -1,6 +1,7 @@
 services:
   langfuse-worker:
     image: ${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3}
+    container_name: otcclaw-langfuse-worker
     restart: unless-stopped
     depends_on: &langfuse-depends-on
       langfuse-postgres:
@@ -47,6 +48,7 @@ services:
 
   langfuse-web:
     image: ${LANGFUSE_WEB_IMAGE:-langfuse/langfuse:3}
+    container_name: otcclaw-langfuse
     restart: unless-stopped
     depends_on: *langfuse-depends-on
     ports:
@@ -68,6 +70,7 @@ services:
 
   langfuse-clickhouse:
     image: ${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:latest}
+    container_name: otcclaw-langfuse-clickhouse-server
     restart: unless-stopped
     user: "101:101"
     environment:
@@ -86,6 +89,7 @@ services:
 
   langfuse-minio:
     image: ${LANGFUSE_MINIO_IMAGE:-minio/minio:latest}
+    container_name: otcclaw-langfuse-minio
     restart: unless-stopped
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
@@ -106,6 +110,7 @@ services:
 
   langfuse-redis:
     image: ${LANGFUSE_REDIS_IMAGE:-redis:7}
+    container_name: otcclaw-langfuse-redis
     restart: unless-stopped
     command: ["sh", "-c", "redis-server --requirepass \"$${REDIS_AUTH}\""]
     environment:
@@ -118,6 +123,7 @@ services:
 
   langfuse-postgres:
     image: ${LANGFUSE_POSTGRES_IMAGE:-postgres:16}
+    container_name: otcclaw-langfuse-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: langfuse
