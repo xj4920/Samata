@@ -97,7 +97,7 @@ docker exec -u node otcclaw git ls-remote --heads ssh://git@code.gf.com.cn:30004
 
 镜像内 `/app/samata/config/agents` 会在构建和启动时授权给 `node` 用户，系统管理员可通过 CLI 工具创建或编辑 Agent prompt 文件。默认 compose 不持久化该目录，容器内临时创建的 prompt 会随着容器重建丢失；生产 Agent prompt 仍应提交到仓库的 `config/agents/<agent-name>.md` 并重新构建/部署镜像。Agent prompt 文件名按 `agent.name` 精确匹配；交互式 `/agent create` 要求小写英文名称，例如显示名可为 `OtcmsClaw`，但 name 和文件建议为 `otcmsclaw` / `config/agents/otcmsclaw.md`。
 
-`npm run docker:otcclaw:up` 会从 `package.json` 读取版本号并生成主 tag：`otcclaw:v<version>-<MMddHHmmssSSS>`，例如 `otcclaw:v3.0.20-0706151315996`。默认只生成和推送这个对外版本 tag；如需兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 额外生成 `<version>` 和 `latest` 两个别名。需要只构建不启动时使用 `npm run docker:otcclaw:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:otcclaw:prune`。`docker:samata:*` 脚本保留为内部兼容入口。
+`npm run docker:otcclaw:up` 会从 `package.json` 读取版本号并生成主 tag：`otcclaw:v<version>-<MMddHHmmssSSS>`，例如 `otcclaw:v3.0.21-0706151315996`。默认只生成和推送这个对外版本 tag；如需兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 额外生成 `<version>` 和 `latest` 两个别名。需要只构建不启动时使用 `npm run docker:otcclaw:build`；清理 `<none>:<none>` dangling 镜像时使用 `npm run docker:otcclaw:prune`。`docker:samata:*` 脚本保留为内部兼容入口。
 
 ### 推送到 Code 平台制品库
 
@@ -128,6 +128,27 @@ docker compose --env-file /dev/null pull otcclaw
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw \
 OTCCLAW_IMAGE_TAG=v<version>-<MMddHHmmssSSS> \
 docker compose --env-file /dev/null up -d --no-build otcclaw
+```
+
+如果部署机同时需要本地 Langfuse 观测栈，使用统一部署脚本一次拉取 OtcClaw 与 `otcclaw-langfuse-*` 镜像并启动：
+
+```bash
+docker login dockertest.gf.com.cn
+cp .env.langfuse.example .env.langfuse
+# 编辑 /opt/samata/.env、/opt/samata/mcp-servers.json 和 .env.langfuse
+OTCCLAW_IMAGE_TAG=v<version>-<MMddHHmmssSSS> npm run docker:otcclaw:deploy
+```
+
+脚本默认镜像如下，可通过同名环境变量覆盖：
+
+```text
+dockertest.gf.com.cn/titans/otcclaw:<OTCCLAW_IMAGE_TAG>
+dockertest.gf.com.cn/titans/otcclaw-langfuse:3
+dockertest.gf.com.cn/titans/otcclaw-langfuse-worker:3
+dockertest.gf.com.cn/titans/otcclaw-langfuse-clickhouse-server:latest
+dockertest.gf.com.cn/titans/otcclaw-langfuse-minio:latest
+dockertest.gf.com.cn/titans/otcclaw-langfuse-redis:7
+dockertest.gf.com.cn/titans/otcclaw-langfuse-postgres:16
 ```
 
 容器内 Samata 监听 `0.0.0.0:3457`，宿主机可访问：
@@ -176,9 +197,22 @@ docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.wind
 
 `/opt/samata/.env` 通过只读挂载提供给容器内应用，由 Samata 启动时的 dotenv 加载，不会进入镜像。不要把 `.env` 配成 compose `env_file`，密钥中如果包含 `$` 可能会被 Compose 当变量插值处理。`environment` 中显式配置的容器内地址会覆盖 `.env` 里的本地开发地址。
 
-容器内访问内网 LLM 网关需要使用企业 DNS。compose 已为 Samata 配置 `10.55.66.66`、`10.80.66.66`，避免 Docker 默认 DNS 无法解析 `llm.smart-zone-dev.gf.com.cn`。
+生产宿主机需要配置企业 DNS，避免 Docker、Node.js、构建脚本和普通系统命令在解析内网域名时落到公网 DNS。推荐使用仓库脚本写入 `systemd-resolved` drop-in，并让 `/etc/resolv.conf` 优先走 `127.0.0.53`：
 
-本地 Langfuse 不打进 OtcClaw 镜像，继续使用 `docker-compose.langfuse.yml` 的独立服务。OtcClaw 容器内访问本地 Langfuse 时使用 `http://langfuse-web:3000`，compose 已覆盖 `LANGFUSE_BASE_URL`；宿主机浏览器仍访问 `http://127.0.0.1:3001`。
+```bash
+sudo bash scripts/configure-system-dns.sh apply
+bash scripts/configure-system-dns.sh check
+```
+
+脚本会配置 `10.55.66.66`、`10.80.66.66` 作为系统 DNS，并保留 `8.8.8.8` 作为 fallback。需要回滚时执行：
+
+```bash
+sudo bash scripts/configure-system-dns.sh rollback
+```
+
+容器内访问内网 LLM 网关同样需要企业 DNS。compose 已为 Samata 配置 `10.55.66.66`、`10.80.66.66`，避免 Docker 默认 DNS 无法解析 `llm.smart-zone-dev.gf.com.cn`；系统级 DNS 生效后，宿主机和未显式覆盖 DNS 的运行进程也会使用同一解析入口。
+
+本地 Langfuse 不打进 OtcClaw 镜像，继续使用 `docker-compose.langfuse.yml` 的独立服务。OtcClaw 容器内访问本地 Langfuse 时使用 `http://langfuse-web:3000`，compose 已覆盖 `LANGFUSE_BASE_URL`；宿主机浏览器仍访问 `http://127.0.0.1:3001`。`docker-compose.langfuse.yml` 默认仍使用上游镜像，本地开发可直接启动；部署脚本会覆盖为 `dockertest.gf.com.cn/titans/otcclaw-langfuse-*` 镜像。
 
 Docs 不随 Samata 主服务默认启动。需要容器内预览文档时运行：
 

@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.0.20",
+  "version": "3.0.21",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -24,6 +24,7 @@
     "docker:otcclaw:up": "bash scripts/docker-samata.sh up",
     "docker:otcclaw:build": "bash scripts/docker-samata.sh build",
     "docker:otcclaw:push": "bash scripts/docker-samata.sh push",
+    "docker:otcclaw:deploy": "bash scripts/deploy-otcclaw.sh deploy",
     "docker:otcclaw:prune": "bash scripts/docker-samata.sh prune",
     "docker:samata:up": "bash scripts/docker-samata.sh up",
     "docker:samata:build": "bash scripts/docker-samata.sh build",

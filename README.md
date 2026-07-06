@@ -145,7 +145,16 @@ npm run sqlite:baseline:refresh
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
 ```
 
-默认推送 tag 对齐 Code 制品库版本格式：`v<package.version>-<MMddHHmmssSSS>`，例如 `v3.0.20-0706151315996`。如需额外兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 同时推送 `<package.version>` 和 `latest` 别名。
+默认推送 tag 对齐 Code 制品库版本格式：`v<package.version>-<MMddHHmmssSSS>`，例如 `v3.0.21-0706151315996`。如需额外兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 同时推送 `<package.version>` 和 `latest` 别名。
+
+部署机同时拉取并启动 OtcClaw 与内网 Langfuse 镜像：
+
+```bash
+docker login dockertest.gf.com.cn
+cp .env.langfuse.example .env.langfuse
+# 编辑 /opt/samata/.env、/opt/samata/mcp-servers.json 和 .env.langfuse
+OTCCLAW_IMAGE_TAG=v<package.version>-<MMddHHmmssSSS> npm run docker:otcclaw:deploy
+```
 
 如果 Docker build 拉取基础镜像时报 `proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`，说明 Docker daemon 配置了本机代理但该端口没有服务。检查 `/etc/systemd/system/docker.service.d/http-proxy.conf`，启动本机代理、改成可达代理，或移除 daemon 代理配置后重启 Docker。
 
@@ -297,6 +306,8 @@ cp .env.langfuse.example .env.langfuse
 # 修改 .env.langfuse 中的 change-me，或使用本仓库的本地初始化脚本/命令生成
 docker compose --env-file .env.langfuse -f docker-compose.langfuse.yml up -d
 ```
+
+生产/测试部署可通过 `LANGFUSE_*_IMAGE` 覆盖为 dockertest 镜像；`scripts/deploy-otcclaw.sh` 默认使用 `dockertest.gf.com.cn/titans/otcclaw-langfuse-*` 这一组镜像名。
 
 启动后打开 `http://127.0.0.1:3001`。Samata 只需要配置本地地址和项目 key：
 
