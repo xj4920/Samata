@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 describe('plugin delivery context', () => {
   const originalPluginsDir = process.env.SAMATA_PLUGINS_DIR;
+  const originalWeworkMinInterval = process.env.WEWORK_SEND_MIN_INTERVAL_MS;
   let pluginRoot: string | undefined;
 
   afterEach(() => {
@@ -13,11 +14,17 @@ describe('plugin delivery context', () => {
     } else {
       process.env.SAMATA_PLUGINS_DIR = originalPluginsDir;
     }
+    if (originalWeworkMinInterval === undefined) {
+      delete process.env.WEWORK_SEND_MIN_INTERVAL_MS;
+    } else {
+      process.env.WEWORK_SEND_MIN_INTERVAL_MS = originalWeworkMinInterval;
+    }
     if (pluginRoot) fs.rmSync(pluginRoot, { recursive: true, force: true });
     pluginRoot = undefined;
     vi.resetModules();
     vi.doUnmock('../../../src/db/connection.js');
     vi.doUnmock('../../../src/feishu/api.js');
+    vi.doUnmock('../../../src/wework/bot.js');
     vi.doUnmock('../../../src/utils/logger.js');
   });
 
@@ -127,6 +134,71 @@ export default {
       receiveIdType: 'chat_id',
       messageType: 'text',
       content: { text: 'hello' },
+    });
+
+    registry.stopPluginWatcher();
+    await registry.stopAllPlugins();
+  });
+
+  it('sends Wework plugin notifications through the selected bot queue', async () => {
+    pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'samata-plugin-test-'));
+    const pluginDir = path.join(pluginRoot, 'delivery-test');
+    fs.mkdirSync(pluginDir);
+    fs.writeFileSync(path.join(pluginDir, 'index.ts'), `
+export default {
+  name: 'delivery-test',
+  description: 'delivery context test plugin',
+  toolDefinitions: [
+    { name: 'plugin_notify_wework', description: 'sends wework notification', input_schema: { type: 'object', properties: { channel: { type: 'string' }, targetId: { type: 'string' }, message: { type: 'string' } }, required: ['channel', 'targetId', 'message'] } },
+  ],
+  async handleTool(name, input, ctx) {
+    if (name === 'plugin_notify_wework') {
+      await ctx.sendNotification(input.channel, input.targetId, input.message);
+      return JSON.stringify({ ok: true });
+    }
+    return null;
+  },
+};
+`);
+
+    process.env.SAMATA_PLUGINS_DIR = pluginRoot;
+    process.env.WEWORK_SEND_MIN_INTERVAL_MS = '800';
+
+    const sendMessage = vi.fn().mockResolvedValue({});
+    const getConnectedWsClient = vi.fn().mockReturnValue({ sendMessage });
+
+    vi.doMock('../../../src/wework/bot.js', () => ({
+      getConnectedWsClient,
+    }));
+    vi.doMock('../../../src/utils/logger.js', () => ({
+      log: {
+        info: () => {},
+        success: () => {},
+        warn: () => {},
+        error: () => {},
+        dim: () => {},
+        file: () => {},
+        print: () => {},
+      },
+    }));
+
+    vi.resetModules();
+    const queue = await import('../../../src/wework/notification-queue.js');
+    queue.__resetWeworkNotificationQueuesForTests();
+    const registry = await import('../../../src/plugins/registry.js');
+    await registry.initPlugins();
+
+    const result = await registry.executePluginTool(
+      'plugin_notify_wework',
+      { channel: 'wework:hedge-bot', targetId: 'gzxujun', message: 'hello' },
+      { channel: 'wework', targetId: 'gzxujun', appId: 'hedge-bot' },
+    );
+
+    expect(JSON.parse(result!)).toEqual({ ok: true });
+    expect(getConnectedWsClient).toHaveBeenCalledWith('hedge-bot');
+    expect(sendMessage).toHaveBeenCalledWith('gzxujun', {
+      msgtype: 'markdown',
+      markdown: { content: 'hello' },
     });
 
     registry.stopPluginWatcher();

@@ -6,6 +6,7 @@ import { log } from '../utils/logger.js';
 import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getContextAgent, isScheduledTaskAuthorized } from '../runtime/execution-context.js';
 import { createReminder } from '../commands/reminder.js';
+import { sendWeworkNotification } from '../wework/notification-queue.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,10 +58,7 @@ async function sendNotificationImpl(channel: string, targetId: string, message: 
     await api.sendMessageTo(targetId, idType, 'text', { text: message });
   } else if (channel === 'wework' || channel.startsWith('wework:')) {
     const [, botIdOrName] = channel.split(':', 2);
-    const { getConnectedWsClient } = await import('../wework/bot.js');
-    const ws = getConnectedWsClient(botIdOrName);
-    if (!ws) throw new Error(botIdOrName ? `无可用企微连接: ${botIdOrName}` : '无可用企微连接');
-    await ws.sendMessage(targetId, { msgtype: 'markdown', markdown: { content: message } });
+    await sendWeworkNotification(targetId, message, botIdOrName);
   } else {
     throw new Error(`Unsupported notification channel: ${channel}`);
   }

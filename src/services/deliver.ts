@@ -1,6 +1,7 @@
 import { getBotApp } from '../llm/agents/config.js';
 import { FeishuAPI } from '../feishu/api.js';
 import { log } from '../utils/logger.js';
+import { sendWeworkNotification } from '../wework/notification-queue.js';
 
 export async function deliverFeishu(appId: string, targetId: string, message: string): Promise<void> {
   const appRow = getBotApp(appId);
@@ -28,13 +29,7 @@ export async function deliverTelegram(targetId: string, message: string): Promis
 }
 
 export async function deliverWework(targetId: string, message: string, botIdOrName?: string): Promise<void> {
-  const { getConnectedWsClient } = await import('../wework/bot.js');
-  const ws = getConnectedWsClient(botIdOrName);
-  if (!ws) {
-    log.error(botIdOrName ? `[deliver] 无可用企微连接: ${botIdOrName}` : '[deliver] 无可用企微连接，无法发送');
-    return;
-  }
-  await ws.sendMessage(targetId, { msgtype: 'markdown', markdown: { content: message } });
+  await sendWeworkNotification(targetId, message, botIdOrName);
 }
 
 /**
