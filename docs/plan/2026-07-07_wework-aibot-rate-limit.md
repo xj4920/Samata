@@ -28,4 +28,4 @@ npm run test:unit -- tests/unit/services/deliver.test.ts tests/unit/plugins/regi
 
 ## Commit
 
-- commit hash：待提交后补
+- implementation commit hash：5fefb44
