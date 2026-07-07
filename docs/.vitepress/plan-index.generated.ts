@@ -37,6 +37,54 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "企微 AI Bot 主动推送限流修复",
+      "link": "/plan/2026-07-07_wework-aibot-rate-limit",
+      "sourcePath": "docs/plan/2026-07-07_wework-aibot-rate-limit.md",
+      "sortKey": "2026-07-07_wework-aibot-rate-limit.md",
+      "date": "2026-07-07",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "通知与集成"
+    },
+    {
+      "title": "系统级企业 DNS 配置",
+      "link": "/plan/2026-07-06_system-enterprise-dns",
+      "sourcePath": "docs/plan/2026-07-06_system-enterprise-dns.md",
+      "sortKey": "2026-07-06_system-enterprise-dns.md",
+      "date": "2026-07-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "OtcClaw + Langfuse 统一部署脚本",
+      "link": "/plan/2026-07-06_otcclaw-langfuse-deploy",
+      "sourcePath": "docs/plan/2026-07-06_otcclaw-langfuse-deploy.md",
+      "sortKey": "2026-07-06_otcclaw-langfuse-deploy.md",
+      "date": "2026-07-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "OtcClaw Langfuse 容器命名固定",
+      "link": "/plan/2026-07-06_otcclaw-langfuse-container-names",
+      "sourcePath": "docs/plan/2026-07-06_otcclaw-langfuse-container-names.md",
+      "sortKey": "2026-07-06_otcclaw-langfuse-container-names.md",
+      "date": "2026-07-06",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "OtcClaw Docker 镜像版本格式对齐",
       "link": "/plan/2026-07-06_otcclaw-docker-tag-format",
       "sourcePath": "docs/plan/2026-07-06_otcclaw-docker-tag-format.md",
@@ -59,6 +107,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/deployment"
       ],
       "topic": "部署与运行"
+    },
+    {
+      "title": "OTCCLAW 总经理汇报材料计划",
+      "link": "/plan/2026-07-04_otcclaw-gm-report",
+      "sourcePath": "docs/plan/2026-07-04_otcclaw-gm-report.md",
+      "sortKey": "2026-07-04_otcclaw-gm-report.md",
+      "date": "2026-07-04",
+      "status": "planned",
+      "canonicalDocs": [
+        "/platform/agent-capability-model"
+      ],
+      "topic": "Agent 能力"
+    },
+    {
+      "title": "忽略 docs/report 本地汇报产物",
+      "link": "/plan/2026-07-04_ignore-docs-report",
+      "sourcePath": "docs/plan/2026-07-04_ignore-docs-report.md",
+      "sortKey": "2026-07-04_ignore-docs-report.md",
+      "date": "2026-07-04",
+      "status": "planned",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与本地产物"
     },
     {
       "title": "LogYi MCP 配置改为部署挂载",

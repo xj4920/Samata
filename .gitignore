@@ -49,3 +49,6 @@ config/agents/*
 
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+
+# Local/generated reports
+docs/report/

@@ -1,3 +1,13 @@
+---
+docModules:
+  - platform
+docTopics:
+  platform: 通知与集成
+canonicalDocs:
+  - /platform/deployment
+status: implemented
+---
+
 # 企微 AI Bot 主动推送限流修复
 
 ## 背景
