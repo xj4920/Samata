@@ -60,7 +60,7 @@ git diff --check -- .gitignore docs/plan/2026-07-04_ignore-docs-report.md docs/.
 
 ## Commit Hash
 
-待提交。
+- 3653c8b
 
 ## 构建与运行影响
 

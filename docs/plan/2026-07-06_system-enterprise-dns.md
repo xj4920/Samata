@@ -60,7 +60,7 @@ getent hosts devops.gf.com.cn
 
 ## Commit Hash
 
-- 待提交后回填。
+- 3653c8b
 
 ## 构建与重启影响
 
