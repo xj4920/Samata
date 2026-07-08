@@ -76,7 +76,7 @@ node --input-type=module <read scheduled task verification>
 
 ## Commit
 
-- implementation commit hash：待提交
+- implementation commit hash：`0f4ed29`
 
 ## 构建与重启影响
 
