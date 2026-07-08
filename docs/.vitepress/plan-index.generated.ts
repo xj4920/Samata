@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "企微 chatid 上下文与 08:30 定时推送修复",
+      "link": "/plan/2026-07-08_wework-chatid-scheduled-push",
+      "sourcePath": "docs/plan/2026-07-08_wework-chatid-scheduled-push.md",
+      "sortKey": "2026-07-08_wework-chatid-scheduled-push.md",
+      "date": "2026-07-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "企微集成与定时任务"
+    },
+    {
       "title": "企微 AI Bot 主动推送限流修复",
       "link": "/plan/2026-07-07_wework-aibot-rate-limit",
       "sourcePath": "docs/plan/2026-07-07_wework-aibot-rate-limit.md",

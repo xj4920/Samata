@@ -488,6 +488,35 @@ describe('schedule tools', () => {
       });
     });
 
+    it('persists WeWork group chat delivery context for scheduled tasks', async () => {
+      const scheduleTools = await import('../../../src/tools/schedule-tools.js');
+
+      const result = await withContext({ agentName: 'admin' }, () =>
+        scheduleTools.handleTool('create_scheduled_task', {
+          name: '企微群定时任务',
+          cron_expr: '30 8 * * 2-6',
+          task_type: 'agent_chat',
+          payload: JSON.stringify({ prompt: '请生成群提醒' }),
+        }, {
+          deliveryContext: {
+            channel: 'wework',
+            targetId: 'wrfvtgBgAAjdsXmbge5nt_WrtDP_4Zfw',
+            appId: 'aibsBv1aVuu8jyVwy3nWvFovDz1rltvleDO',
+          },
+        }),
+      );
+
+      expect(JSON.parse(result!).success).toBe(true);
+      const row = unit.db.prepare(
+        'SELECT channel, target_id, app_id FROM scheduled_tasks WHERE name = ?',
+      ).get('企微群定时任务') as { channel: string; target_id: string; app_id: string };
+      expect(row).toEqual({
+        channel: 'wework',
+        target_id: 'wrfvtgBgAAjdsXmbge5nt_WrtDP_4Zfw',
+        app_id: 'aibsBv1aVuu8jyVwy3nWvFovDz1rltvleDO',
+      });
+    });
+
     it('requires agent admin to create, update, and delete scheduled tasks', async () => {
       const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
       const scheduleTools = await import('../../../src/tools/schedule-tools.js');

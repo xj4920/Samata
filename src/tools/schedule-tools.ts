@@ -143,6 +143,8 @@ function handleListScheduledTasks(): string {
     last_run_at: t.last_run_at ? new Date(t.last_run_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : null,
     last_result: t.last_result ? t.last_result.slice(0, 200) : null,
     channel: t.channel,
+    target_id: t.target_id,
+    app_id: t.app_id,
   })));
 }
 

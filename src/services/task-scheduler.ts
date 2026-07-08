@@ -39,10 +39,14 @@ function buildDeliveryContext(task: ScheduledTask): DeliveryContext | undefined 
   ) {
     return undefined;
   }
+  const targetId = task.target_id ?? undefined;
+  const appId = task.app_id ?? undefined;
   return {
     channel: task.channel,
-    targetId: task.target_id ?? undefined,
-    appId: task.app_id ?? undefined,
+    targetId,
+    appId,
+    weworkChatId: task.channel === 'wework' && targetId?.startsWith('wr') ? targetId : undefined,
+    weworkChatType: task.channel === 'wework' && targetId?.startsWith('wr') ? 'group' : undefined,
   };
 }
 

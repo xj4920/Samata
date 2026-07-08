@@ -119,6 +119,47 @@ export async function executeTool(name: string, input: any, deliveryContext?: De
   return executeNativeTool(name, input, ctx);
 }
 
+function stringValue(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+}
+
+export function buildDeliveryContextSystemPrompt(deliveryContext?: DeliveryContext): string {
+  if (!deliveryContext) return '';
+
+  const lines = [
+    '## 当前运行上下文',
+    '这些字段来自当前消息通道，用于回答用户关于当前会话/群聊标识的问题，以及创建提醒或定时任务时定位投递目标。',
+    `- channel: ${deliveryContext.channel}`,
+  ];
+
+  const targetId = stringValue(deliveryContext.targetId);
+  const appId = stringValue(deliveryContext.appId);
+  if (targetId) lines.push(`- delivery_target_id: ${targetId}`);
+  if (appId) lines.push(`- app_id: ${appId}`);
+
+  if (deliveryContext.channel === 'wework') {
+    const body = (deliveryContext.weworkFrame as any)?.body ?? {};
+    const chatType = stringValue(deliveryContext.weworkChatType ?? body.chattype);
+    const chatId = stringValue(deliveryContext.weworkChatId ?? body.chatid);
+    const userId = stringValue(deliveryContext.weworkUserId ?? body.from?.userid);
+    const botName = stringValue(deliveryContext.weworkBotName);
+
+    if (chatType) lines.push(`- wework_chattype: ${chatType}`);
+    if (chatId) lines.push(`- wework_chatid: ${chatId}`);
+    if (userId) lines.push(`- wework_from_userid: ${userId}`);
+    if (botName) lines.push(`- wework_bot_name: ${botName}`);
+    lines.push('- 当用户询问当前企微群或当前会话的 chatid 时，直接回答 wework_chatid；不要说系统无法获取。');
+    lines.push('- 创建定时任务、提醒或主动推送时，默认使用 delivery_target_id 作为目标会话。');
+  }
+
+  return lines.join('\n');
+}
+
 // --- History management ---
 
 const MAX_HISTORY_MESSAGES = 80;
@@ -781,7 +822,11 @@ async function runAgenticChatInner(
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
   const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
-  const systemPrompt = buildSystemPrompt(agent ?? getDefaultAgent(), user);
+  const baseSystemPrompt = buildSystemPrompt(agent ?? getDefaultAgent(), user);
+  const deliveryContextSystemPrompt = buildDeliveryContextSystemPrompt(deliveryContext);
+  const systemPrompt = deliveryContextSystemPrompt
+    ? `${baseSystemPrompt}\n\n${deliveryContextSystemPrompt}`
+    : baseSystemPrompt;
 
   // Telemetry: start turn
   const ctxStartTime = Date.now();

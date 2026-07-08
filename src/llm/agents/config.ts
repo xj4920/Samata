@@ -343,6 +343,10 @@ export interface DeliveryContext {
   channel: 'feishu' | 'telegram' | 'cli' | 'wework';
   targetId?: string;
   appId?: string;
+  weworkChatId?: string;
+  weworkChatType?: string;
+  weworkUserId?: string;
+  weworkBotName?: string;
   weworkClient?: any;
   weworkFrame?: any;
   /** Filled by sandbox_exec: absolute paths to generated images for WeWork upload after reply */

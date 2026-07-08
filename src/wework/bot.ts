@@ -265,8 +265,18 @@ async function handleAIChat(
     const HEARTBEAT_MS = 15_000;
     const heartbeatTimer = setInterval(() => pushUpdate(), HEARTBEAT_MS);
 
+    const frameBody = (frame as WsFrame<any>).body;
+    const chatType = frameBody?.chattype;
+    const chatId = frameBody?.chatid;
+    const deliveryTargetId = chatType === 'group' && chatId ? chatId : userId;
     const deliveryContext: DeliveryContext = {
       channel: 'wework',
+      targetId: deliveryTargetId,
+      appId: instance.botId,
+      weworkChatId: chatId,
+      weworkChatType: chatType,
+      weworkUserId: userId,
+      weworkBotName: instance.botName,
       weworkClient: instance.wsClient,
       weworkFrame: frame,
       pendingWeworkImagePaths: [],
