@@ -132,4 +132,4 @@ rg -n "WEWORK_CONTACT|contact-api|user/get|gettoken" src tests .env.example docs
 ## 提交状态
 
 - 基线 commit：`1b713e9`
-- 本 TODO commit hash：待提交
+- 本 TODO commit hash：0ead461
