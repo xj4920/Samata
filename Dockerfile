@@ -6,6 +6,13 @@ ENV NODE_ENV=production \
     CLI_API_PORT=3457 \
     CLI_API_HOST=0.0.0.0 \
     SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins \
+    npm_config_registry=https://registry.npmmirror.com/ \
+    npm_config_disturl=https://npmmirror.com/mirrors/node \
+    npm_config_better_sqlite3_binary_host_mirror=https://registry.npmmirror.com/-/binary/better-sqlite3 \
+    npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_fetch_timeout=600000 \
     TZ=Asia/Chongqing
 
 RUN apt-get update \

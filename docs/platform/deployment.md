@@ -50,13 +50,15 @@ docker compose --env-file /dev/null logs -f otcclaw
 
 OtcClaw 容器通过只读挂载读取 `/opt/samata/.env`，把 `/opt/samata/ssh` 只读挂载到容器内 `/home/node/.ssh`，并把 SQLite 数据和日志持久化到 `/opt/samata/data`、`/opt/samata/logs`。`scripts/docker-samata.sh` 默认检查 `/opt/samata/.env` 是否存在；如需使用其他运行目录，可设置 `SAMATA_DEPLOY_ROOT=/path/to/samata-runtime`。`--env-file /dev/null` 只是避免 Docker Compose 把项目根 `.env` 当成 compose 插值文件解析，尤其适合 `.env` 中密码包含 `$` 的情况。
 
-如果镜像内存在 `/app/samata/docker-baseline/samata.db`，且运行目录中还没有 `/app/samata/data/samata.db`，entrypoint 会在启动时复制该 baseline 作为初始 SQLite 主库；已有数据库绝不覆盖。发布镜像前通过以下命令从当前运行库生成一致性备份：
+如果镜像内存在 `/app/samata/docker-baseline/samata.db`，且运行目录中还没有 `/app/samata/data/samata.db`，entrypoint 会在启动时复制该 baseline 作为初始 SQLite 主库；已有数据库绝不覆盖。若同一镜像内还存在 `/app/samata/docker-baseline/data-files.tar.gz`，entrypoint 只会在这次 SQLite 首次初始化时解压其中的 `documents/`、`wiki/`、`plugins/`、`dreams/` 到运行目录，并写入 `data/.samata-data-baseline-restored` marker；已有运行库不会因为换镜像而覆盖文件数据。
+
+发布镜像前通过以下命令从当前运行数据生成一致性 baseline：
 
 ```bash
-npm run sqlite:baseline:refresh
+npm run baseline:refresh
 ```
 
-默认源库为 `/opt/samata/data/samata.db`，输出到 `docker-baseline/samata.db`。这是完整运行库克隆，包含 `bot_apps.secret`、成员绑定、memory、knowledge、documents、telemetry 等数据；文件被 `.gitignore` 忽略，只能进入受控 Docker registry。
+默认 SQLite 源库为 `/opt/samata/data/samata.db`，输出到 `docker-baseline/samata.db`。默认文件源目录为 `/opt/samata/data`，输出到 `docker-baseline/data-files.tar.gz`，manifest 输出到 `docker-baseline/data-files.manifest.json`。文件 baseline 只包含 `documents/`、`wiki/`、`plugins/`、`dreams/`；其中插件目录里的 SQLite 主文件会优先通过 SQLite backup API 生成一致性副本，`*.db-wal` / `*.db-shm` 等边车文件不会进入归档。两类 baseline 都被 `.gitignore` 忽略，只能进入受控 Docker registry。
 
 如果部署环境里的插件需要通过 SSH 访问公司 Code 平台，例如 `titans-code-search` 同步 `libra-server`，需要在 `/opt/samata/ssh` 准备专用 SSH 配置。不要把个人完整 `~/.ssh` 目录挂进容器，只放最小必要文件：
 
@@ -101,15 +103,15 @@ docker exec -u node otcclaw git ls-remote --heads ssh://git@code.gf.com.cn:30004
 
 ### 推送到 Code 平台制品库
 
-OtcClaw 镜像发布脚本支持把同一套版本 tag 推送到 Code 平台制品库。制品库地址以 Code 平台项目页面展示为准，脚本不会在仓库中保存 registry 账号、密码或 token；发布前需要在本机先完成 Docker 登录，并刷新 SQLite baseline。
+OtcClaw 镜像发布脚本支持把同一套版本 tag 推送到 Code 平台制品库。制品库地址以 Code 平台项目页面展示为准，脚本不会在仓库中保存 registry 账号、密码或 token；发布前需要在本机先完成 Docker 登录，并刷新 SQLite 与 data files baseline。
 
 ```bash
 docker login dockertest.gf.com.cn
-npm run sqlite:baseline:refresh
+npm run baseline:refresh
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
 ```
 
-`docker:otcclaw:push` 会先确认 `docker-baseline/samata.db` 存在，再执行一次镜像构建并推送对外版本 tag：
+`docker:otcclaw:push` 会先确认 `docker-baseline/samata.db` 和 `docker-baseline/data-files.tar.gz` 存在，再执行一次镜像构建并推送对外版本 tag：
 
 ```text
 dockertest.gf.com.cn/titans/otcclaw:v<version>-<MMddHHmmssSSS>
@@ -158,7 +160,7 @@ curl http://127.0.0.1:3457/health
 CLI_SERVER_URL=http://127.0.0.1:3457 npm run cli
 ```
 
-`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`ssh`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；`docker-baseline/samata.db` 会在刷新后进入镜像，`*.db-wal`/`*.db-shm` 不会进入镜像。运行时会只读挂载 `/opt/samata/.env`、`/opt/samata/mcp-servers.json` 和 `/opt/samata/ssh`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过容器内 `/app/samata/config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
+`docker-compose.yml` 使用父目录 `..` 作为 build context，并通过 `Dockerfile.dockerignore` 只允许 `samata/`、`samata-plugins/` 和 `samata-plugin-work/` 进入构建上下文。`.env`、`data/`、`logs`、`ssh`、`node_modules/` 和本地 `samata-plugin-work/logyi-mcp/` 不会打进镜像；`docker-baseline/samata.db` 与 `docker-baseline/data-files.tar.gz` 会在刷新后进入镜像，`*.db-wal`/`*.db-shm` 不会进入镜像。运行时会只读挂载 `/opt/samata/.env`、`/opt/samata/mcp-servers.json` 和 `/opt/samata/ssh`，并挂载 `/opt/samata/data` 和 `/opt/samata/logs`。公共插件源码会复制到镜像内的 `/app/plugins`，工作区插件会复制到镜像内的 `/app/work-plugins`，并通过 `SAMATA_PLUGINS_DIR=/app/plugins,/app/work-plugins` 加载。LogYi MCP 通过容器内 `/app/samata/config/mcp-servers.json` 使用公司 npm 仓库的 `@gf/logyi-mcp@latest` 启动，不依赖本地 `samata-plugin-work/logyi-mcp`。
 
 首次准备部署目录时，除 `.env` 外还必须准备 MCP server 配置：
 

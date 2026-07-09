@@ -37,6 +37,54 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "企微通讯录 API 身份识别 TODO",
+      "link": "/plan/2026-07-09_wework-contact-api-todo",
+      "sourcePath": "docs/plan/2026-07-09_wework-contact-api-todo.md",
+      "sortKey": "2026-07-09_wework-contact-api-todo.md",
+      "date": "2026-07-09",
+      "status": "todo",
+      "canonicalDocs": [
+        "/permission-system"
+      ],
+      "topic": "企业微信身份识别"
+    },
+    {
+      "title": "OtcClaw Docker 原生依赖下载源加固",
+      "link": "/plan/2026-07-09_otcclaw-docker-native-deps-mirror",
+      "sourcePath": "docs/plan/2026-07-09_otcclaw-docker-native-deps-mirror.md",
+      "sortKey": "2026-07-09_otcclaw-docker-native-deps-mirror.md",
+      "date": "2026-07-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "OtcClaw Data Files Baseline",
+      "link": "/plan/2026-07-09_otcclaw-data-files-baseline",
+      "sourcePath": "docs/plan/2026-07-09_otcclaw-data-files-baseline.md",
+      "sortKey": "2026-07-09_otcclaw-data-files-baseline.md",
+      "date": "2026-07-09",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "企微用户管理与 Canonical ID 计划",
+      "link": "/plan/2026-07-08_wework-user-management-canonical-id",
+      "sourcePath": "docs/plan/2026-07-08_wework-user-management-canonical-id.md",
+      "sortKey": "2026-07-08_wework-user-management-canonical-id.md",
+      "date": "2026-07-08",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/permission-system"
+      ],
+      "topic": "用户与权限"
+    },
+    {
       "title": "企微 chatid 上下文与 08:30 定时推送修复",
       "link": "/plan/2026-07-08_wework-chatid-scheduled-push",
       "sourcePath": "docs/plan/2026-07-08_wework-chatid-scheduled-push.md",
@@ -1891,6 +1939,16 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 };
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
+  {
+    "title": "企微 JSON 控制字符解析修复",
+    "link": "/plan/2026-07-09_wework-json-control-char",
+    "sourcePath": "docs/plan/2026-07-09_wework-json-control-char.md",
+    "sortKey": "2026-07-09_wework-json-control-char.md",
+    "date": "2026-07-09",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
   {
     "title": "Samata Docker Code SSH 挂载",
     "link": "/plan/2026-06-29_samata-docker-code-ssh",

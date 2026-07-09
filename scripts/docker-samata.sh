@@ -18,11 +18,14 @@ Environment overrides:
   SAMATA_IMAGE_TAG        Backward-compatible alias for OTCCLAW_IMAGE_TAG
   SAMATA_DEPLOY_ROOT      Runtime config/data/log root, default: /opt/samata
   OTCCLAW_SQLITE_BASELINE SQLite baseline template, default: docker-baseline/samata.db
+  OTCCLAW_DATA_FILES_BASELINE
+                           Data files baseline archive, default: docker-baseline/data-files.tar.gz
   OTCCLAW_PUSH_ALIASES    Push <version> and latest compatibility tags when set to 1/true/yes/on
   SAMATA_PUSH_ALIASES     Backward-compatible alias for OTCCLAW_PUSH_ALIASES
 
 Push to a remote registry:
   docker login <code-registry-host>
+  npm run baseline:refresh
   OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw bash scripts/docker-samata.sh push
 USAGE
 }
@@ -38,6 +41,7 @@ image_repo="${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}"
 service_name="${OTCCLAW_COMPOSE_SERVICE:-${SAMATA_COMPOSE_SERVICE:-otcclaw}}"
 deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
 sqlite_baseline="${OTCCLAW_SQLITE_BASELINE:-docker-baseline/samata.db}"
+data_files_baseline="${OTCCLAW_DATA_FILES_BASELINE:-docker-baseline/data-files.tar.gz}"
 version="$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); if (!pkg.version) throw new Error('package.json missing version'); process.stdout.write(pkg.version)")"
 build_stamp="$(node -e "const d=new Date(); const p=(n,w=2)=>String(n).padStart(w,'0'); process.stdout.write(p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+p(d.getMilliseconds(),3));")"
 default_tag="v${version}-${build_stamp}"
@@ -129,6 +133,24 @@ EOF
   fi
 }
 
+ensure_data_files_baseline() {
+  if [[ ! -s "$data_files_baseline" ]]; then
+    cat >&2 <<EOF
+Missing data files baseline archive: $data_files_baseline
+
+Refresh it from the current runtime data directory before pushing:
+  npm run data:baseline:refresh
+
+For a consistent first-start image, refresh both SQLite and file baselines:
+  npm run baseline:refresh
+
+The data files baseline contains documents, wiki, plugin data, and dreams. It
+must only be pushed to a controlled registry.
+EOF
+    exit 1
+  fi
+}
+
 if [[ "$command" == "prune" ]]; then
   docker image prune -f
   exit 0
@@ -137,6 +159,7 @@ fi
 if [[ "$command" == "push" ]]; then
   ensure_remote_image_repo
   ensure_sqlite_baseline
+  ensure_data_files_baseline
 fi
 
 if [[ "$command" == "build" || "$command" == "push" ]]; then

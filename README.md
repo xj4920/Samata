@@ -138,10 +138,10 @@ curl http://127.0.0.1:3457/health
 
 Docker Compose 对外服务名和容器名为 `otcclaw`，内部应用路径仍是 `/app/samata`。默认从 `/opt/samata/.env` 只读挂载生产配置，并把运行数据、日志写到 `/opt/samata/data`、`/opt/samata/logs`；如需换目录，可设置 `SAMATA_DEPLOY_ROOT`。
 
-发布 OtcClaw 镜像前，先把当前运行库生成一致性 SQLite baseline。该 baseline 是完整运行库克隆，包含 bot secret、成员绑定、memory、knowledge、documents 和 telemetry，只允许进入受控 Docker registry，不提交到 Git：
+发布 OtcClaw 镜像前，先把当前运行数据生成 baseline。SQLite baseline 是完整运行库克隆，包含 bot secret、成员绑定、memory、knowledge、documents 和 telemetry；data files baseline 会打包 `documents/`、`wiki/`、`plugins/`、`dreams/`，用于全新部署目录首次启动时恢复 agent 文件数据。两类 baseline 都只允许进入受控 Docker registry，不提交到 Git：
 
 ```bash
-npm run sqlite:baseline:refresh
+npm run baseline:refresh
 OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
 ```
 
@@ -379,7 +379,7 @@ samata/
 ├── data/
 │   ├── samata.db         # 主数据库（自动创建）
 │   └── plugins/          # Plugin 私有数据
-├── docker-baseline/       # Docker baseline 模板目录（*.db 本地生成，不提交）
+├── docker-baseline/       # Docker baseline 模板目录（*.db / data-files.tar.gz 本地生成，不提交）
 ├── logs/                 # 运行日志
 ├── packages/plugin-sdk/  # Plugin SDK（类型定义）
 ├── scripts/
