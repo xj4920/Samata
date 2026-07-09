@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import { getCurrentUser, isAgentAdmin } from '../auth/rbac.js';
 import { getContextAgent, isScheduledTaskAuthorized } from '../runtime/execution-context.js';
+import { getSandboxRoot } from '../commands/sandbox.js';
 import { createReminder } from '../commands/reminder.js';
 import { sendWeworkNotification } from '../wework/notification-queue.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
@@ -74,6 +75,15 @@ function buildPluginContext(pluginName: string): PluginContext {
     },
     getDataDir: () => dataDir,
     getAgentId: () => getContextAgent()?.id,
+    getSandboxRoot: () => {
+      const agent = getContextAgent();
+      if (!agent) return undefined;
+      try {
+        return getSandboxRoot(agent.name, getCurrentUser().id);
+      } catch {
+        return undefined;
+      }
+    },
     getDeliveryContext: () => undefined,
     callLLM: callLLMImpl,
     sendNotification: sendNotificationImpl,
