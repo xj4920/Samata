@@ -80,4 +80,4 @@ git status --short
 
 ## Commit
 
-待提交。
+- implementation commit hash: `c7753ce3c1fcf42ea40a80cb943e036daf424e99`
