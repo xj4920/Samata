@@ -114,7 +114,7 @@ describe('RBAC', () => {
 
   describe('identity aliases', () => {
     it('builds canonical IDs by platform priority', async () => {
-      const { buildCanonicalUserId } = await import('../../../src/auth/rbac.js');
+      const { buildCanonicalUserId, buildWeworkAutoUserId, buildWeworkUserAliasId } = await import('../../../src/auth/rbac.js');
 
       expect(buildCanonicalUserId('feishu', { union_id: 'on_1', user_id: 'u_1', open_id: 'ou_1' }))
         .toBe('feishu_union_on_1');
@@ -123,7 +123,8 @@ describe('RBAC', () => {
       expect(buildCanonicalUserId('feishu', { open_id: 'ou_1' }))
         .toBe('feishu_open_ou_1');
       expect(buildCanonicalUserId('wework', { userid: 'zhangsan' }))
-        .toBe('wework_user_zhangsan');
+        .toBe(buildWeworkAutoUserId('zhangsan'));
+      expect(buildWeworkUserAliasId('zhangsan')).toBe('wework_user_zhangsan');
     });
 
     it('resolves transitive aliases across platform IDs', async () => {
@@ -178,7 +179,40 @@ describe('RBAC', () => {
       expect(user).toMatchObject({ id: 'user-duoduo', username: 'duoduo', display_name: '多多' });
 
       const aliases = listUserAliases('duoduo').map(a => a.alias_user_id);
-      expect(aliases).toEqual(expect.arrayContaining(['wework_user_abc', 'wework_abc']));
+      expect(aliases).toEqual(expect.arrayContaining(['wework_user_abc']));
+      expect(aliases).not.toContain('wework_abc');
+    });
+
+    it('auto-creates unbound wework senders as Samata canonical users with current alias only', async () => {
+      const {
+        buildWeworkAutoUserId,
+        getUser,
+        listUserAliases,
+        resolveExternalUserWithStatus,
+      } = await import('../../../src/auth/rbac.js');
+
+      const resolution = resolveExternalUserWithStatus('wework', { userid: 'newraw' }, 'wework_newraw');
+
+      expect(resolution.created).toBe(true);
+      expect(resolution.user).toMatchObject({
+        id: buildWeworkAutoUserId('newraw'),
+        username: 'wework_newraw',
+        role: 'user',
+      });
+      expect(getUser('wework_user_newraw')).toBeUndefined();
+      expect(getUser('wework_newraw')).toBeUndefined();
+
+      const aliases = listUserAliases(resolution.user.id).map(a => a.alias_user_id);
+      expect(aliases).toEqual(['wework_user_newraw']);
+
+      const membership = ctx.db.prepare(
+        'SELECT count(*) AS count FROM agent_members WHERE user_id = ?',
+      ).get(resolution.user.id) as { count: number };
+      expect(membership.count).toBe(0);
+
+      const second = resolveExternalUserWithStatus('wework', { userid: 'newraw' }, 'wework_newraw');
+      expect(second.created).toBe(false);
+      expect(second.user.id).toBe(resolution.user.id);
     });
 
     it('resolves feishu multi-id sender to manually bound Samata user and fills missing aliases', async () => {

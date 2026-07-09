@@ -12,8 +12,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WSClient, WsFrame, WsFrameHeaders, TextMessage, ImageMessage, MixedMessage, FileMessage, EventMessageWith, EnterChatEvent, TemplateCardEventData } from '@wecom/aibot-node-sdk';
 import { createWsClient, generateReqId } from './aibot-ws.js';
-import { getSession, resetSession, cleanupSessions, type WeworkSession } from './session.js';
-import { buildCanonicalUserId, isAgentAdmin, listUserAliases } from '../auth/rbac.js';
+import {
+  getSession, resetSession, cleanupSessions,
+  type WeworkMessageIdentityContext,
+  type WeworkSession,
+  type WeworkSessionOptions,
+  type WeworkUserAutoCreatedEvent,
+} from './session.js';
+import { isAgentAdmin, listUserAliases, resolveExternalUserWithStatus } from '../auth/rbac.js';
 import { detectImageMediaType, type ImageInput, type ProgressEvent } from '../llm/agent.js';
 import { friendlyAIError } from '../llm/errors.js';
 import { getAgent, getDefaultAgent, resolveAgent, AgentUnboundError, getBotApp, getBotAppsByChannel, getBotAppLLM, type DeliveryContext, type BotAppRow } from '../llm/agents/config.js';
@@ -32,6 +38,7 @@ import { getDb } from '../db/connection.js';
 import { saveUploadedFile } from '../commands/artifact.js';
 import { toolFriendlyLabel, summarizeToolInput, summarizeToolResult } from '../shared/cli-contract.js';
 import { cancelActiveAgentTurn, makeAgentTurnKey, runCoordinatedAgentTurn } from '../session/agent-turn-coordinator.js';
+import { sendWeworkNotification, setWeworkNotificationClientResolver } from './notification-queue.js';
 import {
   buildWeworkFeedbackCard,
   createAnswerFeedbackFromLatestTurn,
@@ -106,6 +113,86 @@ async function downloadWeworkImage(
   }
 }
 
+function stringifyForNotification(value: unknown, maxChars = 1200): string {
+  let text: string;
+  try {
+    text = JSON.stringify(value ?? null, null, 2);
+  } catch {
+    text = String(value);
+  }
+  text = text.replace(/```/g, '` ` `');
+  return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+}
+
+function buildIdentityContext(instance: WeworkBotInstance, frame: WsFrame<any>): WeworkMessageIdentityContext | undefined {
+  const body = frame.body;
+  const rawUserId = body?.from?.userid;
+  if (!rawUserId) return undefined;
+  return {
+    rawFrom: body.from,
+    rawUserId,
+    msgid: body.msgid,
+    chattype: body.chattype,
+    chatid: body.chatid,
+    aibotid: body.aibotid,
+    create_time: body.create_time,
+    botId: instance.botId,
+    botName: instance.botName,
+  };
+}
+
+function buildAutoCreatedUserNotice(event: WeworkUserAutoCreatedEvent): string {
+  const { resolution, context, agentName } = event;
+  const aliases = resolution.aliasIds.length > 0 ? resolution.aliasIds.join('\n') : '-';
+  return [
+    '发现新的企微用户，已自动创建 Samata 用户，请立即进入用户管理处理。',
+    '',
+    `Canonical User: ${resolution.user.id}`,
+    `Username: ${resolution.user.username}`,
+    `Alias:\n${aliases}`,
+    '',
+    '原始企微用户信息:',
+    '```json',
+    stringifyForNotification({
+      from: context.rawFrom,
+      userid: context.rawUserId,
+      msgid: context.msgid,
+      chattype: context.chattype,
+      chatid: context.chatid,
+      aibotid: context.aibotid,
+      create_time: context.create_time,
+    }),
+    '```',
+    '',
+    '来源:',
+    `bot_id: ${context.botId}`,
+    `bot_name: ${context.botName}`,
+    `agent: ${agentName}`,
+    '',
+    '建议操作:',
+    `1. 如属于已有人，执行 /user alias add <canonical_user> ${aliases.split('\n')[0] || '<alias>'} auto-merged-wework`,
+    '2. 如是新人，更新显示名后按需执行 /agent member add <agent> <canonical_user> <role>',
+  ].join('\n');
+}
+
+function notifyWeworkUserAutoCreated(event: WeworkUserAutoCreatedEvent): void {
+  const target = process.env.SAMATA_WEWORK_USER_NOTIFY_TARGET?.trim() || 'gzxujun';
+  if (!target) return;
+  const configuredBot = process.env.SAMATA_WEWORK_USER_NOTIFY_BOT;
+  const botIdOrName = configuredBot === undefined
+    ? 'ticlaw'
+    : (configuredBot.trim() || event.context.botId);
+  sendWeworkNotification(target, buildAutoCreatedUserNotice(event), botIdOrName).catch((err: any) => {
+    log.warn(`[企微:${event.context.botName}] 新用户通知发送失败 target=${target}: ${err?.message ?? err}`);
+  });
+}
+
+function buildSessionOptions(instance: WeworkBotInstance, frame: WsFrame<any>): WeworkSessionOptions {
+  const identityContext = buildIdentityContext(instance, frame);
+  if (!identityContext) return {};
+  return { identityContext, onUserAutoCreated: notifyWeworkUserAutoCreated };
+}
+
 // --- Message Handling (instance-scoped) ---
 
 function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFrame<TextMessage>): Promise<void> {
@@ -123,7 +210,7 @@ function handleTextMessageForInstance(instance: WeworkBotInstance, frame: WsFram
 
     try {
       if (text.startsWith('/')) {
-        const slashReply = await handleSlashCommand(instance, text, mapKey, userId, username);
+        const slashReply = await handleSlashCommand(instance, frame, text, mapKey, userId, username);
         if (slashReply) {
           const streamId = generateReqId('stream');
           await instance.wsClient.replyStream(frame, streamId, slashReply, true);
@@ -159,7 +246,7 @@ async function handleAIChat(
   username: string,
   images?: ImageInput[],
 ): Promise<string> {
-  const session = getSession(instance.botId, instance.sessions, mapKey, username);
+  const session = getSession(instance.botId, instance.sessions, mapKey, username, buildSessionOptions(instance, frame as WsFrame<any>));
   const baseAgentConfig = getAgent(session.agentName);
   const botLLM = getBotAppLLM(instance.botId);
   const agentConfig = (botLLM.provider || botLLM.model)
@@ -514,12 +601,13 @@ function handleUnknownMessageForInstance(instance: WeworkBotInstance, frame: WsF
 
 async function handleSlashCommand(
   instance: WeworkBotInstance,
+  frame: WsFrame<TextMessage>,
   text: string,
   mapKey: string,
   userId: string,
   username: string,
 ): Promise<string | null> {
-  const session = getSession(instance.botId, instance.sessions, mapKey, username);
+  const session = getSession(instance.botId, instance.sessions, mapKey, username, buildSessionOptions(instance, frame));
   const agentConfig = getAgent(session.agentName);
 
   return runWithExecutionContext({ channel: 'wework', user: session.user, appId: instance.botId, agent: agentConfig }, async () => {
@@ -571,11 +659,11 @@ async function handleSlashCommand(
     const cmd = (spaceIdx > 0 ? cleaned.slice(1, spaceIdx) : cleaned.slice(1)).toLowerCase();
     const args = spaceIdx > 0 ? cleaned.slice(spaceIdx + 1).trim() : '';
 
-    return handleCommand(instance, cmd, args, mapKey);
+    return handleCommand(instance, frame, cmd, args, mapKey);
   });
 }
 
-async function handleCommand(instance: WeworkBotInstance, cmd: string, args: string, mapKey: string): Promise<string | null> {
+async function handleCommand(instance: WeworkBotInstance, frame: WsFrame<any>, cmd: string, args: string, mapKey: string): Promise<string | null> {
   switch (cmd) {
     case 'status': {
       const data = fetchSystemStatus();
@@ -594,18 +682,18 @@ async function handleCommand(instance: WeworkBotInstance, cmd: string, args: str
       return null;
     }
     case 'agent':
-      return handleAgentCommand(instance, args, mapKey);
+      return handleAgentCommand(instance, frame, args, mapKey);
     default:
       return null;
   }
 }
 
-function handleAgentCommand(instance: WeworkBotInstance, args: string, mapKey: string): string {
+function handleAgentCommand(instance: WeworkBotInstance, frame: WsFrame<any>, args: string, mapKey: string): string {
   const parts = args.trim().split(/\s+/);
   const sub = (parts[0] || '').toLowerCase();
 
   if (!sub) {
-    const session = getSession(instance.botId, instance.sessions, mapKey, '');
+    const session = getSession(instance.botId, instance.sessions, mapKey, '', buildSessionOptions(instance, frame));
     const agent = getAgent(session.agentName);
     return `当前 Agent: ${agent.displayName} (${agent.name})\n${agent.description || ''}`;
   }
@@ -639,8 +727,20 @@ async function handleTemplateCardEvent(
   const parsed = parseWeworkFeedbackEvent(eventPayload);
   if (!parsed) return;
 
-  const clickedRawUserId = frame.body?.from?.userid ?? 'unknown';
-  const clickedByUserId = buildCanonicalUserId('wework', { userid: clickedRawUserId });
+  const clickedRawUserId = frame.body?.from?.userid;
+  let clickedByUserId = 'unknown';
+  if (clickedRawUserId) {
+    const resolution = resolveExternalUserWithStatus(
+      'wework',
+      { userid: clickedRawUserId },
+      `wework_${clickedRawUserId.slice(-6)}`,
+    );
+    clickedByUserId = resolution.user.id;
+    const context = buildIdentityContext(instance, frame as WsFrame<any>);
+    if (resolution.created && context) {
+      notifyWeworkUserAutoCreated({ resolution, context, agentName: resolveAgent('wework', instance.botId)?.name ?? getDefaultAgent().name });
+    }
+  }
   const row = recordAnswerFeedbackAction({
     feedbackId: parsed.feedbackId,
     action: parsed.action,
@@ -808,10 +908,14 @@ export function getConnectedWsClient(botIdOrName?: string): WSClient | null {
   for (const inst of botInstances.values()) {
     if (!inst.wsClient.isConnected) continue;
     if (inst.botId === botIdOrName || inst.botName === botIdOrName) return inst.wsClient;
+    const agentName: string | undefined = resolveAgent('wework', inst.botId)?.name;
+    if (agentName === botIdOrName) return inst.wsClient;
   }
 
   return null;
 }
+
+setWeworkNotificationClientResolver(getConnectedWsClient);
 
 export function syncWeworkBots(): void {
   const dbApps = getDb().prepare("SELECT id, auto_start FROM bot_apps WHERE channel = 'wework'").all() as { id: string; auto_start: number }[];

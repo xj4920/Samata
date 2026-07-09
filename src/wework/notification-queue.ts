@@ -1,10 +1,15 @@
 import { log } from '../utils/logger.js';
-import { getConnectedWsClient } from './bot.js';
 
 const DEFAULT_MIN_INTERVAL_MS = 2000;
 const MIN_ALLOWED_INTERVAL_MS = 800;
 const RATE_LIMIT_RETRY_DELAYS_MS = [5000, 15000, 30000];
 const DEFAULT_QUEUE_KEY = '__default__';
+
+interface WeworkNotificationClient {
+  sendMessage(chatid: string, body: any): Promise<unknown>;
+}
+
+type WeworkClientResolver = (botIdOrName?: string) => WeworkNotificationClient | null;
 
 interface QueueState {
   tail: Promise<void>;
@@ -48,6 +53,11 @@ export class WeworkNotificationError extends Error {
 }
 
 const queues = new Map<string, QueueState>();
+let resolveWeworkClient: WeworkClientResolver = () => null;
+
+export function setWeworkNotificationClientResolver(resolver: WeworkClientResolver): void {
+  resolveWeworkClient = resolver;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -125,7 +135,15 @@ async function waitForMinInterval(state: QueueState): Promise<void> {
 }
 
 async function sendOnce(botIdOrName: string | undefined, targetId: string, message: string): Promise<void> {
-  const ws = getConnectedWsClient(botIdOrName);
+  let ws = resolveWeworkClient(botIdOrName);
+  if (!ws) {
+    try {
+      const bot = await import('./bot.js');
+      ws = bot.getConnectedWsClient(botIdOrName);
+    } catch {
+      ws = null;
+    }
+  }
   if (!ws) {
     throw new WeworkNotificationError(
       botIdOrName ? `无可用企微连接: ${botIdOrName}` : '无可用企微连接',
@@ -183,4 +201,5 @@ export async function sendWeworkNotification(targetId: string, message: string, 
 
 export function __resetWeworkNotificationQueuesForTests(): void {
   queues.clear();
+  resolveWeworkClient = () => null;
 }

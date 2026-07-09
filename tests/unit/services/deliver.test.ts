@@ -4,10 +4,6 @@ import { useUnitDb } from '../../helpers/unit-harness.js';
 const mockSendMessage = vi.hoisted(() => vi.fn());
 const mockGetConnectedWsClient = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../src/wework/bot.js', () => ({
-  getConnectedWsClient: mockGetConnectedWsClient,
-}));
-
 describe('deliver service', () => {
   const unit = useUnitDb();
   const originalMinInterval = process.env.WEWORK_SEND_MIN_INTERVAL_MS;
@@ -17,6 +13,7 @@ describe('deliver service', () => {
     mockGetConnectedWsClient.mockReset();
     const queue = await import('../../../src/wework/notification-queue.js');
     queue.__resetWeworkNotificationQueuesForTests();
+    queue.setWeworkNotificationClientResolver(mockGetConnectedWsClient);
     process.env.WEWORK_SEND_MIN_INTERVAL_MS = '800';
   });
 

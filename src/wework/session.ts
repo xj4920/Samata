@@ -8,8 +8,8 @@
  * 每个 bot 实例维护独立的 sessions Map（WeworkBotInstance.sessions）。
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { resolveExternalUser } from '../auth/rbac.js';
-import type { User } from '../auth/rbac.js';
+import { resolveExternalUserWithStatus } from '../auth/rbac.js';
+import type { ExternalUserResolution, User } from '../auth/rbac.js';
 import { resolveAgent, AgentUnboundError } from '../llm/agents/config.js';
 import { summarizeAndUpdateWorkspace } from '../session/summarizer.js';
 import { cleanupSandbox } from '../commands/sandbox.js';
@@ -23,6 +23,29 @@ export interface WeworkSession {
   agentName: string;
 }
 
+export interface WeworkMessageIdentityContext {
+  rawFrom?: unknown;
+  rawUserId: string;
+  msgid?: string;
+  chattype?: string;
+  chatid?: string;
+  aibotid?: string;
+  create_time?: number;
+  botId: string;
+  botName: string;
+}
+
+export interface WeworkUserAutoCreatedEvent {
+  resolution: ExternalUserResolution;
+  context: WeworkMessageIdentityContext;
+  agentName: string;
+}
+
+export interface WeworkSessionOptions {
+  identityContext?: WeworkMessageIdentityContext;
+  onUserAutoCreated?: (event: WeworkUserAutoCreatedEvent) => void;
+}
+
 /**
  * @param botId  企微 bot ID（用于 agent 路由）
  * @param sessions  该 bot 实例的 sessions Map
@@ -34,6 +57,7 @@ export function getSession(
   sessions: Map<string, WeworkSession>,
   mapKey: string,
   weworkUsername: string,
+  options: WeworkSessionOptions = {},
 ): WeworkSession {
   const bindingUserId = mapKey.startsWith('g:') ? mapKey.split(':')[2] : mapKey;
   let session = sessions.get(mapKey);
@@ -41,7 +65,8 @@ export function getSession(
   if (!session) {
     const agent = resolveAgent('wework', botId);
     if (!agent) throw new AgentUnboundError('wework', botId);
-    resolvedUser = resolveExternalUser('wework', { userid: bindingUserId }, weworkUsername || `wework_${bindingUserId.slice(-6)}`);
+    const resolution = resolveExternalUserWithStatus('wework', { userid: bindingUserId }, weworkUsername || `wework_${bindingUserId.slice(-6)}`);
+    resolvedUser = resolution.user;
     session = {
       weworkUserId: bindingUserId,
       weworkUsername: resolvedUser.display_name || resolvedUser.username,
@@ -51,10 +76,17 @@ export function getSession(
       agentName: agent.name,
     };
     sessions.set(mapKey, session);
+    if (resolution.created && options.identityContext) {
+      options.onUserAutoCreated?.({ resolution, context: options.identityContext, agentName: agent.name });
+    }
   } else {
-    resolvedUser = resolveExternalUser('wework', { userid: bindingUserId }, session.user.username || weworkUsername || `wework_${bindingUserId.slice(-6)}`);
+    const resolution = resolveExternalUserWithStatus('wework', { userid: bindingUserId }, session.user.username || weworkUsername || `wework_${bindingUserId.slice(-6)}`);
+    resolvedUser = resolution.user;
     session.weworkUserId = bindingUserId;
     session.user = resolvedUser;
+    if (resolution.created && options.identityContext) {
+      options.onUserAutoCreated?.({ resolution, context: options.identityContext, agentName: session.agentName });
+    }
   }
   session.lastActive = Date.now();
   session.weworkUsername = resolvedUser.display_name || resolvedUser.username || weworkUsername || session.weworkUsername;

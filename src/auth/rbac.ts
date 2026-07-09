@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { getDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
 import { getExecutionChannel, getContextUser } from '../runtime/execution-context.js';
@@ -36,6 +37,14 @@ export interface ExternalIdentityIds {
   legacyId?: string;
 }
 
+export interface ExternalUserResolution {
+  user: User;
+  created: boolean;
+  canonicalUserId: string;
+  aliasIds: string[];
+  rawUserId?: string;
+}
+
 let fallbackUser: User | null = null;
 
 export function setCurrentUser(user: User): void {
@@ -61,6 +70,15 @@ function firstId(...values: Array<string | undefined | null>): string | undefine
   return values.find(v => typeof v === 'string' && v.length > 0) ?? undefined;
 }
 
+export function buildWeworkUserAliasId(rawUserId: string): string {
+  return `wework_user_${rawUserId}`;
+}
+
+export function buildWeworkAutoUserId(rawUserId: string): string {
+  const digest = createHash('sha256').update(rawUserId).digest('hex').slice(0, 12);
+  return `user-wework-${digest}`;
+}
+
 export function buildCanonicalUserId(platform: IdentityPlatform, ids: ExternalIdentityIds): string {
   if (platform === 'feishu') {
     const unionId = firstId(ids.union_id, ids.unionId);
@@ -73,7 +91,7 @@ export function buildCanonicalUserId(platform: IdentityPlatform, ids: ExternalId
 
   if (platform === 'wework') {
     const userId = firstId(ids.userid, ids.user_id, ids.userId, ids.rawId, ids.legacyId);
-    if (userId) return `wework_user_${userId}`;
+    if (userId) return buildWeworkAutoUserId(userId);
   }
 
   return firstId(ids.legacyId, ids.rawId, ids.user_id, ids.userId, ids.open_id, ids.openId, ids.userid, ids.union_id, ids.unionId)
@@ -107,11 +125,7 @@ export function collectExternalUserIds(platform: IdentityPlatform, ids: External
   if (platform === 'wework') {
     const raw = firstId(ids.userid, ids.user_id, ids.userId, ids.rawId);
     return uniqueIds([
-      buildCanonicalUserId(platform, ids),
-      raw ? `wework_user_${raw}` : undefined,
-      raw ? `wework_${raw}` : undefined,
-      ids.legacyId,
-      ids.rawId,
+      raw ? buildWeworkUserAliasId(raw) : undefined,
     ]);
   }
 
@@ -208,8 +222,20 @@ export function resolveExternalUser(
   fallbackName?: string,
   displayName?: string,
 ): User {
+  return resolveExternalUserWithStatus(platform, ids, fallbackName, displayName).user;
+}
+
+export function resolveExternalUserWithStatus(
+  platform: IdentityPlatform,
+  ids: ExternalIdentityIds,
+  fallbackName?: string,
+  displayName?: string,
+): ExternalUserResolution {
   const canonicalCandidate = buildCanonicalUserId(platform, ids);
   const allIds = collectExternalUserIds(platform, ids);
+  const rawUserId = platform === 'wework'
+    ? firstId(ids.userid, ids.user_id, ids.userId, ids.rawId, ids.legacyId)
+    : undefined;
 
   for (const id of allIds) {
     const root = resolveCanonicalUserId(id);
@@ -217,21 +243,40 @@ export function resolveExternalUser(
     const user = getUser(root);
     if (user) {
       registerUserAliases(user.id, allIds, `${platform} sender identity`);
-      return user;
+      return {
+        user,
+        created: false,
+        canonicalUserId: user.id,
+        aliasIds: allIds,
+        rawUserId,
+      };
     }
   }
 
   const existingCanonical = getUser(canonicalCandidate);
   if (existingCanonical) {
     registerUserAliases(existingCanonical.id, allIds, `${platform} sender identity`);
-    return existingCanonical;
+    return {
+      user: existingCanonical,
+      created: false,
+      canonicalUserId: existingCanonical.id,
+      aliasIds: allIds,
+      rawUserId,
+    };
   }
 
   const legacyUser = allIds.map(id => getUser(id)).find(Boolean);
   const username = fallbackName?.trim() || legacyUser?.username || canonicalCandidate;
+  const created = !getUser(canonicalCandidate);
   const user = getOrCreateUser(canonicalCandidate, username, 'user', displayName ?? legacyUser?.display_name);
   registerUserAliases(user.id, allIds, `${platform} sender identity`);
-  return user;
+  return {
+    user,
+    created,
+    canonicalUserId: user.id,
+    aliasIds: allIds,
+    rawUserId,
+  };
 }
 
 export function resolveUserScopeIds(userId?: string): string[] {

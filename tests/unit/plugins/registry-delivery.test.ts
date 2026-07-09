@@ -167,9 +167,6 @@ export default {
     const sendMessage = vi.fn().mockResolvedValue({});
     const getConnectedWsClient = vi.fn().mockReturnValue({ sendMessage });
 
-    vi.doMock('../../../src/wework/bot.js', () => ({
-      getConnectedWsClient,
-    }));
     vi.doMock('../../../src/utils/logger.js', () => ({
       log: {
         info: () => {},
@@ -185,6 +182,7 @@ export default {
     vi.resetModules();
     const queue = await import('../../../src/wework/notification-queue.js');
     queue.__resetWeworkNotificationQueuesForTests();
+    queue.setWeworkNotificationClientResolver(getConnectedWsClient);
     const registry = await import('../../../src/plugins/registry.js');
     await registry.initPlugins();
 

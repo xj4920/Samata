@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.0.26",
+  "version": "3.0.27",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
