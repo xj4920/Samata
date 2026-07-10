@@ -18,6 +18,7 @@ const PLUGINS_DIRS = (process.env.SAMATA_PLUGINS_DIR || '../samata-plugins')
 const NPM_PLUGIN_PREFIX = '@samata-platform/plugin-';
 
 type PluginDeliveryContext = { channel: string; targetId?: string; appId?: string };
+type PluginProgressHandler = (event: { type: 'tool_progress'; message: string }) => void;
 
 async function callLLMImpl(messages: Array<{role: string; content: string}>, options?: {system?: string; max_tokens?: number}): Promise<string> {
   const { getProvider, getModelName } = await import('../llm/provider.js');
@@ -331,12 +332,18 @@ export function getUniversalPluginTools(): Anthropic.Tool[] {
     .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
 }
 
-export async function executePluginTool(name: string, input: any, deliveryCtx?: PluginDeliveryContext): Promise<string | null> {
+export async function executePluginTool(
+  name: string,
+  input: any,
+  deliveryCtx?: PluginDeliveryContext,
+  onProgress?: PluginProgressHandler,
+): Promise<string | null> {
   for (const loaded of loadedPlugins.values()) {
     const agentId = getContextAgent()?.id;
     const ctx: PluginContext = {
       ...loaded.context,
       getDeliveryContext: () => deliveryCtx ? { channel: deliveryCtx.channel, targetId: deliveryCtx.targetId || '', appId: deliveryCtx.appId } : undefined,
+      onProgress,
       sendNotification: (channel, targetId, message) => sendNotificationImpl(channel, targetId, message, deliveryCtx),
       isAdmin: () => isScheduledTaskAuthorized() || (agentId ? isAgentAdmin(agentId) : false),
       createReminder: (params) => createReminder(params),

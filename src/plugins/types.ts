@@ -23,6 +23,7 @@ export interface PluginContext {
   getDataDir(): string;
   getAgentId(): string | undefined;
   getSandboxRoot?(): string | undefined;
+  onProgress?(event: { type: 'tool_progress'; message: string }): void;
   getDeliveryContext(): DeliveryInfo | undefined;
   isAdmin?(): boolean;
   createReminder?(params: { agentId: string; message: string; remindAt: number; channel: string; targetId: string; appId?: string }): { success: boolean; id?: string };
