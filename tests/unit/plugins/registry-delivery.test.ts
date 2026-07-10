@@ -202,4 +202,123 @@ export default {
     registry.stopPluginWatcher();
     await registry.stopAllPlugins();
   });
+
+  it('passes the current sandbox root to plugins', async () => {
+    pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'samata-plugin-test-'));
+    const pluginDir = path.join(pluginRoot, 'sandbox-context-test');
+    fs.mkdirSync(pluginDir);
+    fs.writeFileSync(path.join(pluginDir, 'index.ts'), `
+export default {
+  name: 'sandbox-context-test',
+  description: 'sandbox context test plugin',
+  toolDefinitions: [
+    { name: 'plugin_sandbox_root', description: 'returns sandbox root', input_schema: { type: 'object', properties: {} } },
+  ],
+  async handleTool(name, _input, ctx) {
+    if (name === 'plugin_sandbox_root') return JSON.stringify({ root: ctx.getSandboxRoot?.() });
+    return null;
+  },
+};
+`);
+
+    process.env.SAMATA_PLUGINS_DIR = pluginRoot;
+
+    vi.doMock('../../../src/utils/logger.js', () => ({
+      log: {
+        info: () => {},
+        success: () => {},
+        warn: () => {},
+        error: () => {},
+        dim: () => {},
+        file: () => {},
+        print: () => {},
+      },
+    }));
+
+    vi.resetModules();
+    const registry = await import('../../../src/plugins/registry.js');
+    const { runWithExecutionContext } = await import('../../../src/runtime/execution-context.js');
+    await registry.initPlugins();
+
+    const agent = {
+      id: 'agent-sandbox-context',
+      name: 'sandbox-agent',
+      displayName: 'Sandbox Agent',
+      toolsMode: 'standard',
+      toolsList: [],
+      blockTools: [],
+      userToolsMode: 'inherit',
+      userToolsList: [],
+      maxHistory: 10,
+    } as any;
+
+    const result = await runWithExecutionContext({
+      channel: 'cli',
+      user: { id: 'sandbox-user', username: 'sandbox-user', role: 'admin' },
+      agent,
+    }, () => registry.executePluginTool('plugin_sandbox_root', {}));
+
+    expect(JSON.parse(result!)).toEqual({
+      root: path.join(os.tmpdir(), 'samata', 'sandboxes', 'sandbox-agent', 'sandbox-user'),
+    });
+
+    registry.stopPluginWatcher();
+    await registry.stopAllPlugins();
+  });
+
+  it('passes progress events to plugins', async () => {
+    pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'samata-plugin-test-'));
+    const pluginDir = path.join(pluginRoot, 'progress-context-test');
+    fs.mkdirSync(pluginDir);
+    fs.writeFileSync(path.join(pluginDir, 'index.ts'), `
+export default {
+  name: 'progress-context-test',
+  description: 'progress context test plugin',
+  toolDefinitions: [
+    { name: 'plugin_progress_event', description: 'emits progress', input_schema: { type: 'object', properties: {} } },
+  ],
+  async handleTool(name, _input, ctx) {
+    if (name === 'plugin_progress_event') {
+      ctx.onProgress?.({ type: 'tool_progress', message: 'plugin is working' });
+      return JSON.stringify({ ok: true });
+    }
+    return null;
+  },
+};
+`);
+
+    process.env.SAMATA_PLUGINS_DIR = pluginRoot;
+
+    vi.doMock('../../../src/utils/logger.js', () => ({
+      log: {
+        info: () => {},
+        success: () => {},
+        warn: () => {},
+        error: () => {},
+        dim: () => {},
+        file: () => {},
+        print: () => {},
+      },
+    }));
+
+    vi.resetModules();
+    const registry = await import('../../../src/plugins/registry.js');
+    await registry.initPlugins();
+
+    const progressEvents: Array<{ type: 'tool_progress'; message: string }> = [];
+    const result = await registry.executePluginTool(
+      'plugin_progress_event',
+      {},
+      undefined,
+      event => progressEvents.push(event),
+    );
+
+    expect(JSON.parse(result!)).toEqual({ ok: true });
+    expect(progressEvents).toEqual([
+      { type: 'tool_progress', message: 'plugin is working' },
+    ]);
+
+    registry.stopPluginWatcher();
+    await registry.stopAllPlugins();
+  });
 });

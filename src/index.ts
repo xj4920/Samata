@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { installProcessErrorHandlers } from './runtime/process-errors.js';
 import * as readline from 'node:readline';
 import { select } from '@inquirer/prompts';
 import { initDatabase } from './db/schema.js';
@@ -22,6 +23,8 @@ import { startCliApiServer } from './server/cli-api.js';
 import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 import type { Server } from 'node:http';
 import { runWithExecutionContext } from './runtime/execution-context.js';
+
+installProcessErrorHandlers();
 
 let cliApiServer: Server | null = null;
 let serverKeepAliveTimer: ReturnType<typeof setInterval> | null = null;

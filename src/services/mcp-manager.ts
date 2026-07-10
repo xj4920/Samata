@@ -283,7 +283,7 @@ function getRecordValue(input: Record<string, unknown>, keys: string[]): unknown
   return undefined;
 }
 
-function parseLogyiDateValue(value: unknown, endOfDay = false): ParsedLogyiDate | null {
+function parseLogyiDateValue(value: unknown, endOfDay = false): ParsedLogyiDate | undefined {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const date = value.toISOString().slice(0, 10);
     return { date, year: Number(date.slice(0, 4)), timeMs: value.getTime() };
@@ -295,21 +295,21 @@ function parseLogyiDateValue(value: unknown, endOfDay = false): ParsedLogyiDate 
     return { date, year: Number(date.slice(0, 4)), timeMs: ms };
   }
 
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') return undefined;
   const raw = value.trim();
-  if (!raw) return null;
+  if (!raw) return undefined;
 
   const compact = raw.match(/\b(\d{4})(\d{2})(\d{2})\b/);
   if (compact) {
     const date = `${compact[1]}-${compact[2]}-${compact[3]}`;
     const suffix = endOfDay ? 'T23:59:59+08:00' : 'T00:00:00+08:00';
     const timeMs = Date.parse(`${date}${suffix}`);
-    if (Number.isNaN(timeMs)) return null;
+    if (Number.isNaN(timeMs)) return undefined;
     return { date, year: Number(compact[1]), timeMs };
   }
 
   const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/);
-  if (!iso) return null;
+  if (!iso) return undefined;
 
   const date = iso[1];
   const time = iso[2] ?? (endOfDay ? '23:59:59' : '00:00:00');
@@ -318,7 +318,7 @@ function parseLogyiDateValue(value: unknown, endOfDay = false): ParsedLogyiDate 
     ? raw.match(/\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b/)?.[0]?.replace(' ', 'T')
     : `${date}T${time}+08:00`;
   const timeMs = Date.parse(normalized ?? `${date}T${time}+08:00`);
-  if (Number.isNaN(timeMs)) return null;
+  if (Number.isNaN(timeMs)) return undefined;
   return { date, year: Number(date.slice(0, 4)), timeMs };
 }
 
