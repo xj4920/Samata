@@ -43,7 +43,8 @@ npm run test:unit -- tests/unit/commands/user.test.ts
 
 ## Commit Hash
 
-- 实现提交：待提交。
+- 实现提交：`49c8e82db0809b8cd432cb040f9d2e66ded92cb4`。
+- 留档回填提交：本段所在提交。
 
 ## 构建与重启影响
 
