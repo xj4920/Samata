@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setupUnitDb, teardownDb, type UnitTestContext } from '../../helpers/unit-harness.js';
 
 describe('/user command', () => {
@@ -68,5 +68,36 @@ describe('/user command', () => {
       'SELECT display_name, role FROM users WHERE id = ?',
     ).get('user-duoduo') as { display_name: string; role: string } | undefined;
     expect(row).toEqual({ display_name: '多多', role: 'admin' });
+  });
+
+  it('lists users by created time descending', async () => {
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, role, display_name, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('user-oldest', 'oldest', 'user', '最早', '2028-01-01 09:00:00');
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, role, display_name, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('user-middle', 'middle', 'user', '中间', '2029-01-01 09:00:00');
+    ctx.db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, role, display_name, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('user-newest', 'newest', 'user', '最新', '2030-01-01 09:00:00');
+
+    const printed: string[] = [];
+    const { log } = await import('../../../src/utils/logger.js');
+    const printSpy = vi.spyOn(log, 'print').mockImplementation((...args: any[]) => {
+      printed.push(args.map(String).join(' '));
+    });
+    try {
+      await runUserCommand('list');
+    } finally {
+      printSpy.mockRestore();
+    }
+    const text = printed.join('\n');
+
+    expect(text).toContain('创建时间');
+    expect(text.indexOf('newest')).toBeLessThan(text.indexOf('middle'));
+    expect(text.indexOf('middle')).toBeLessThan(text.indexOf('oldest'));
   });
 });

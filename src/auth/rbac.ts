@@ -14,6 +14,7 @@ export interface User {
 
 export interface UserListRow extends User {
   alias_count: number;
+  created_at: string;
 }
 
 export interface UserAlias {
@@ -348,11 +349,11 @@ export function getAllUsers(): User[] {
 export function getAllUsersWithAliasCount(): UserListRow[] {
   const db = getDb();
   return db.prepare(`
-    SELECT u.id, u.username, u.role, u.display_name, COUNT(ua.alias_user_id) AS alias_count
+    SELECT u.id, u.username, u.role, u.display_name, u.created_at, COUNT(ua.alias_user_id) AS alias_count
     FROM users u
     LEFT JOIN user_aliases ua ON ua.canonical_user_id = u.id
-    GROUP BY u.id, u.username, u.role, u.display_name
-    ORDER BY u.username
+    GROUP BY u.id, u.username, u.role, u.display_name, u.created_at
+    ORDER BY u.created_at DESC, u.username ASC
   `).all() as UserListRow[];
 }
 

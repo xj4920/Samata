@@ -69,10 +69,10 @@ function showHelp(): void {
 
 function listUsers(): void {
   const users = getAllUsersWithAliasCount();
-  const rows = users.map(u => [u.id, u.username, u.display_name ?? '-', u.role, String(u.alias_count)]);
+  const rows = users.map(u => [u.id, u.username, u.display_name ?? '-', u.role, String(u.alias_count), u.created_at]);
   
   log.print('\n【用户列表】');
-  log.print(renderTable(['ID', '用户名', '显示名', '角色', 'Alias 数'], rows));
+  log.print(renderTable(['ID', '用户名', '显示名', '角色', 'Alias 数', '创建时间'], rows));
 }
 
 function tokenize(args: string): string[] {
