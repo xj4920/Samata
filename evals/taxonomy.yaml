@@ -1,0 +1,54 @@
+version: 1
+scenarios:
+  - id: direct_answer
+    name: 普通问答
+    description: 不依赖外部工具即可完成的解释、澄清和通用问答。
+    keywords: [解释, 说明, 是什么, 为什么, 怎么理解]
+  - id: knowledge_retrieval
+    name: 知识与文档检索
+    description: 从知识库、Wiki、导入文档或历史资料中检索并归纳信息。
+    keywords: [知识库, wiki, 文档, 规范, 历史]
+    toolCategories: [知识库, Wiki, 文档]
+  - id: business_query
+    name: 业务数据查询与计算
+    description: 查询结构化业务数据、执行计算并解释结果。
+    keywords: [查询, 数据, 统计, 计算, 交易, 客户]
+  - id: incident_investigation
+    name: 系统问题调查
+    description: 综合代码、日志、知识资料和运行证据定位系统问题或解释实际行为。
+    keywords: [问题, 排查, 报错, 日志, 原因, 定位]
+  - id: web_research
+    name: Web 与外部信息获取
+    description: 使用搜索、浏览器或公众号等外部信息源完成调研。
+    keywords: [网页, 网站, 搜索, 新闻, 公众号]
+    toolCategories: [网页, 公众号]
+  - id: document_artifact
+    name: 文件与产物生成
+    description: 读取、转换或生成文件、图片、Markdown、报告和其他交付物。
+    keywords: [文件, 报告, 图片, 表格, 导出]
+    toolCategories: [文件, Markdown, Artifact, 媒体]
+  - id: task_delivery
+    name: 任务、通知与投递
+    description: 创建提醒、定时任务、待办，或向外部渠道发送和投递内容。
+    keywords: [提醒, 定时, 待办, 发送, 通知]
+    toolCategories: [提醒, 待办, 发送, 定时任务]
+  - id: system_operation
+    name: 系统与管理操作
+    description: 处理 Agent、Skill、记忆、沙箱、归档及其他系统管理动作。
+    keywords: [agent, skill, 记忆, 沙箱, 解压, 系统]
+    toolCategories: [Agent, Skill, 记忆, 沙箱, 解压, 系统]
+  - id: complex_workflow
+    name: 跨域复杂工作流
+    description: 需要多个类别工具协作、反复探索或显式降级的综合任务。
+    keywords: [综合, 分析, 排查, 调研, 方案]
+recommendedTags:
+  - happy_path
+  - expression_variant
+  - empty_result
+  - tool_failure
+  - permission_denied
+  - multi_round
+  - long_context
+  - side_effect
+  - channel_specific
+  - negative_feedback

@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.0.30",
+  "version": "3.0.32",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -35,6 +35,15 @@
     "test": "bash scripts/test.sh",
     "test:unit": "bash scripts/test.sh",
     "test:e2e": "bash scripts/test.sh --config vitest.e2e.config.ts",
+    "eval:validate": "tsx scripts/evaluation/validate-scenario-cases.ts",
+    "eval:extract": "tsx scripts/evaluation/extract-scenario-candidates.ts",
+    "eval:drafts": "tsx scripts/evaluation/generate-draft-scenario-cases.ts",
+    "eval:self-test": "bash scripts/test.sh tests/unit/evaluation",
+    "eval:smoke": "EVAL_SUITE=smoke bash scripts/test.sh --config vitest.scenario.config.ts",
+    "eval:full": "EVAL_SUITE=full bash scripts/test.sh --config vitest.scenario.config.ts",
+    "eval:compare": "tsx scripts/evaluation/compare-scenario-runs.ts",
+    "eval:gate": "tsx scripts/evaluation/gate-scenario-run.ts",
+    "eval:promote-baseline": "tsx scripts/evaluation/promote-scenario-baseline.ts",
     "test:watch": "bash scripts/test.sh --watch"
   },
   "workspaces": [

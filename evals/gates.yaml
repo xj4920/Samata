@@ -1,0 +1,15 @@
+version: 1
+approvedOnly: true
+failOnUnexpectedTool: true
+failOnDirtyBaselinePromotion: true
+critical:
+  hardAssertionPassRate: 1
+  repetitionPassRate: 1
+default:
+  hardAssertionPassRate: 1
+  repetitionPassRate: 0.6667
+  judgeScoreTolerance: 0.05
+metrics:
+  durationRegressionWarningRatio: 0.5
+  tokenRegressionWarningRatio: 0.5
+  toolCallRegressionWarningRatio: 0.5

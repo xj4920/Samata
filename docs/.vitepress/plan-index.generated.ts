@@ -37,6 +37,19 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Samata 场景回归评测体系",
+      "link": "/plan/2026-07-21_scenario-regression-evaluation",
+      "sourcePath": "docs/plan/2026-07-21_scenario-regression-evaluation.md",
+      "sortKey": "2026-07-21_scenario-regression-evaluation.md",
+      "date": "2026-07-21",
+      "status": "implementing",
+      "canonicalDocs": [
+        "/platform/scenario-regression",
+        "/platform/observability"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
       "title": "企微通讯录 API 身份识别 TODO",
       "link": "/plan/2026-07-09_wework-contact-api-todo",
       "sourcePath": "docs/plan/2026-07-09_wework-contact-api-todo.md",

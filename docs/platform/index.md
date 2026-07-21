@@ -17,3 +17,4 @@ Samata 是多 Agent 智能助手平台，统一承载 CLI、飞书、企微和 T
 4. [通用工具](./common-tools.md)
 5. [部署与模型](./deployment.md)
 6. [观测与稳定性](./observability.md)
+7. [场景回归评测](./scenario-regression.md)
