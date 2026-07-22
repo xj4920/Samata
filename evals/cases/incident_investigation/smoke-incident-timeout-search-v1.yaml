@@ -1,0 +1,59 @@
+version: 1
+id: smoke-incident-timeout-search-v1
+title: 最近一天接口超时排查
+scenario: incident_investigation
+status: approved
+risk: critical
+priority: 10
+tags: [happy_path, empty_result]
+source:
+  turnHash: 0979edeb333155f57de626b9
+  observedAt: 2026-06-25T08:58:31.122Z
+  telemetryIncomplete: false
+  notes: 原自动分类为业务查询，人工纠正为问题调查；服务名和查询结果均已泛化。
+input:
+  text: 请务必调用当前提供的 mcp_logyiotcmsclaw_logyi_search_sheets 日志查询工具，检查运管平台最近 1 天是否出现接口超时，给出查询范围和基于日志的结论。零命中只能说明当前检索未发现超时，不得表述为系统绝对正常。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-06-25T08:58:31.122Z
+fixtures:
+  - tool: mcp_logyiotcmsclaw_logyi_search_sheets
+    responses:
+      - input: { mode: any }
+        output:
+          query_scope:
+            service: service-ops
+            start_time: 2026-06-24T16:58:37+08:00
+            end_time: 2026-06-25T16:58:37+08:00
+            keywords: [timeout, timed out, deadline exceeded, '504']
+          total_hits: 0
+          rows: []
+assertions:
+  allowedTools: [mcp_logyiotcmsclaw_logyi_search_sheets]
+  requiredTools:
+    - { tool: mcp_logyiotcmsclaw_logyi_search_sheets, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - '2026-06-24'
+    - '2026-06-25'
+  answerRegex:
+    - '(未发现|没有|未命中|未检索到)[\s\S]*(超时|timeout)'
+  forbiddenClaims:
+    - 已确认发生接口超时
+    - 日志证明系统绝对正常
+    - 所有接口响应正常
+    - 系统运行平稳
+    - 无需进一步排查
+  maxToolCalls: 1
+  maxLoopRounds: 3
+  maxOutputTokens: 1800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: critical 场景要求所有重复运行均通过；提升 baseline 前仍需业务 owner 复核。

@@ -1,0 +1,39 @@
+version: 1
+id: smoke-direct-answer-capability-v1
+title: 简单问候与能力说明
+scenario: direct_answer
+status: approved
+risk: low
+priority: 10
+tags: [happy_path, expression_variant]
+source:
+  turnHash: 007f76a30da6d23092c8d806
+  observedAt: 2026-06-03T05:28:07.106Z
+  telemetryIncomplete: false
+  notes: 从上一时间窗的简单问候请求改写；原回答为空，不作为标准答案。
+input:
+  text: Hi，请简要介绍你能提供什么帮助。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-06-03T05:28:07.106Z
+fixtures: []
+assertions:
+  allowedTools: []
+  answerRegex:
+    - '(帮助|协助|可以|能)[\s\S]+'
+  forbiddenClaims:
+    - 已经为你执行
+  maxToolCalls: 0
+  maxLoopRounds: 1
+  maxOutputTokens: 800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 基于用户确认的首批初始化计划；提升 baseline 前仍需业务 owner 复核。

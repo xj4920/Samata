@@ -1,0 +1,68 @@
+version: 1
+id: smoke-task-update-schedule-v1
+title: 将定时任务调整为周二至周六
+scenario: task_delivery
+status: approved
+risk: high
+priority: 10
+tags: [happy_path, side_effect]
+source:
+  turnHash: 7f15ffe21d4ebfb9d3280e83
+  observedAt: 2026-06-30T03:19:00.120Z
+  telemetryIncomplete: false
+  notes: 从最近 30 天任务修改请求改写，任务 ID 已替换，更新操作由 fixture 接管。
+input:
+  text: 我说错了，请把任务 task-corp-action 改成每周二到周六早上 08:30 执行，不是每天。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-06-30T03:19:00.120Z
+fixtures:
+  - tool: list_scheduled_tasks
+    responses:
+      - input: { mode: any }
+        output:
+          - id: task-corp-action
+            name: 公司行为提醒同步与推送
+            cron_expr: 30 8 * * *
+            task_type: agent_chat
+            enabled: true
+            timezone: Asia/Shanghai
+  - tool: update_scheduled_task
+    responses:
+      - input:
+          mode: subset
+          value: { id: task-corp-action, cron_expr: '30 8 * * 2-6' }
+        output:
+          success: true
+          id: task-corp-action
+          cron_expr: 30 8 * * 2-6
+          timezone: Asia/Shanghai
+assertions:
+  allowedTools: [list_scheduled_tasks, update_scheduled_task]
+  requiredTools:
+    - { tool: list_scheduled_tasks, minCalls: 1, maxCalls: 1 }
+    - { tool: update_scheduled_task, minCalls: 1, maxCalls: 1 }
+  toolOrder: [list_scheduled_tasks, update_scheduled_task]
+  toolInputs:
+    - tool: update_scheduled_task
+      input:
+        mode: subset
+        value: { id: task-corp-action, cron_expr: '30 8 * * 2-6' }
+  requiredFacts:
+    - '08:30'
+  answerRegex:
+    - '(周二|星期二|每周[\s*_]*二)[\s\S]{0,16}(周六|星期六|六)'
+  maxToolCalls: 2
+  maxLoopRounds: 3
+  maxOutputTokens: 1200
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 不修改真实定时任务；提升 baseline 前仍需业务 owner 复核。

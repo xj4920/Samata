@@ -54,5 +54,7 @@ describe('scenario runtime integration', () => {
     expect(result.toolCalls.map(call => call.tool)).toEqual(['calculate_date']);
     expect(provider.toolsUsed).toEqual(['calculate_date']);
     expect(result.inputTokens).toBeGreaterThan(0);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result.durationMs).toBeLessThan(scenarioCase.execution.timeoutMs);
   });
 });

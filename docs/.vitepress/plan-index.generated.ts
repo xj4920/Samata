@@ -63,6 +63,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "部署与运行"
     },
     {
+      "title": "Web 调研退出场景回归",
+      "link": "/plan/2026-07-22_remove-web-research-case",
+      "sourcePath": "docs/plan/2026-07-22_remove-web-research-case.md",
+      "sortKey": "2026-07-22_remove-web-research-case.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
+      "title": "OTCClaw 业务查询回归 Case",
+      "link": "/plan/2026-07-22_otcclaw-business-query-cases",
+      "sourcePath": "docs/plan/2026-07-22_otcclaw-business-query-cases.md",
+      "sortKey": "2026-07-22_otcclaw-business-query-cases.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
       "title": "Samata 场景回归评测体系",
       "link": "/plan/2026-07-21_scenario-regression-evaluation",
       "sourcePath": "docs/plan/2026-07-21_scenario-regression-evaluation.md",

@@ -1,0 +1,63 @@
+version: 1
+id: smoke-document-export-csv-v1
+title: 导出月度成交 CSV 并发送
+scenario: document_artifact
+status: approved
+risk: high
+priority: 10
+tags: [happy_path, side_effect]
+source:
+  turnHash: 03e17d5d9772104cf4b01296
+  observedAt: 2026-07-01T01:07:24.587Z
+  telemetryIncomplete: false
+  notes: 从最近 30 天文件导出请求改写；文件生成和发送均由 fixture 接管。
+input:
+  text: 导出 2026 年 6 月北向极速的每日成交数据，按交易对手维度生成 CSV 并发送给我。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-01T01:07:24.587Z
+fixtures:
+  - tool: export_north_info_csv
+    responses:
+      - input:
+          mode: subset
+          value: { date_from: '20260601', date_to: '20260630' }
+        output:
+          success: true
+          path: /tmp/samata/scenario-north-info-202606.csv
+          filename: scenario-north-info-202606.csv
+          rows: 624
+          dimensions: [trade_date, counterparty]
+  - tool: send_file
+    responses:
+      - input:
+          mode: subset
+          value: { path: /tmp/samata/scenario-north-info-202606.csv }
+        output: { success: true, channel: wework, filename: scenario-north-info-202606.csv }
+assertions:
+  allowedTools: [export_north_info_csv, send_file]
+  requiredTools:
+    - { tool: export_north_info_csv, minCalls: 1, maxCalls: 1 }
+    - { tool: send_file, minCalls: 1, maxCalls: 1 }
+  toolOrder: [export_north_info_csv, send_file]
+  toolInputs:
+    - tool: send_file
+      input:
+        mode: subset
+        value: { path: /tmp/samata/scenario-north-info-202606.csv }
+  answerRegex:
+    - '(CSV|csv)[\s\S]*(发送|已发送|文件)|(发送|已发送)[\s\S]*(CSV|csv)'
+  maxToolCalls: 2
+  maxLoopRounds: 6
+  maxOutputTokens: 1200
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 不生成或发送真实文件；提升 baseline 前仍需业务 owner 复核。

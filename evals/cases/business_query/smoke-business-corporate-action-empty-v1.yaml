@@ -1,0 +1,60 @@
+version: 1
+id: smoke-business-corporate-action-empty-v1
+title: 公司行为同步失败与历史空结果
+scenario: business_query
+status: approved
+risk: medium
+priority: 10
+tags: [tool_failure, empty_result]
+source:
+  turnHash: 4330b17249ff1a2c8412b09c
+  observedAt: 2026-06-29T06:45:26.075Z
+  telemetryIncomplete: false
+  notes: 从最近 30 天业务查询请求改写，移除环境变量名称并保留失败语义。
+input:
+  text: 请先尝试同步 2026-06-29 的公司行为数据，再查询 2026-06-24 至 2026-06-26 的历史记录；如果不可用请明确说明原因。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-06-29T06:45:26.075Z
+fixtures:
+  - tool: sync_corporate_action_alerts
+    responses:
+      - input: { mode: any }
+        output: { success: false, error: 公司行为提醒 SFTP 连接未配置 }
+        success: false
+        error: 公司行为提醒 SFTP 连接未配置
+  - tool: query_corporate_action_alerts
+    responses:
+      - input: { mode: any }
+        output: { records: [], message: 未查询到公司行为提醒记录 }
+      - input: { mode: any }
+        output: { records: [], message: 未查询到公司行为提醒记录 }
+      - input: { mode: any }
+        output: { records: [], message: 未查询到公司行为提醒记录 }
+assertions:
+  allowedTools: [sync_corporate_action_alerts, query_corporate_action_alerts]
+  requiredTools:
+    - { tool: sync_corporate_action_alerts, minCalls: 1, maxCalls: 1 }
+    - { tool: query_corporate_action_alerts, minCalls: 1, maxCalls: 3 }
+  toolOrder: [sync_corporate_action_alerts, query_corporate_action_alerts]
+  requiredFacts:
+    - SFTP
+  answerRegex:
+    - '(未找到|未查询到|无任何|暂无|本地无)[\s\S]{0,32}(记录|数据|缓存)|查询为空|无数据|空记录|无记录'
+  forbiddenClaims:
+    - 已成功同步
+    - 已发现需要提醒的公司行为
+  maxToolCalls: 4
+  maxLoopRounds: 5
+  maxOutputTokens: 1800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 失败输出已去除配置项名称；提升 baseline 前仍需业务 owner 复核。

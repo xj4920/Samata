@@ -1,0 +1,64 @@
+version: 1
+id: smoke-knowledge-qfii-v1
+title: 从知识文档解释 QFII
+scenario: knowledge_retrieval
+status: approved
+risk: low
+priority: 10
+tags: [happy_path]
+source:
+  turnHash: 57b2755a8fc2c3adb7b82f21
+  observedAt: 2026-06-30T03:02:31.401Z
+  telemetryIncomplete: false
+  notes: 从最近 30 天知识检索请求改写，fixture 为脱敏后的完整摘要。
+input:
+  text: QFII 是什么意思？请只根据检索到的文档，结合境外机构投资者制度简要说明，不要扩展文档中没有的制度沿革或业务客户信息。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-06-30T03:02:31.401Z
+fixtures:
+  - tool: search_knowledge
+    responses:
+      - input: { mode: any }
+        output:
+          wiki: []
+          faq: []
+          documents:
+            - document_id: qfii-guide-v1
+              title: QFII 制度简介
+              snippet: 合格境外机构投资者可依照境内监管规则参与境内证券市场。
+  - tool: read_knowledge_document
+    responses:
+      - input:
+          mode: subset
+          value: { document_id: qfii-guide-v1 }
+        output:
+          document_id: qfii-guide-v1
+          title: QFII 制度简介
+          content: QFII 全称 Qualified Foreign Institutional Investor，即合格境外机构投资者。符合资格的境外机构在遵守准入、托管、交易和跨境资金管理等监管要求后，可以参与中国境内证券市场。QFII 是制度和投资者资格，不等同于某个单一交易系统。
+assertions:
+  allowedTools: [search_knowledge, read_knowledge_document]
+  requiredTools:
+    - { tool: search_knowledge, minCalls: 1, maxCalls: 1 }
+    - { tool: read_knowledge_document, minCalls: 1, maxCalls: 1 }
+  toolOrder: [search_knowledge, read_knowledge_document]
+  requiredFacts:
+    - Qualified Foreign Institutional Investor
+    - 合格境外机构投资者
+    - 证券市场
+  forbiddenClaims:
+    - QFII 是一个交易软件
+  maxToolCalls: 2
+  maxLoopRounds: 4
+  maxOutputTokens: 1600
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: fixture 已替代 telemetry 截断正文；提升 baseline 前仍需业务 owner 复核。

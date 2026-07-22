@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import type Anthropic from '@anthropic-ai/sdk';
+import { performance } from 'node:perf_hooks';
 import { vi } from 'vitest';
 import { ToolFixtureRouter } from '../../../src/evaluation/fixture-router.js';
 import type { ScenarioCase, ScenarioExecutionResult } from '../../../src/evaluation/types.js';
@@ -123,7 +124,7 @@ export async function executeScenarioWithCurrentAgent(
   repetition: number,
 ): Promise<ScenarioExecutionResult> {
   await resetRuntime(scenarioCase);
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   if (scenarioCase.input.fixedTime) vi.setSystemTime(new Date(scenarioCase.input.fixedTime));
 
   const { initProviders, registerProvider, switchProvider } = await import('../../../src/llm/provider.js');
@@ -184,7 +185,7 @@ export async function executeScenarioWithCurrentAgent(
     loopRounds: state.metrics.loopRounds,
     inputTokens: state.metrics.inputTokens,
     outputTokens: state.metrics.outputTokens,
-    durationMs: Date.now() - startedAt,
+    durationMs: Math.round(performance.now() - startedAt),
   };
 }
 

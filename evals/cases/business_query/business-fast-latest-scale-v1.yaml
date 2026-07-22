@@ -1,0 +1,94 @@
+version: 1
+id: business-fast-latest-scale-v1
+title: 最近交易日北向极速规模
+scenario: business_query
+status: approved
+risk: medium
+priority: 5
+tags: [happy_path, latest_data]
+source:
+  turnHash: 99ba23c93308522ef823c094
+  observedAt: 2026-07-22T01:50:31.330Z
+  telemetryIncomplete: true
+  notes: 保留原始问题与不可逆 turn hash；日期和规模均为保持求和关系的人工合成数据。
+input:
+  text: 最近一个交易日的北向极速规模如何？
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-22T01:50:31.330Z
+fixtures:
+  - tool: calculate_date
+    responses:
+      - input:
+          mode: subset
+          value: { operation: now }
+        output:
+          datetime: 2026-07-22T09:50:31+08:00
+          date: 2026-07-22
+          is_trading_day: true
+          previous_trading_day: 2026-07-21
+          timezone: Asia/Shanghai
+  - tool: trade_summary
+    responses:
+      - input: { mode: any }
+        output:
+          trade_date: '20260721'
+          unit: CNY
+          managers:
+            - { manager: Alpha Capital, long_notional: 6000000000, short_notional: 0, long_trade_amount: 8000000000, short_trade_amount: 0 }
+            - { manager: Beta Partners, long_notional: 5000000000, short_notional: 500000000, long_trade_amount: 6000000000, short_trade_amount: 200000000 }
+            - { manager: Gamma Trading, long_notional: 3000000000, short_notional: 500000000, long_trade_amount: 1000000000, short_trade_amount: 300000000 }
+          totals:
+            long_notional: 14000000000
+            short_notional: 1000000000
+            total_notional: 15000000000
+            long_trade_amount: 15000000000
+            short_trade_amount: 500000000
+            total_trade_amount: 15500000000
+      - input: { mode: any }
+        output:
+          trade_date: '20260721'
+          unit: CNY
+          managers:
+            - { manager: Alpha Capital, long_notional: 6000000000, short_notional: 0, long_trade_amount: 8000000000, short_trade_amount: 0 }
+            - { manager: Beta Partners, long_notional: 5000000000, short_notional: 500000000, long_trade_amount: 6000000000, short_trade_amount: 200000000 }
+            - { manager: Gamma Trading, long_notional: 3000000000, short_notional: 500000000, long_trade_amount: 1000000000, short_trade_amount: 300000000 }
+          totals:
+            long_notional: 14000000000
+            short_notional: 1000000000
+            total_notional: 15000000000
+            long_trade_amount: 15000000000
+            short_trade_amount: 500000000
+            total_trade_amount: 15500000000
+  - tool: markdown_to_image
+    responses:
+      - input: { mode: any }
+        output: { success: true, path: /tmp/samata/scenario-fast-scale-20260721.png }
+  - tool: send_image
+    responses:
+      - input:
+          mode: subset
+          value: { path: /tmp/samata/scenario-fast-scale-20260721.png }
+        output: { success: true, channel: wework, path: /tmp/samata/scenario-fast-scale-20260721.png }
+assertions:
+  allowedTools: [calculate_date, trade_summary, markdown_to_image, send_image]
+  requiredTools:
+    - { tool: trade_summary, minCalls: 1, maxCalls: 2 }
+  answerRegex:
+    - '(2026[-年/]?0?7[-月/]?21|20260721)'
+    - '(总规模|总名义本金|名义本金)[\s\S]{0,24}150(?:\.00)?\s*亿|150(?:\.00)?\s*亿[\s\S]{0,24}(总规模|总名义本金|名义本金)'
+    - '(成交额|成交金额|交易金额)[\s\S]{0,24}155(?:\.00)?\s*亿|155(?:\.00)?\s*亿[\s\S]{0,24}(成交额|成交金额|交易金额)'
+  maxToolCalls: 5
+  maxLoopRounds: 6
+  maxOutputTokens: 2000
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户已确认将本轮 OTCClaw 问题纳入 approved case；所有金额和管理人名称均为合成数据。

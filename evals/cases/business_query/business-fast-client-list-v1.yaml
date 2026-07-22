@@ -1,0 +1,87 @@
+version: 1
+id: business-fast-client-list-v1
+title: 北向极速客户列表
+scenario: business_query
+status: approved
+risk: medium
+priority: 5
+tags: [happy_path, list_query]
+source:
+  turnHash: 38ec8c8c974a236baed2b671
+  observedAt: 2026-07-22T01:41:38.347Z
+  telemetryIncomplete: true
+  notes: 保留原始问题与不可逆 turn hash；客户名称、状态和标签均为人工构造的最小脱敏 fixture。
+input:
+  text: 目前有哪些北向极速客户？
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-22T01:41:38.347Z
+fixtures:
+  - tool: get_skill
+    responses:
+      - input:
+          mode: subset
+          value: { name: 查询极速客户 }
+        output:
+          resolved_prompt: 调用 query_clients 获取客户列表，并筛选 tags 中包含“极速”的客户；不要补充 fixture 未提供的客户资料。
+          skill: 查询极速客户
+  - tool: query_clients
+    responses:
+      - input: { mode: any }
+        output:
+          filter: { tag: 极速, matching_count: 8 }
+          clients:
+            - { client_id: SYN-001, client_name: Alpha Capital, status: PROD, tags: [FIX, 极速, 专线] }
+            - { client_id: SYN-002, client_name: Beta Partners, status: PROD, tags: [API, 极速] }
+            - { client_id: SYN-003, client_name: Gamma Trading, status: PROD, tags: [FIX, 极速, 常速] }
+            - { client_id: SYN-004, client_name: Delta Quant, status: PROD, tags: [极速, colo] }
+            - { client_id: SYN-005, client_name: Epsilon Fund, status: UAT, tags: [API, 极速] }
+            - { client_id: SYN-006, client_name: Zeta Markets, status: UAT, tags: [FIX, 极速] }
+            - { client_id: SYN-007, client_name: Eta Investments, status: Requirement Discussion, tags: [极速] }
+            - { client_id: SYN-008, client_name: Theta Partners, status: Solution Design, tags: [API, 极速] }
+          total: 8
+      - input: { mode: any }
+        output:
+          filter: { tag: 极速, matching_count: 8 }
+          clients:
+            - { client_id: SYN-001, client_name: Alpha Capital, status: PROD, tags: [FIX, 极速, 专线] }
+            - { client_id: SYN-002, client_name: Beta Partners, status: PROD, tags: [API, 极速] }
+            - { client_id: SYN-003, client_name: Gamma Trading, status: PROD, tags: [FIX, 极速, 常速] }
+            - { client_id: SYN-004, client_name: Delta Quant, status: PROD, tags: [极速, colo] }
+            - { client_id: SYN-005, client_name: Epsilon Fund, status: UAT, tags: [API, 极速] }
+            - { client_id: SYN-006, client_name: Zeta Markets, status: UAT, tags: [FIX, 极速] }
+            - { client_id: SYN-007, client_name: Eta Investments, status: Requirement Discussion, tags: [极速] }
+            - { client_id: SYN-008, client_name: Theta Partners, status: Solution Design, tags: [API, 极速] }
+          total: 8
+assertions:
+  allowedTools: [get_skill, query_clients]
+  requiredTools:
+    - { tool: query_clients, minCalls: 1, maxCalls: 2 }
+  requiredFacts:
+    - Alpha Capital
+    - Beta Partners
+    - Gamma Trading
+    - Delta Quant
+    - Epsilon Fund
+    - Zeta Markets
+    - Eta Investments
+    - Theta Partners
+  answerRegex:
+    - '8\s*(个|家|位)'
+    - '极速'
+  forbiddenClaims:
+    - Iota Holdings
+  maxToolCalls: 3
+  maxLoopRounds: 5
+  maxOutputTokens: 2500
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户已确认将本轮 OTCClaw 问题纳入 approved case；fixture 不含真实客户及联系人信息。

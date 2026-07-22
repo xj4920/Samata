@@ -1,0 +1,93 @@
+version: 1
+id: business-normal-current-scale-v1
+title: 当前北向常速交易规模
+scenario: business_query
+status: approved
+risk: medium
+priority: 5
+tags: [happy_path, latest_data]
+source:
+  turnHash: 020075c86e93ff81a024acb8
+  observedAt: 2026-07-22T01:52:34.173Z
+  telemetryIncomplete: true
+  notes: 按用户确认的表述整理问题并保留不可逆 turn hash；生产查询轨迹已重构为只读脱敏 fixture。
+input:
+  text: 当前北向常速交易规模如何？
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-22T01:52:34.173Z
+fixtures:
+  - tool: calculate_date
+    responses:
+      - input:
+          mode: subset
+          value: { operation: now }
+        output:
+          datetime: 2026-07-22T09:52:34+08:00
+          date: 2026-07-22
+          is_trading_day: true
+          timezone: Asia/Shanghai
+  - tool: query_normal_trading_summary
+    responses:
+      - input: { mode: any }
+        output:
+          latest_trade_date: '20260720'
+          unit: CNY
+          records:
+            - { counterparty: CP-A, long_notional: 8000000000, short_notional: 15000000000, long_trade_amount: 300000000, short_trade_amount: 30000000 }
+            - { counterparty: CP-B, long_notional: 3000000000, short_notional: 7000000000, long_trade_amount: 150000000, short_trade_amount: 20000000 }
+          totals:
+            long_notional: 11000000000
+            short_notional: 22000000000
+            total_notional: 33000000000
+            long_trade_amount: 450000000
+            short_trade_amount: 50000000
+            total_trade_amount: 500000000
+      - input: { mode: any }
+        output:
+          latest_trade_date: '20260720'
+          unit: CNY
+          records:
+            - { counterparty: CP-A, long_notional: 8000000000, short_notional: 15000000000, long_trade_amount: 300000000, short_trade_amount: 30000000 }
+            - { counterparty: CP-B, long_notional: 3000000000, short_notional: 7000000000, long_trade_amount: 150000000, short_trade_amount: 20000000 }
+          totals:
+            long_notional: 11000000000
+            short_notional: 22000000000
+            total_notional: 33000000000
+            long_trade_amount: 450000000
+            short_trade_amount: 50000000
+            total_trade_amount: 500000000
+  - tool: markdown_to_image
+    responses:
+      - input: { mode: any }
+        output: { success: true, path: /tmp/samata/scenario-normal-scale-20260720.png }
+  - tool: send_image
+    responses:
+      - input:
+          mode: subset
+          value: { path: /tmp/samata/scenario-normal-scale-20260720.png }
+        output: { success: true, channel: wework, path: /tmp/samata/scenario-normal-scale-20260720.png }
+assertions:
+  allowedTools: [calculate_date, query_normal_trading_summary, markdown_to_image, send_image]
+  requiredTools:
+    - { tool: query_normal_trading_summary, minCalls: 1, maxCalls: 2 }
+  forbiddenTools: [sandbox_exec, sync_normal_trading_summary]
+  answerRegex:
+    - '(2026[-年/]?0?7[-月/]?20|20260720)'
+    - '(总规模|总名义本金|名义本金)[\s\S]{0,96}330(?:\.00)?\s*亿|330(?:\.00)?\s*亿[\s\S]{0,96}(总规模|总名义本金|名义本金)'
+    - '(成交额|成交金额|交易金额)[\s\S]{0,24}5(?:\.0{1,2})?\s*亿|5(?:\.0{1,2})?\s*亿[\s\S]{0,24}(成交额|成交金额|交易金额)'
+    - '空头'
+  maxToolCalls: 5
+  maxLoopRounds: 6
+  maxOutputTokens: 2000
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户已确认将本轮 OTCClaw 问题纳入 approved case；禁止沙箱直连和同步写入，fixture 不含连接信息。

@@ -1,0 +1,69 @@
+version: 1
+id: smoke-complex-fix-pending-cancel-v1
+title: FIX Pending Cancel 成交回报字段分析
+scenario: complex_workflow
+status: approved
+risk: high
+priority: 10
+tags: [happy_path, multi_round]
+source:
+  turnHash: ed6eda870edbf8a140e9c972
+  observedAt: 2026-07-10T06:06:19.692Z
+  telemetryIncomplete: false
+  notes: 从最近 30 天跨源技术调研请求最小化，使用公开规范摘要与内部知识摘要。
+input:
+  text: 在 FIX 4.2 的 Pending Cancel 状态下应如何推送成交回报？必须同时检索公开 Web 规范和内部知识，说明 Tag 39 与 Tag 150 的填写方式，并区分状态通知、部分成交和全部成交。请控制在 800 字以内。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-10T06:06:19.692Z
+fixtures:
+  - tool: web_search
+    responses:
+      - input: { mode: any }
+        output:
+          query: FIX 4.2 Pending Cancel OrdStatus ExecType
+          results:
+            - title: FIX 4.2 Execution Report state matrix
+              url: https://example.invalid/fix42-execution-report
+              snippet: Pending Cancel 状态通知使用 OrdStatus(39)=6、ExecType(150)=6。若期间发生部分成交，ExecType=1；全部成交使用 ExecType=2。OrdStatus 需按订单状态优先级与对手方约定处理。
+  - tool: search_knowledge
+    responses:
+      - input: { mode: any }
+        output:
+          wiki:
+            - page: concepts/fix-order-state.md
+              title: FIX 订单状态处理原则
+              snippet: 成交事件的 ExecType 表示本次事件，OrdStatus 表示订单当前状态。Pending Cancel 并不阻止在撤单确认前继续收到成交。
+          faq: []
+          documents: []
+assertions:
+  allowedTools: [web_search, search_knowledge]
+  requiredTools:
+    - { tool: web_search, minCalls: 1, maxCalls: 1 }
+    - { tool: search_knowledge, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - OrdStatus
+    - ExecType
+    - '39'
+    - '150'
+  answerRegex:
+    - '(Tag\s*39[\s\S]{0,120}(6|Pending Cancel)|OrdStatus[\s\S]{0,80}(6|Pending Cancel))'
+    - '(Tag\s*150[\s\S]{0,120}(6|Pending Cancel)|ExecType[\s\S]{0,80}(6|Pending Cancel))'
+    - '部分成交[\s\S]*1'
+    - '全部成交[\s\S]*2'
+  forbiddenClaims:
+    - Pending Cancel 后绝不可能成交
+  maxToolCalls: 2
+  maxLoopRounds: 5
+  maxOutputTokens: 3200
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 规范内容需由业务 owner 最终确认后才能提升 baseline。

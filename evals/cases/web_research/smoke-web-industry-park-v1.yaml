@@ -1,0 +1,61 @@
+version: 1
+id: smoke-web-industry-park-v1
+title: 产业园区客群公开资料调研
+scenario: web_research
+status: deprecated
+risk: medium
+priority: 10
+tags: [happy_path, long_context]
+source:
+  turnHash: 14b91462d1ff28c98728a1bd
+  observedAt: 2026-05-28T01:41:16.686Z
+  telemetryIncomplete: false
+  notes: 最近 30 天无 Web 调研候选，为保证 Smoke 场景完整性从上一时间窗补齐。
+input:
+  text: 请参考公开资料，按“客群特征、核心金融需求、服务建议”三个部分写一份产业园区客群介绍。
+  agent: otcclaw
+  role: user
+  channel: feishu
+  fixedTime: 2026-05-28T01:41:16.686Z
+fixtures:
+  - tool: web_search
+    responses:
+      - input: { mode: any }
+        output:
+          query: 产业园区 客群 特征 金融需求
+          results:
+            - title: 产业园区企业画像研究
+              url: https://example.invalid/industry-park-profile
+              snippet: 园区企业常呈现产业集聚、生命周期差异、轻资产和政策敏感等特征。
+            - title: 科创企业金融服务研究
+              url: https://example.invalid/technology-finance
+              snippet: 科创企业需要分阶段融资、现金管理、供应链金融和政策申报配套服务。
+      - input: { mode: any }
+        output:
+          query: 产业园区 企业 生命周期 金融服务
+          results:
+            - title: 园区企业全生命周期服务
+              url: https://example.invalid/lifecycle-service
+              snippet: 应按初创、成长和成熟阶段配置差异化授信、结算与风险管理方案。
+assertions:
+  allowedTools: [web_search]
+  requiredTools:
+    - { tool: web_search, minCalls: 1, maxCalls: 2 }
+  requiredFacts:
+    - 客群特征
+    - 核心金融需求
+    - 服务建议
+    - 生命周期
+  maxToolCalls: 2
+  maxLoopRounds: 3
+  maxOutputTokens: 2400
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: codex-initial-seed
+  reviewedAt: 2026-07-21
+  notes: 外部链接使用不可访问示例域名，运行时不会真实抓取；2026-07-22 用户要求将 Web 调研退出 active regression，保留文件用于审计追溯。
