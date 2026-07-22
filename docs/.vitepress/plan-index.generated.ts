@@ -75,6 +75,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "场景回归评测"
     },
     {
+      "title": "Package 版本进位规则修正",
+      "link": "/plan/2026-07-22_package-version-carry-rule",
+      "sourcePath": "docs/plan/2026-07-22_package-version-carry-rule.md",
+      "sortKey": "2026-07-22_package-version-carry-rule.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/index"
+      ],
+      "topic": "工程协作规范"
+    },
+    {
       "title": "OTCClaw 业务查询回归 Case",
       "link": "/plan/2026-07-22_otcclaw-business-query-cases",
       "sourcePath": "docs/plan/2026-07-22_otcclaw-business-query-cases.md",
