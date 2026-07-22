@@ -318,13 +318,14 @@ bash scripts/migrate-samata-postgres.sh --execute
 
 ## Commit
 
-- implementation commit hash：待提交
+- implementation commit hash：`7ac222003a0807cabfcd42fd6fdccce28df442c5`
 
 ## 构建、重启与迁移影响
 
 - 整体改动包含运行时代码、Compose 和镜像版本变化；OtcClaw image 已在本机按最终源码
-  完成重建和产物检查，但尚未推送 registry，也未用于重启现有服务。
+  完成重建和产物检查。2026-07-22 经用户确认后，仅重建并重启 `otcclaw` 到
+  `dockertest.gf.com.cn/titans/otcclaw:v3.0.34-0722102442931`，未重启 Langfuse 服务。
 - Langfuse 镜像本身未修改，不需要重新构建。
 - 不涉及 SQLite schema migration。
-- 涉及 PostgreSQL 业务数据迁移和 OtcClaw 停写窗口；实施阶段仅提供脚本并执行 dry-run，
-  不自动执行正式迁移或重启现有生产容器。
+- PostgreSQL 业务数据迁移已于 2026-07-21 完成；本次重启未再次执行迁移，未修改旧
+  `wind_sync_pg` 容器、网络或数据。
