@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.0.33",
+  "version": "3.0.34",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -23,6 +23,8 @@
     "sqlite:baseline:refresh": "tsx scripts/prepare-sqlite-baseline.ts",
     "data:baseline:refresh": "tsx scripts/prepare-data-files-baseline.ts",
     "baseline:refresh": "npm run sqlite:baseline:refresh && npm run data:baseline:refresh",
+    "compose:render": "bash scripts/deploy-otcclaw.sh render",
+    "postgres:migrate:dry-run": "bash scripts/migrate-samata-postgres.sh --dry-run",
     "docker:otcclaw:up": "bash scripts/docker-samata.sh up",
     "docker:otcclaw:build": "bash scripts/docker-samata.sh build",
     "docker:otcclaw:push": "bash scripts/docker-samata.sh push",

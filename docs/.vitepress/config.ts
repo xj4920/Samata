@@ -14,35 +14,6 @@ const addVPre = (html: string, tag: 'code' | 'pre') => {
   return html.includes(`<${tag} v-pre`) ? html : html.replace(`<${tag}`, `<${tag} v-pre`);
 };
 
-const windTablePages = [
-  'AINDEXEODPRICES',
-  'ASHAREBALANCESHEET',
-  'ASHARECALENDAR',
-  'ASHARECASHFLOW',
-  'ASHARECONSENSUSDATA',
-  'ASHAREDIVIDEND',
-  'ASHAREEODDERIVATIVEINDICATOR',
-  'ASHAREEODPRICES',
-  'ASHAREINCOME',
-  'ASHAREINDUSTRIESCODE',
-  'ASHAREINTRODUCTION',
-  'ASHAREISACTIVITY',
-  'ASHAREST',
-  'ASHARESTOCKRATINGCONSUS',
-  'ASHARETRADINGSUSPENSION',
-  'CFUTURESCONTRACTMAPPING',
-  'CFUTURESDESCRIPTION',
-  'CHINAMUTUALFUNDDESCRIPTION',
-  'CHINAMUTUALFUNDMANAGER',
-  'CHINAMUTUALFUNDSECTOR',
-  'CHINAMUTUALFUNDSTOCKPORTFOLIO',
-  'CINDEXFUTURESEODPRICES',
-  'SHSCCHANNELHOLDINGS',
-  'SHSCTOP10ACTIVESTOCKS',
-].map((name) => ({
-  text: name,
-  link: `/wind-tables/${name}`,
-}));
 
 const groupPlanItems = (module: DocModule) => {
   const groups = planIndexByModule[module].reduce<Record<string, PlanIndexItem[]>>((acc, item) => {
@@ -110,17 +81,9 @@ const pluginsSidebar = moduleSidebar('plugins', [
 
 const externalDataSidebar = moduleSidebar('external-data', [
   { text: '外部数据', link: '/external-data/' },
-  { text: 'Wind PostgreSQL', link: '/external-data/wind-postgres' },
-  { text: 'Wind 表结构', link: '/external-data/wind-tables' },
-  { text: 'Wind 与沙箱', link: '/external-data/wind-sandbox' },
   { text: '报价与交易', link: '/external-data/pricing-and-trade' },
   { text: 'Wiki 与文档源', link: '/external-data/wiki-and-doc-sources' },
   { text: 'Web 与浏览器', link: '/external-data/web-and-browser' },
-  {
-    text: 'Wind 表明细',
-    collapsed: true,
-    items: windTablePages,
-  },
 ]);
 
 const traceSidebar = [
@@ -185,7 +148,6 @@ export default defineConfig({
       '/dream/': dreamSidebar,
       '/plugins/': pluginsSidebar,
       '/external-data/': externalDataSidebar,
-      '/wind-tables/': externalDataSidebar,
       '/plan/': traceSidebar,
     },
     outline: {

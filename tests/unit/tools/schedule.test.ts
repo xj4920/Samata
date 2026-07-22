@@ -58,6 +58,30 @@ describe('schedule tools', () => {
       expect(tasks.some(t => t.name === 'ETF 预计算' && t.task_type === 'tool_call')).toBe(true);
     });
 
+    it('rejects a tool_call disabled by the runtime policy', async () => {
+      const original = process.env.SAMATA_DISABLED_TOOLS;
+      process.env.SAMATA_DISABLED_TOOLS = 'calc_etf_trades';
+      try {
+        const { createScheduledTask } = await import('../../../src/commands/scheduled-task.js');
+        const agentId = await getAgentId('otcclaw');
+        const result = createScheduledTask({
+          agentId,
+          name: 'disabled ETF task',
+          cronExpr: '0 18 * * 1-5',
+          taskType: 'tool_call',
+          payload: JSON.stringify({ tool_name: 'calc_etf_trades', input: {}, notify: false }),
+          channel: 'system',
+          createdBy: 'system',
+        });
+
+        expect(result.success).toBe(false);
+        expect((result as any).error).toContain('运行环境禁用');
+      } finally {
+        if (original === undefined) delete process.env.SAMATA_DISABLED_TOOLS;
+        else process.env.SAMATA_DISABLED_TOOLS = original;
+      }
+    });
+
     it('creates agent_chat tasks with a prompt payload', async () => {
       const { createScheduledTask, listScheduledTasks } = await import('../../../src/commands/scheduled-task.js');
       const agentId = await getAgentId('standard-test');

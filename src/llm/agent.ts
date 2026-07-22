@@ -26,6 +26,7 @@ import {
   shutdownLangfuseTelemetry,
   withLangfuseAgentChat,
 } from '../telemetry/langfuse.js';
+import { disabledToolResult, filterDisabledTools, isToolDisabled } from '../runtime/tool-policy.js';
 
 // Re-export shared types so existing import paths keep working
 export type { DeliveryContext, ToolContext };
@@ -109,6 +110,7 @@ export async function describeImageWithFallback(
 }
 
 export async function executeTool(name: string, input: any, deliveryContext?: DeliveryContext, onProgress?: (event: { type: 'tool_progress'; message: string }) => void): Promise<string> {
+  if (isToolDisabled(name)) return disabledToolResult(name);
   const globalTools = getGlobalTools();
   const ctx: ToolContext = { deliveryContext, globalTools, onProgress };
   if (name.startsWith('mcp_')) {
@@ -610,7 +612,7 @@ let conversationHistory: Anthropic.MessageParam[] = [];
 
 /** All globally registered tools (native + plugins + MCP servers) */
 export function getGlobalTools(): Anthropic.Tool[] {
-  return [...getAllNativeTools(), ...getPluginTools(), ...getMcpTools()];
+  return filterDisabledTools([...getAllNativeTools(), ...getPluginTools(), ...getMcpTools()]);
 }
 
 /** @deprecated Use getGlobalTools() + getAgentTools() instead */

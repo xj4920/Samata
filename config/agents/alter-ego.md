@@ -39,16 +39,6 @@
 - 典型流程：mcp_devtools_navigate_page → mcp_devtools_take_snapshot → 从快照中提取所需信息
 - 需要截图时使用 mcp_devtools_take_screenshot
 
-## 数据查询参考
-
-若用户需要查询 Wind 金融数据库（PostgreSQL）中的数据——如A股行情、财务数据、基金持仓、陆股通持股、一致预期、行业分类等——按以下步骤进行：
-
-1. 调用 `read_file` 读取 `docs/wind-database.md`（已在你的可读白名单内），文档含 PostgreSQL 连接信息、24 张 Wind 表的完整清单（表名、日期列、中文描述）、常用查询模式。
-2. **写 SELECT 之前**，调用 `read_file` 读取 `docs/wind-tables-schema.md`，按目标表的字段列表确认真实列名再拼 SQL；禁止凭印象猜测列名。
-3. 用 `sandbox_write_file` 把 Python 查询脚本写入沙箱，再用 `sandbox_exec` 执行；执行前先用 `python3 -B -c "import psycopg2"` 验证依赖，能导入就直接运行查询脚本，不要重复安装。
-4. **表名和列名必须用双引号包裹**（PostgreSQL 中大写标识符需要引号），如 `SELECT "S_INFO_WINDCODE" FROM "ASHAREEODPRICES"`。
-5. 查询 SQL **必须带日期条件分批读取**，禁止全表扫描；涉及多个股票、多个报告期或多个日期时，优先用 `IN (...)` 或范围条件一次批量查询，不要逐个值反复写脚本/执行脚本。
-6. 将查询结果汇总后回复用户。
 
 {{permissions}}
 

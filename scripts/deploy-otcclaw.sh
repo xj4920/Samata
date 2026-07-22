@@ -6,141 +6,144 @@ cd "$ROOT_DIR"
 
 usage() {
   cat <<'USAGE'
-Usage: bash scripts/deploy-otcclaw.sh [deploy|pull|up]
+Usage: bash scripts/deploy-otcclaw.sh [render|pull|up|deploy]
 
-Deploy OtcClaw with the self-hosted Langfuse stack from dockertest images.
+Renders the production docker-compose.yml template and operates only on the
+generated file. The source template is never overwritten.
 
-Required:
-  OTCCLAW_IMAGE_TAG       OtcClaw image tag, for example v3.0.21-0706151315996
-
-Common overrides:
-  OTCCLAW_IMAGE_REPO      OtcClaw image repository, default: dockertest.gf.com.cn/titans/otcclaw
-  SAMATA_DEPLOY_ROOT      Runtime config/data/log root, default: /opt/samata
-  LANGFUSE_ENV_FILE       Langfuse env file, default: .env.langfuse
-  LANGFUSE_IMAGE_PREFIX   Langfuse image prefix, default: dockertest.gf.com.cn/titans/otcclaw-langfuse
-  LANGFUSE_IMAGE_TAG      Langfuse web/worker tag, default: 3
-  OTCCLAW_WITH_WIND_SYNC  Add docker-compose.wind-sync.yml when set to 1/true/yes/on
+Inputs:
+  SAMATA_ENV_FILE           Samata render input, default: <repo>/.env
+  LANGFUSE_ENV_FILE         Langfuse render input, default: <repo>/.env.langfuse
+  DOCKER_REPO               Overrides .env DOCKER_REPO
+  IMAGE_VERSION             Overrides .env IMAGE_VERSION
 
 Examples:
-  docker login dockertest.gf.com.cn
-  OTCCLAW_IMAGE_TAG=v3.0.21-0706151315996 bash scripts/deploy-otcclaw.sh deploy
-  OTCCLAW_IMAGE_TAG=v3.0.21-0706151315996 OTCCLAW_WITH_WIND_SYNC=1 bash scripts/deploy-otcclaw.sh up
+  bash scripts/deploy-otcclaw.sh render
+  IMAGE_VERSION=v3.0.31-release bash scripts/deploy-otcclaw.sh deploy
+  # Read-only inspection of the generated runtime file:
+  cd /opt/samata && docker compose --env-file /dev/null config --quiet
 USAGE
 }
 
 command="${1:-deploy}"
 case "$command" in
-  deploy|pull|up) ;;
+  render|pull|up|deploy) ;;
   -h|--help|help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
 
-is_truthy() {
-  local value="${1,,}"
-  [[ "$value" =~ ^(1|true|yes|on)$ ]]
-}
+deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
+if [[ "$deploy_root" != "/opt/samata" ]]; then
+  printf 'SAMATA_DEPLOY_ROOT must be /opt/samata because production mounts are fixed in docker-compose.yml\n' >&2
+  exit 2
+fi
+compose_file="$deploy_root/docker-compose.yml"
+samata_env_file="${SAMATA_ENV_FILE:-$ROOT_DIR/.env}"
+langfuse_env_file="${LANGFUSE_ENV_FILE:-$ROOT_DIR/.env.langfuse}"
 
 require_file() {
   local path="$1"
   local help="$2"
   if [[ ! -f "$path" ]]; then
-    printf 'Missing required file: %s\n\n%s\n' "$path" "$help" >&2
+    printf 'Missing required file: %s\n%s\n' "$path" "$help" >&2
     exit 1
   fi
 }
 
-otcclaw_repo="${OTCCLAW_IMAGE_REPO:-dockertest.gf.com.cn/titans/otcclaw}"
-otcclaw_tag="${OTCCLAW_IMAGE_TAG:-}"
-deploy_root="${SAMATA_DEPLOY_ROOT:-/opt/samata}"
-langfuse_env_file="${LANGFUSE_ENV_FILE:-.env.langfuse}"
-langfuse_prefix="${LANGFUSE_IMAGE_PREFIX:-dockertest.gf.com.cn/titans/otcclaw-langfuse}"
-langfuse_tag="${LANGFUSE_IMAGE_TAG:-3}"
+prepare_runtime_root() {
+  require_file "$samata_env_file" "Copy .env.example to .env and fill production values."
+  require_file "$langfuse_env_file" "Copy .env.langfuse.example to .env.langfuse and fill production values."
+  require_file "$deploy_root/mcp-servers.json" \
+    "Copy config/mcp-servers.example.json to $deploy_root/mcp-servers.json."
+  mkdir -p "$deploy_root/data" "$deploy_root/logs" "$deploy_root/ssh"
+}
 
-if [[ -z "$otcclaw_tag" ]]; then
-  cat >&2 <<'EOF'
-OTCCLAW_IMAGE_TAG is required.
+acquire_deploy_lock() {
+  command -v flock >/dev/null 2>&1 || {
+    printf 'flock is required for deployment coordination\n' >&2
+    exit 1
+  }
+  [[ -d "$deploy_root" && ! -L "$deploy_root" ]] || {
+    printf 'Trusted deployment root is missing or is a symlink: %s\n' "$deploy_root" >&2
+    exit 1
+  }
+  exec 9<"$deploy_root"
+  flock -n 9 || {
+    printf 'Another Samata deployment or PostgreSQL migration is active\n' >&2
+    exit 1
+  }
+}
 
-Use the exact tag published by scripts/docker-samata.sh, for example:
-  OTCCLAW_IMAGE_TAG=v3.0.21-0706151315996 bash scripts/deploy-otcclaw.sh deploy
+require_postgres_data_directory() {
+  local postgres_data="$deploy_root/data/postgres"
+  if [[ ! -d "$postgres_data" || -L "$postgres_data" ]]; then
+    cat >&2 <<EOF
+PostgreSQL bind directory is not ready: $postgres_data
+
+Existing deployment with wind_sync_pg/samata:
+  bash scripts/migrate-samata-postgres.sh --execute
+
+Brand-new deployment with no Samata business data to migrate:
+  sudo install -d -m 0700 -o 999 -g 999 "$postgres_data"
+
+Then rerun this command. Do not recursively chown $deploy_root/data after the
+PostgreSQL directory has been created.
 EOF
-  exit 1
-fi
+    exit 1
+  fi
 
-export OTCCLAW_IMAGE_REPO="$otcclaw_repo"
-export OTCCLAW_IMAGE_TAG="$otcclaw_tag"
-export SAMATA_IMAGE_REPO="$otcclaw_repo"
-export SAMATA_IMAGE_TAG="$otcclaw_tag"
-export SAMATA_DEPLOY_ROOT="$deploy_root"
-export LANGFUSE_ENV_FILE="$langfuse_env_file"
-
-export LANGFUSE_WEB_IMAGE="${LANGFUSE_WEB_IMAGE:-${langfuse_prefix}:${langfuse_tag}}"
-export LANGFUSE_WORKER_IMAGE="${LANGFUSE_WORKER_IMAGE:-${langfuse_prefix}-worker:${langfuse_tag}}"
-export LANGFUSE_CLICKHOUSE_IMAGE="${LANGFUSE_CLICKHOUSE_IMAGE:-${langfuse_prefix}-clickhouse-server:latest}"
-export LANGFUSE_MINIO_IMAGE="${LANGFUSE_MINIO_IMAGE:-${langfuse_prefix}-minio:latest}"
-export LANGFUSE_REDIS_IMAGE="${LANGFUSE_REDIS_IMAGE:-${langfuse_prefix}-redis:7}"
-export LANGFUSE_POSTGRES_IMAGE="${LANGFUSE_POSTGRES_IMAGE:-${langfuse_prefix}-postgres:16}"
-
-compose=(docker compose --env-file "$langfuse_env_file" -f docker-compose.yml -f docker-compose.langfuse.yml)
-if is_truthy "${OTCCLAW_WITH_WIND_SYNC:-0}"; then
-  compose+=(-f docker-compose.wind-sync.yml)
-fi
-
-pull_images=(
-  "${OTCCLAW_IMAGE_REPO}:${OTCCLAW_IMAGE_TAG}"
-  "$LANGFUSE_WEB_IMAGE"
-  "$LANGFUSE_WORKER_IMAGE"
-  "$LANGFUSE_CLICKHOUSE_IMAGE"
-  "$LANGFUSE_MINIO_IMAGE"
-  "$LANGFUSE_REDIS_IMAGE"
-  "$LANGFUSE_POSTGRES_IMAGE"
-)
-
-pull_all_images() {
-  for image in "${pull_images[@]}"; do
-    echo "==> docker pull $image"
-    docker pull "$image"
-  done
+  local ownership
+  ownership="$(stat -c '%u:%g:%a' "$postgres_data")"
+  if [[ "$ownership" != "999:999:700" ]]; then
+    printf 'PostgreSQL bind directory must be 999:999 mode 0700; got %s for %s\n' \
+      "$ownership" "$postgres_data" >&2
+    exit 1
+  fi
 }
 
-validate_runtime_files() {
-  require_file "$deploy_root/.env" "Prepare it from .env.example, then fill production secrets."
-  require_file "$deploy_root/mcp-servers.json" "Prepare it from config/mcp-servers.example.json."
-  require_file "$langfuse_env_file" "Prepare it from .env.langfuse.example, then fill Langfuse secrets."
-  mkdir -p "$deploy_root/data" "$deploy_root/logs"
+render_compose() {
+  prepare_runtime_root
+  acquire_deploy_lock
+  local args=(
+    node scripts/render-local-compose.mjs
+    --source "$ROOT_DIR/docker-compose.yml"
+    --output "$compose_file"
+    --env-file "$samata_env_file"
+    --env-file "$langfuse_env_file"
+  )
+  if [[ -n "${DOCKER_REPO:-}" ]]; then args+=(--docker-repo "$DOCKER_REPO"); fi
+  if [[ -n "${IMAGE_VERSION:-}" ]]; then args+=(--image-version "$IMAGE_VERSION"); fi
+  "${args[@]}"
 }
 
-start_services() {
-  validate_runtime_files
-  "${compose[@]}" up -d --no-build \
-    langfuse-postgres \
-    langfuse-clickhouse \
-    langfuse-redis \
-    langfuse-minio \
-    langfuse-worker \
-    langfuse-web \
-    otcclaw
-}
+render_compose
 
 case "$command" in
+  render)
+    ;;
   pull)
-    pull_all_images
+    docker compose --env-file /dev/null --file "$compose_file" pull
     ;;
   up)
-    start_services
+    require_postgres_data_directory
+    docker compose --env-file /dev/null --file "$compose_file" up -d --no-build
     ;;
   deploy)
-    pull_all_images
-    start_services
+    docker compose --env-file /dev/null --file "$compose_file" pull
+    require_postgres_data_directory
+    docker compose --env-file /dev/null --file "$compose_file" up -d --no-build
     ;;
 esac
 
 cat <<EOF
-OtcClaw deployment images:
-  ${OTCCLAW_IMAGE_REPO}:${OTCCLAW_IMAGE_TAG}
-  ${LANGFUSE_WEB_IMAGE}
-  ${LANGFUSE_WORKER_IMAGE}
-  ${LANGFUSE_CLICKHOUSE_IMAGE}
-  ${LANGFUSE_MINIO_IMAGE}
-  ${LANGFUSE_REDIS_IMAGE}
-  ${LANGFUSE_POSTGRES_IMAGE}
+Generated production compose:
+  $compose_file
+
+Read-only generated-config inspection:
+  cd $deploy_root
+  docker compose --env-file /dev/null config --quiet
+
+For later starts, run this repository entrypoint again with "up" so it acquires
+the shared deployment lock. Direct Compose is reserved for an exclusive
+maintenance window and must never overlap a migration or repository deploy.
 EOF

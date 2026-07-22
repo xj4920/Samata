@@ -37,12 +37,12 @@ describe('list_directory allowlist guard', () => {
     );
   }
 
-  it('allows directories covered by the agent file allowlist', async () => {
+  it('rejects the removed Wind documentation directory', async () => {
     const result = await listAs('ticlaw', 'user', 'docs/wind-tables');
     const parsed = JSON.parse(result as string);
 
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed.some((entry: any) => entry.name === 'ASHAREEODPRICES.md')).toBe(true);
+    expect(parsed.error).toMatch(/list_directory 拒绝/);
+    expect(parsed.error).toMatch(/不在 ticlaw 的可读白名单/);
   });
 
   it('rejects directories outside the agent file allowlist', async () => {

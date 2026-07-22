@@ -1,0 +1,9 @@
+services:
+  otcclaw:
+    image: '${DOCKER_REPO:-local}/titans/otcclaw:${IMAGE_VERSION:-latest}'
+    build:
+      context: ..
+      dockerfile: samata/Dockerfile
+      args:
+        SAMATA_VERSION: '${SAMATA_VERSION:-unknown}'
+        SAMATA_COMMIT: '${SAMATA_COMMIT:-unknown}'

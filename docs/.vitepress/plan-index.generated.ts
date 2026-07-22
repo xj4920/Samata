@@ -37,6 +37,32 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "场景回归耗时统计修复",
+      "link": "/plan/2026-07-22_scenario-regression-duration",
+      "sourcePath": "docs/plan/2026-07-22_scenario-regression-duration.md",
+      "sortKey": "2026-07-22_scenario-regression-duration.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
+      "title": "Samata 移除 Wind DB 依赖",
+      "link": "/plan/2026-07-22_remove-wind-db-dependency",
+      "sourcePath": "docs/plan/2026-07-22_remove-wind-db-dependency.md",
+      "sortKey": "2026-07-22_remove-wind-db-dependency.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/external-data/",
+        "/permissions/file-and-sandbox-allowlist"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "Samata 场景回归评测体系",
       "link": "/plan/2026-07-21_scenario-regression-evaluation",
       "sourcePath": "docs/plan/2026-07-21_scenario-regression-evaluation.md",
@@ -48,6 +74,41 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
         "/platform/observability"
       ],
       "topic": "场景回归评测"
+    },
+    {
+      "title": "场景回归首批 Case 初始化",
+      "link": "/plan/2026-07-21_scenario-regression-case-seed",
+      "sourcePath": "docs/plan/2026-07-21_scenario-regression-case-seed.md",
+      "sortKey": "2026-07-21_scenario-regression-case-seed.md",
+      "date": "2026-07-21",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
+      "title": "本地生产 Compose 对齐与 Samata PostgreSQL 迁移",
+      "link": "/plan/2026-07-17_local-production-compose-postgres-migration",
+      "sourcePath": "docs/plan/2026-07-17_local-production-compose-postgres-migration.md",
+      "sortKey": "2026-07-17_local-production-compose-postgres-migration.md",
+      "date": "2026-07-17",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "CLI 用户列表按创建时间倒序展示",
+      "link": "/plan/2026-07-10_user-list-created-at-order",
+      "sourcePath": "docs/plan/2026-07-10_user-list-created-at-order.md",
+      "sortKey": "2026-07-10_user-list-created-at-order.md",
+      "date": "2026-07-10",
+      "status": "implemented",
+      "canonicalDocs": [],
+      "topic": "用户与权限"
     },
     {
       "title": "企微通讯录 API 身份识别 TODO",
@@ -1034,6 +1095,33 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "资源作用域"
     },
     {
+      "title": "Samata 移除 Wind DB 依赖",
+      "link": "/plan/2026-07-22_remove-wind-db-dependency",
+      "sourcePath": "docs/plan/2026-07-22_remove-wind-db-dependency.md",
+      "sortKey": "2026-07-22_remove-wind-db-dependency.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/external-data/",
+        "/permissions/file-and-sandbox-allowlist"
+      ],
+      "topic": "文件与沙箱白名单"
+    },
+    {
+      "title": "本地生产 Compose 对齐与 Samata PostgreSQL 迁移",
+      "link": "/plan/2026-07-17_local-production-compose-postgres-migration",
+      "sourcePath": "docs/plan/2026-07-17_local-production-compose-postgres-migration.md",
+      "sortKey": "2026-07-17_local-production-compose-postgres-migration.md",
+      "date": "2026-07-17",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/permissions/tool-access"
+      ],
+      "topic": "工具可见性"
+    },
+    {
       "title": "otcclaw 常速持仓明细工具注册",
       "link": "/plan/2026-06-30_otcclaw-normal-position-details-tools",
       "sourcePath": "docs/plan/2026-06-30_otcclaw-normal-position-details-tools.md",
@@ -1131,7 +1219,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "date": "2026-05-08",
       "status": "implemented",
       "canonicalDocs": [
-        "/external-data/wind-sandbox",
+        "/external-data/",
         "/permissions/file-and-sandbox-allowlist"
       ],
       "topic": "文件与沙箱白名单"
@@ -1145,7 +1233,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "status": "implemented",
       "canonicalDocs": [
         "/permissions/file-and-sandbox-allowlist",
-        "/external-data/wind-sandbox"
+        "/external-data/"
       ],
       "topic": "文件与沙箱白名单"
     },
@@ -1560,6 +1648,20 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
   ],
   "external-data": [
     {
+      "title": "Samata 移除 Wind DB 依赖",
+      "link": "/plan/2026-07-22_remove-wind-db-dependency",
+      "sourcePath": "docs/plan/2026-07-22_remove-wind-db-dependency.md",
+      "sortKey": "2026-07-22_remove-wind-db-dependency.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment",
+        "/external-data/",
+        "/permissions/file-and-sandbox-allowlist"
+      ],
+      "topic": "数据源退役"
+    },
+    {
       "title": "公司行为提醒定时任务边界对齐",
       "link": "/plan/2026-06-30_corporate-action-query-tool-boundary",
       "sourcePath": "docs/plan/2026-06-30_corporate-action-query-tool-boundary.md",
@@ -1579,8 +1681,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "date": "2026-06-12",
       "status": "implemented",
       "canonicalDocs": [
-        "/external-data/wind-postgres",
-        "/external-data/wind-tables"
+        "/external-data/"
       ],
       "topic": "Wind PostgreSQL"
     },
@@ -1592,7 +1693,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "date": "2026-06-11",
       "status": "implemented",
       "canonicalDocs": [
-        "/external-data/wind-postgres"
+        "/external-data/"
       ],
       "topic": "Wind PostgreSQL"
     },
@@ -1691,7 +1792,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "date": "2026-05-08",
       "status": "implemented",
       "canonicalDocs": [
-        "/external-data/wind-postgres"
+        "/external-data/"
       ],
       "topic": "Wind PostgreSQL"
     },
@@ -1703,7 +1804,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "date": "2026-05-08",
       "status": "implemented",
       "canonicalDocs": [
-        "/external-data/wind-sandbox",
+        "/external-data/",
         "/permissions/file-and-sandbox-allowlist"
       ],
       "topic": "Wind 与沙箱"
@@ -1793,7 +1894,7 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "status": "implemented",
       "canonicalDocs": [
         "/permissions/file-and-sandbox-allowlist",
-        "/external-data/wind-sandbox"
+        "/external-data/"
       ],
       "topic": "Wind 与沙箱"
     },
@@ -1953,10 +2054,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
 
 export const uncategorizedPlanItems: PlanIndexItem[] = [
   {
+    "title": "OTCCLAW “拟解决的问题与目前实际情况”单页材料",
+    "link": "/plan/2026-07-20_otcclaw-problem-actual-status-html",
+    "sourcePath": "docs/plan/2026-07-20_otcclaw-problem-actual-status-html.md",
+    "sortKey": "2026-07-20_otcclaw-problem-actual-status-html.md",
+    "date": "2026-07-20",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
     "title": "企微 JSON 控制字符解析修复",
     "link": "/plan/2026-07-09_wework-json-control-char",
     "sourcePath": "docs/plan/2026-07-09_wework-json-control-char.md",
     "sortKey": "2026-07-09_wework-json-control-char.md",
+    "date": "2026-07-09",
+    "status": "unknown",
+    "canonicalDocs": [],
+    "topic": "未分类"
+  },
+  {
+    "title": "Plugin Sandbox Root Context",
+    "link": "/plan/2026-07-09_plugin-sandbox-root-context",
+    "sourcePath": "docs/plan/2026-07-09_plugin-sandbox-root-context.md",
+    "sortKey": "2026-07-09_plugin-sandbox-root-context.md",
     "date": "2026-07-09",
     "status": "unknown",
     "canonicalDocs": [],

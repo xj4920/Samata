@@ -11,7 +11,7 @@ status: archived
 
 The sandbox (`sandbox_exec` tool) lets the otcclaw agent run Python scripts to query the Wind financial database. Currently:
 - Uses `oracledb` Python library connecting to Oracle at `10.2.89.132:1521/winddb`
-- Connection details live in [`docs/oracle-wind-database.md`](../oracle-wind-database.md)
+- Connection details originally lived in `docs/oracle-wind-database.md`; that active document was removed when Samata retired Wind DB access on 2026-07-22.
 - Agent prompt references Oracle in `config/agents/otcclaw.md` (lines 82-91)
 - Tool description in [`src/tools/sandbox-tools.ts`](../../src/tools/sandbox-tools.ts) (line 50) lists `oracledb` as pre-installed
 - Schema metadata in [`docs/wind-schema.json`](../wind-schema.json) remains valid (column names are the same in PG)

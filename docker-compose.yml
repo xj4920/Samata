@@ -1,50 +1,290 @@
-x-samata-build: &samata-build
-  context: ..
-  dockerfile: samata/Dockerfile
-  args:
-    SAMATA_VERSION: ${SAMATA_VERSION:-unknown}
-    SAMATA_COMMIT: ${SAMATA_COMMIT:-unknown}
+# Production template. Keep every production placeholder intact in Git.
+# Local runs must render this file to /opt/samata/docker-compose.yml first.
+
+x-langfuse-environment: &langfuse-environment
+  NEXTAUTH_URL: '{{string "NEXTAUTH_URL"}}'
+  DATABASE_URL: 'postgresql://langfuse:{{string "LANGFUSE_POSTGRES_PASSWORD"}}@langfuse-postgres:5432/langfuse'
+  SALT: '{{string "SALT"}}'
+  ENCRYPTION_KEY: '{{string "ENCRYPTION_KEY"}}'
+  TELEMETRY_ENABLED: 'false'
+  CLICKHOUSE_MIGRATION_URL: 'clickhouse://langfuse-clickhouse:9000'
+  CLICKHOUSE_URL: 'http://langfuse-clickhouse:8123'
+  CLICKHOUSE_USER: 'clickhouse'
+  CLICKHOUSE_PASSWORD: '{{string "CLICKHOUSE_PASSWORD"}}'
+  CLICKHOUSE_CLUSTER_ENABLED: 'false'
+  LANGFUSE_USE_AZURE_BLOB: 'false'
+  LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE: 'false'
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: 'langfuse'
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: 'auto'
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: 'minio'
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: '{{string "MINIO_ROOT_PASSWORD"}}'
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: 'http://langfuse-minio:9000'
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: 'events/'
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: 'langfuse'
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: 'auto'
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: 'minio'
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: '{{string "MINIO_ROOT_PASSWORD"}}'
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: 'http://langfuse-minio:9000'
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: 'media/'
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: 'false'
+  REDIS_HOST: 'langfuse-redis'
+  REDIS_PORT: '6379'
+  REDIS_AUTH: '{{string "REDIS_AUTH"}}'
 
 services:
   otcclaw:
-    build: *samata-build
-    image: ${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}:${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-latest}}
+    image: '{{string "docker_repo"}}/titans/otcclaw:{{string "image_version"}}'
     container_name: otcclaw
     restart: unless-stopped
+    depends_on:
+      samata-postgres-init:
+        condition: service_completed_successfully
+      langfuse-web:
+        condition: service_started
     dns:
       - 10.55.66.66
       - 10.80.66.66
       - 8.8.8.8
     environment:
-      NODE_ENV: uat
-      TZ: Asia/Chongqing
-      CLI_API_HOST: 0.0.0.0
-      CLI_API_PORT: 3457
-      SAMATA_PLUGINS_DIR: /app/plugins,/app/work-plugins
-      PROVIDER_SUMMARY: custom
-      MODEL_SUMMARY: external-deepseek-v4-pro
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
-      HEDGE_RATIO_BOOTSTRAP_PYTHON: python3
+      NODE_ENV: 'uat'
+      TZ: 'Asia/Chongqing'
+      CLI_API_HOST: '0.0.0.0'
+      CLI_API_PORT: '3457'
+      SAMATA_PLUGINS_DIR: '/app/plugins,/app/work-plugins'
+      LLM_PROVIDER: 'custom'
+      CUSTOM_API_KEY: '{{string "CUSTOM_API_KEY"}}'
+      CUSTOM_BASE_URL: '{{string "CUSTOM_BASE_URL"}}'
+      CUSTOM_MODEL: '{{string "CUSTOM_MODEL"}}'
+      CUSTOM_VISION_MODEL: '{{string "CUSTOM_VISION_MODEL"}}'
+      SHOW_THINKING: 'false'
+      MAX_TOOL_ROUNDS: '30'
+      DEFAULT_AGENT: 'otcclaw'
+      PROVIDER_SUMMARY: 'custom'
+      MODEL_SUMMARY: 'external-deepseek-v4-pro'
+      SERPER_API_KEY: '{{string "SERPER_API_KEY"}}'
+      SAMATA_DISABLED_TOOLS: 'generate_image,generate_video'
+      SFTP_HOST: '{{string "SFTP_HOST"}}'
+      SFTP_PORT: '22'
+      SFTP_USER: '{{string "SFTP_USER"}}'
+      SFTP_PASSWORD: '{{string "SFTP_PASSWORD"}}'
+      SFTP_FAST_TRADES_REMOTE_BASE: '/EQDHK_internal/data/FastTrading/trades'
+      SFTP_NORMAL_TRADES_REMOTE_BASE: '/EQDHK_internal/data/NormalTrading/trades'
+      SFTP_NORMAL_SUMMARY_REMOTE_BASE: '/EQDHK_internal/data/NormalTrading/summary'
+      SFTP_NORMAL_POSITION_DETAILS_REMOTE_BASE: '/EQDHK_internal/data/NormalTrading/details'
+      SFTP_FAST_SUMMARY_REMOTE_BASE: '/EQDHK_internal/data/FastTrading/summary'
+      SFTP_CORPORATE_ACTION_REMOTE_BASE: '/EQDHK_internal/data/CorporateActionAlert'
+      SFTP_SBL_REMOTE_BASE: '/EQDHK_internal/data/SBL'
+      SFTP_HEDGE_ENABLED: 'true'
+      SFTP_HEDGE_REMOTE_BASE: '/EQDHK_internal/data/QFII/'
+      HEDGE_RATIO_EMAIL_ADDRESS: '{{string "HEDGE_RATIO_EMAIL_ADDRESS"}}'
+      HEDGE_RATIO_EMAIL_PASSWORD: '{{string "HEDGE_RATIO_EMAIL_PASSWORD"}}'
+      HEDGE_RATIO_EMAIL_IMAP_SERVER: '{{string "HEDGE_RATIO_EMAIL_IMAP_SERVER"}}'
+      HEDGE_RATIO_EMAIL_IMAP_PORT: '{{string "HEDGE_RATIO_EMAIL_IMAP_PORT"}}'
+      TICLAW_LOGYI_BASE_URL: 'http://log.gf.com.cn'
+      TICLAW_LOGYI_USERNAME: '许骏_ldap'
+      TICLAW_LOGYI_API_KEY: '{{string "LOGYI_API_KEY"}}'
+      OTCMSCLAW_LOGYI_BASE_URL: 'http://log.gf.com.cn'
+      OTCMSCLAW_LOGYI_USERNAME: '许骏_ldap'
+      OTCMSCLAW_LOGYI_API_KEY: '{{string "LOGYI_API_KEY"}}'
+      LOG_PG_HOST: 'langfuse-postgres'
+      LOG_PG_PORT: '5432'
+      LOG_PG_USER: 'samata_app'
+      LOG_PG_PASS: '{{string "SAMATA_POSTGRES_PASSWORD"}}'
+      LOG_PG_DB: 'samata'
+      LANGFUSE_ENABLED: 'true'
+      LANGFUSE_BASE_URL: 'http://langfuse-web:3000'
+      LANGFUSE_PUBLIC_KEY: '{{string "LANGFUSE_PUBLIC_KEY"}}'
+      LANGFUSE_SECRET_KEY: '{{string "LANGFUSE_SECRET_KEY"}}'
+      LANGFUSE_TRACING_ENVIRONMENT: 'production'
+      LANGFUSE_CAPTURE_CONTENT: 'false'
+      LANGFUSE_CAPTURE_SYSTEM_PROMPT: 'false'
+      LANGFUSE_EXPORT_MODE: 'batched'
+      HEDGE_RATIO_BOOTSTRAP_PYTHON: 'python3'
     ports:
-      - "3457:3457"
+      - '3457:3457'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          const port=process.env.CLI_API_PORT||'3457';
+          fetch('http://127.0.0.1:'+port+'/health')
+            .then(response=>process.exit(response.ok?0:1))
+            .catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     volumes:
-      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/.env:/app/samata/.env:ro
       - type: bind
-        source: ${SAMATA_DEPLOY_ROOT:-/opt/samata}/mcp-servers.json
+        source: /opt/samata/mcp-servers.json
         target: /app/samata/config/mcp-servers.json
         read_only: true
         bind:
           create_host_path: false
-      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/data:/app/samata/data
-      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/logs:/app/samata/logs
-      - ${SAMATA_DEPLOY_ROOT:-/opt/samata}/ssh:/home/node/.ssh:ro
+      - type: bind
+        source: /opt/samata/data
+        target: /app/samata/data
+      - type: volume
+        source: otcclaw_postgres_guard
+        target: /app/samata/data/postgres
+        read_only: true
+        volume:
+          nocopy: true
+      - /opt/samata/logs:/app/samata/logs
+      - /opt/samata/ssh:/home/node/.ssh:ro
 
-  docs:
-    build: *samata-build
-    image: ${OTCCLAW_IMAGE_REPO:-${SAMATA_IMAGE_REPO:-otcclaw}}:${OTCCLAW_IMAGE_TAG:-${SAMATA_IMAGE_TAG:-latest}}
-    container_name: otcclaw-docs
-    profiles:
-      - docs
-    command: ["npm", "run", "docs:dev", "--", "--host", "0.0.0.0"]
+
+  samata-postgres-init:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-postgres:16'
+    container_name: otcclaw-samata-postgres-init
+    restart: 'no'
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: '{{string "LANGFUSE_POSTGRES_PASSWORD"}}'
+      SAMATA_POSTGRES_USER: 'samata_app'
+      SAMATA_POSTGRES_PASSWORD: '{{string "SAMATA_POSTGRES_PASSWORD"}}'
+      SAMATA_POSTGRES_DATABASE: 'samata'
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        psql -X -h langfuse-postgres -U langfuse -d postgres \
+          -v ON_ERROR_STOP=1 \
+          -v app_user="$${SAMATA_POSTGRES_USER}" \
+          -v app_password="$${SAMATA_POSTGRES_PASSWORD}" \
+          -v app_database="$${SAMATA_POSTGRES_DATABASE}" <<'SQL'
+        SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+        WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user')
+        \gexec
+        SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'app_user', :'app_password')
+        \gexec
+        SELECT format('CREATE DATABASE %I OWNER %I', :'app_database', :'app_user')
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'app_database')
+        \gexec
+        SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'app_database', :'app_user')
+        \gexec
+        SQL
+
+  langfuse-worker:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-worker:3'
+    container_name: otcclaw-langfuse-worker
+    restart: unless-stopped
+    depends_on: &langfuse-depends-on
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment: *langfuse-environment
+
+  langfuse-web:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse:3'
+    container_name: otcclaw-langfuse
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
     ports:
-      - "5173:5173"
+      - '127.0.0.1:3001:3000'
+    environment:
+      <<: *langfuse-environment
+      NEXTAUTH_SECRET: '{{string "NEXTAUTH_SECRET"}}'
+      LANGFUSE_INIT_ORG_ID: 'samata'
+      LANGFUSE_INIT_ORG_NAME: 'Samata'
+      LANGFUSE_INIT_PROJECT_ID: 'samata-production'
+      LANGFUSE_INIT_PROJECT_NAME: 'Samata Production'
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: '{{string "LANGFUSE_PUBLIC_KEY"}}'
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: '{{string "LANGFUSE_SECRET_KEY"}}'
+      LANGFUSE_INIT_USER_EMAIL: 'admin@samata.local'
+      LANGFUSE_INIT_USER_NAME: 'Samata Admin'
+      LANGFUSE_INIT_USER_PASSWORD: '{{string "LANGFUSE_INIT_USER_PASSWORD"}}'
+
+  langfuse-clickhouse:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-clickhouse-server:latest'
+    container_name: otcclaw-langfuse-clickhouse-server
+    restart: unless-stopped
+    user: '101:101'
+    environment:
+      CLICKHOUSE_DB: 'default'
+      CLICKHOUSE_USER: 'clickhouse'
+      CLICKHOUSE_PASSWORD: '{{string "CLICKHOUSE_PASSWORD"}}'
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8123/ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  langfuse-minio:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-minio:latest'
+    container_name: otcclaw-langfuse-minio
+    restart: unless-stopped
+    entrypoint: ['sh', '-ec']
+    command:
+      - 'mkdir -p /data/langfuse && exec minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: 'minio'
+      MINIO_ROOT_PASSWORD: '{{string "MINIO_ROOT_PASSWORD"}}'
+    ports:
+      - '127.0.0.1:9090:9000'
+      - '127.0.0.1:9091:9001'
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  langfuse-redis:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-redis:7'
+    container_name: otcclaw-langfuse-redis
+    restart: unless-stopped
+    command: ['sh', '-c', 'redis-server --requirepass "$${REDIS_AUTH}"']
+    environment:
+      REDIS_AUTH: '{{string "REDIS_AUTH"}}'
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '$$REDIS_AUTH', 'ping']
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  langfuse-postgres:
+    image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-postgres:16'
+    container_name: otcclaw-langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: 'langfuse'
+      POSTGRES_PASSWORD: '{{string "LANGFUSE_POSTGRES_PASSWORD"}}'
+      POSTGRES_DB: 'langfuse'
+    volumes:
+      - type: bind
+        source: /opt/samata/data/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U langfuse -d langfuse']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  otcclaw_postgres_guard:
+    name: otcclaw_prod_postgres_guard_v1
+  langfuse_clickhouse_data:
+    name: otcclaw_prod_langfuse_clickhouse_data_v1
+  langfuse_clickhouse_logs:
+    name: otcclaw_prod_langfuse_clickhouse_logs_v1
+  langfuse_minio_data:
+    name: otcclaw_prod_langfuse_minio_data_v1

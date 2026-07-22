@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolContext } from '../llm/agents/config.js';
+import { disabledToolResult, isToolDisabled } from '../runtime/tool-policy.js';
 
 import * as knowledgeTools from './knowledge-tools.js';
 import * as skillTools from './skill-tools.js';
@@ -68,6 +69,7 @@ export function getToolCategoryMap(): Map<string, string> {
 }
 
 export async function executeNativeTool(name: string, input: any, ctx: ToolContext = {}): Promise<string> {
+  if (isToolDisabled(name)) return disabledToolResult(name);
   for (const m of modules) {
     const result = await m.handleTool(name, input, ctx);
     if (result !== null) return result;

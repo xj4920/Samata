@@ -1073,11 +1073,11 @@ async function writeToPostgres(
   agentNameMap: Map<string, string>,
   userNameMap: Map<string, string>,
 ): Promise<void> {
-  const pgHost = process.env.LOG_PG_HOST || '127.0.0.1';
+  const pgHost = process.env.LOG_PG_HOST || 'langfuse-postgres';
   const pgPort = Number(process.env.LOG_PG_PORT) || 5432;
-  const pgUser = process.env.LOG_PG_USER || 'wind_sync';
-  const pgPass = process.env.LOG_PG_PASS || 'wind_sync';
-  const pgDb = process.env.LOG_PG_DB || 'samata';
+  const pgUser = process.env.LOG_PG_USER || process.env.SAMATA_POSTGRES_USER || 'samata_app';
+  const pgPass = process.env.LOG_PG_PASS || process.env.SAMATA_POSTGRES_PASSWORD || '';
+  const pgDb = process.env.LOG_PG_DB || process.env.SAMATA_POSTGRES_DATABASE || 'samata';
 
   // Dynamic require via createRequire for ESM compat
   const { Client } = nodeRequire('pg');

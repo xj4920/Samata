@@ -8,6 +8,7 @@ import { log } from '../../utils/logger.js';
 import { getExecutionChannel, getContextAgent } from '../../runtime/execution-context.js';
 import { getPluginTools, getUniversalPluginTools } from '../../plugins/registry.js';
 import { getMcpTools, isMcpToolAllowedForAgent } from '../../services/mcp-manager.js';
+import { filterDisabledTools } from '../../runtime/tool-policy.js';
 
 /**
  * Base tool set shared by all agents in 'standard' mode.
@@ -402,6 +403,7 @@ function applyChannelToolRestrictions(tools: Anthropic.Tool[]): Anthropic.Tool[]
  *   'all'        → all global tools (bypass agent layer)
  *
  * Layer 3 — UNIVERSAL_TOOLS always added, CLI_ONLY_TOOLS filtered on non-CLI channels.
+ * Layer 4 — runtime-disabled tools are removed last and cannot be re-added.
  */
 export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[], isAdmin = true): Anthropic.Tool[] {
   // Step 1: compute agent effective tool names
@@ -451,7 +453,7 @@ export function getAgentTools(agent: AgentConfig, globalTools: Anthropic.Tool[],
   // Step 3: universal tools always available + channel restrictions
   for (const u of UNIVERSAL_TOOLS) effectiveNames.add(u);
   const filtered = globalTools.filter(t => effectiveNames.has(t.name));
-  return applyChannelToolRestrictions(filtered);
+  return filterDisabledTools(applyChannelToolRestrictions(filtered));
 }
 
 // --- Agent Assignment (channel/target → agent) ---

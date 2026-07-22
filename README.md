@@ -125,24 +125,41 @@ Docker 空白部署：
 #   samata-plugins/
 #   samata-plugin-work/
 
-sudo mkdir -p /opt/samata/data /opt/samata/logs
-sudo chown -R "$USER:$USER" /opt/samata
-cp .env.example /opt/samata/.env
-chmod 600 /opt/samata/.env
-# 编辑 /opt/samata/.env，配置 LLM、插件目录、外部数据与观测端点
+sudo install -d -m 0775 -o "$USER" -g "$(id -gn)" \
+  /opt/samata /opt/samata/data /opt/samata/logs
+sudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /opt/samata/ssh
+# 仅限无历史业务数据的全新部署；已有旧 Samata 业务库时改用迁移脚本创建。
+sudo install -d -m 0700 -o 999 -g 999 /opt/samata/data/postgres
+cp .env.example .env
+cp .env.langfuse.example .env.langfuse
+chmod 600 .env .env.langfuse
+cp config/mcp-servers.example.json /opt/samata/mcp-servers.json
+chmod 600 /opt/samata/mcp-servers.json
+# 编辑 .env 与 .env.langfuse；它们只用于生成 Compose，不挂载进容器。
 
-npm run docker:otcclaw:build
 npm run docker:otcclaw:up
 curl http://127.0.0.1:3457/health
 ```
 
-Docker Compose 对外服务名和容器名为 `otcclaw`，内部应用路径仍是 `/app/samata`。默认从 `/opt/samata/.env` 只读挂载生产配置，并把运行数据、日志写到 `/opt/samata/data`、`/opt/samata/logs`；如需换目录，可设置 `SAMATA_DEPLOY_ROOT`。
+仓库 `docker-compose.yml` 是带 `{{string "..."}}` 的生产平台模板，不可直接运行。
+`npm run compose:render` 会读取仓库本地 `.env`、`.env.langfuse`，校验后原子生成
+`/opt/samata/docker-compose.yml`。生成文件包含 OtcClaw 和完整 Langfuse 栈，不包含
+docs；运行时不挂载 `.env`。PostgreSQL 使用
+`/opt/samata/data/postgres:/var/lib/postgresql/data`，OtcClaw 的 data、logs、SSH 和 MCP
+挂载也全部固定在同一 Compose 中。OtcClaw 内部再用只读空卷遮蔽
+`/app/samata/data/postgres`，避免入口脚本访问或递归改权 PGDATA。PGDATA 创建后不要再对
+`/opt/samata/data` 执行递归 `chown`。
+
+生成文件可以在 `/opt/samata` 直接执行 Docker Compose；但直接命令不参与仓库脚本的
+共享部署锁，迁移、`deploy-otcclaw.sh` 或 `docker-samata.sh up` 正在运行时禁止并发
+执行。`docker-samata.sh build/push/prune` 只操作镜像，不持有运行时部署锁。日常部署
+优先使用仓库脚本入口。
 
 发布 OtcClaw 镜像前，先把当前运行数据生成 baseline。SQLite baseline 是完整运行库克隆，包含 bot secret、成员绑定、memory、knowledge、documents 和 telemetry；data files baseline 会打包 `documents/`、`wiki/`、`plugins/`、`dreams/`，用于全新部署目录首次启动时恢复 agent 文件数据。两类 baseline 都只允许进入受控 Docker registry，不提交到 Git：
 
 ```bash
 npm run baseline:refresh
-OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:push
+DOCKER_REPO=dockertest.gf.com.cn npm run docker:otcclaw:push
 ```
 
 默认推送 tag 对齐 Code 制品库版本格式：`v<package.version>-<MMddHHmmssSSS>`，例如 `v3.0.21-0706151315996`。如需额外兼容旧部署入口，可设置 `OTCCLAW_PUSH_ALIASES=1` 同时推送 `<package.version>` 和 `latest` 别名。
@@ -151,9 +168,11 @@ OTCCLAW_IMAGE_REPO=dockertest.gf.com.cn/titans/otcclaw npm run docker:otcclaw:pu
 
 ```bash
 docker login dockertest.gf.com.cn
+cp .env.example .env
 cp .env.langfuse.example .env.langfuse
-# 编辑 /opt/samata/.env、/opt/samata/mcp-servers.json 和 .env.langfuse
-OTCCLAW_IMAGE_TAG=v<package.version>-<MMddHHmmssSSS> npm run docker:otcclaw:deploy
+# 编辑 .env、.env.langfuse 和 /opt/samata/mcp-servers.json
+# 全新部署先按上文创建 PGDATA；已有 wind_sync_pg/samata 先 render 并执行迁移脚本。
+IMAGE_VERSION=v<package.version>-<MMddHHmmssSSS> npm run docker:otcclaw:deploy
 ```
 
 如果 Docker build 拉取基础镜像时报 `proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`，说明 Docker daemon 配置了本机代理但该端口没有服务。检查 `/etc/systemd/system/docker.service.d/http-proxy.conf`，启动本机代理、改成可达代理，或移除 daemon 代理配置后重启 Docker。
@@ -299,29 +318,22 @@ npm run stop         # 停止 screen 守护进程
 
 ### 本地 Langfuse
 
-`docker-compose.langfuse.yml` 提供本地 Langfuse self-host 部署，默认只监听 `127.0.0.1`：
+Langfuse 已合并进生产模板，默认只监听 `127.0.0.1:3001`：
 
 ```bash
 cp .env.langfuse.example .env.langfuse
-# 修改 .env.langfuse 中的 change-me，或使用本仓库的本地初始化脚本/命令生成
-docker compose --env-file .env.langfuse -f docker-compose.langfuse.yml up -d
+# 修改所有 change-me
+npm run compose:render
+cd /opt/samata
+docker compose --env-file /dev/null up -d --no-build
 ```
 
-生产/测试部署可通过 `LANGFUSE_*_IMAGE` 覆盖为 dockertest 镜像；`scripts/deploy-otcclaw.sh` 默认使用 `dockertest.gf.com.cn/titans/otcclaw-langfuse-*` 这一组镜像名。
-
-启动后打开 `http://127.0.0.1:3001`。Samata 只需要配置本地地址和项目 key：
-
-如需远程访问，设置 `.env.langfuse` 中的 `LANGFUSE_BIND_ADDRESS=0.0.0.0`，并把 `NEXTAUTH_URL` 改为远程机器可访问的地址，例如 `http://10.49.9.185:3001`。
-
-```env
-LANGFUSE_ENABLED=true
-LANGFUSE_BASE_URL=http://127.0.0.1:3001
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_CAPTURE_CONTENT=false
-```
-
-OtcClaw 主镜像不打包 Langfuse；Langfuse 只是外部观测端点。默认不会上传对话正文、工具输入输出正文或 system prompt。
+启动后打开 `http://127.0.0.1:3001`。同一组 `LANGFUSE_PUBLIC_KEY` /
+`LANGFUSE_SECRET_KEY` 同时用于首次初始化项目和 Samata SDK 写入。Fast/Normal/Hedge
+业务表写入同一 PostgreSQL 实例中的独立 `samata` 数据库；Langfuse 自己继续使用
+`langfuse` 数据库。新部署不会复用旧 Langfuse PostgreSQL、ClickHouse 或 MinIO 数据：
+PostgreSQL 使用 `/opt/samata/data/postgres`，ClickHouse/MinIO 使用带 `v1` 后缀的新命名
+卷；旧 `samata_langfuse_*` 卷不挂载、不自动删除。
 
 ### LLM Provider 配置
 
@@ -334,12 +346,78 @@ OtcClaw 主镜像不打包 Langfuse；Langfuse 只是外部观测端点。默认
 | Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL` |
 | OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `OPENROUTER_MODEL` |
 
-### 数据服务与生产 bootstrap（按需）
+### 数据服务、工具策略与生产 bootstrap
 
 | 变量 | 说明 |
 |------|------|
-| `PG_WIND_*` | PostgreSQL Wind 数据 |
+| `SAMATA_POSTGRES_PASSWORD` | 新 PostgreSQL 实例中 `samata_app/samata` 的独立密码 |
+| `SAMATA_DISABLED_TOOLS` | 全局最终工具禁用列表；生产模板固定禁用 `generate_image,generate_video` |
+| `SFTP_HOST` / `SFTP_USER` / `SFTP_PASSWORD` | 所有生产插件共用的 SFTP 地址、用户和密码 |
 | `SERPER_API_KEY` | Google Search API |
+
+生产不再配置或访问 Wind PostgreSQL，也不再提供通用 Wind 数据库查询能力。
+`analyze_sbl_usage` 直接使用 SFTP `borrow_YYYYMMDD.csv` 与 `trades_YYYYMMDD.csv` 中的
+`close_price` 计算市值；旧缓存缺少该列时由 SBL 插件自动重新下载。生产 Compose 不声明
+`WIND_PG_*`、Wind reader、Wind 检查服务或外部 Wind 网络。
+
+历史 `wind_sync_pg/samata` 业务库可先通过 `npm run postgres:migrate:dry-run` 检查，
+再在确认停写窗口后执行 `bash scripts/migrate-samata-postgres.sh --execute`。迁移工具只读取
+该历史 `samata` 数据库，不访问同一源实例中的其它数据库。它会先拉取并 inspect 目标镜像，
+持有 `/opt/samata` 目录锁，固定使用权限为 `0600` 的 Compose 快照，并只清理本次认领且
+没有容器引用的未使用新卷。恢复完成后等待 OtcClaw `/health` 通过；失败时不会启动或保留
+不健康的 OtcClaw。源容器、源数据、dump 和旧 Langfuse volumes 均保留。
+
+截至 2026-07-21，现场已完成历史 `wind_sync_pg/samata` 到 fresh Langfuse PostgreSQL
+`samata` 数据库的迁移，当前 PGDATA 绑定 `/opt/samata/data/postgres`。该旧容器仅作为
+保留的历史迁移源，不属于 Samata 运行时依赖。
+
+
+生产模板严格保留 27 个唯一占位符；`.env.example` 提供 16 项，`.env.langfuse.example`
+提供 10 项 Langfuse 必填输入。`NEXTAUTH_URL` 仍是模板占位符，但本地渲染时可省略：
+`scripts/render-local-compose.mjs` 会自动检测容器宿主机 IP，生成
+`http://<host-ip>:3001`；如果 Langfuse 通过固定域名、负载均衡或反向代理访问，再在
+`.env.langfuse` 中显式覆盖。所有值都会进入生成的 `/opt/samata/docker-compose.yml`，
+不要提交真实配置。
+
+生产发布平台使用小写占位符 `docker_repo`、`image_version`；本地 `.env` 对应填写
+`DOCKER_REPO`、`IMAGE_VERSION`。除 `NEXTAUTH_URL` 的本地自动推导外，其余参数都必须有
+明确值：
+
+| 参数 | 分类 | 必填 | 说明 | 参考配置值 |
+|------|------|------|------|------------|
+| `docker_repo` | 镜像 | 是 | 私有镜像仓库根地址；本地输入名为 `DOCKER_REPO` | `dockertest.gf.com.cn` |
+| `image_version` | 镜像 | 是 | OtcClaw 镜像 tag；本地输入名为 `IMAGE_VERSION` | `v3.0.34-0722093000000` |
+| `CUSTOM_API_KEY` | Custom 模型 | 是 | Custom/OpenAI-compatible 模型 API Key | `change-me` |
+| `CUSTOM_BASE_URL` | Custom 模型 | 是 | Custom 模型 API base URL | `https://api.example.com/v1` |
+| `CUSTOM_MODEL` | Custom 模型 | 是 | 生产文本模型 | `external-deepseek-v4-pro` |
+| `CUSTOM_VISION_MODEL` | Custom 模型 | 是 | 生产视觉模型 | `vision-model` |
+| `SERPER_API_KEY` | 外部服务 | 是 | Web search/Serper API Key | `change-me` |
+| `SAMATA_POSTGRES_PASSWORD` | Samata 业务库 | 是 | Langfuse PostgreSQL 实例中 `samata_app/samata` 的密码，不复用 Langfuse 数据库密码 | `openssl rand -hex 32` |
+| `SFTP_HOST` | SFTP | 是 | 统一 SFTP 地址，所有生产插件共用 | `10.68.15.21` |
+| `SFTP_USER` | SFTP | 是 | 统一 SFTP 用户 | `EQDHK_internal` |
+| `SFTP_PASSWORD` | SFTP | 是 | 统一 SFTP 密码 | `change-me` |
+| `HEDGE_RATIO_EMAIL_ADDRESS` | Hedge 邮箱 | 是 | Hedge Ratio 邮箱账号 | `titans@example.com` |
+| `HEDGE_RATIO_EMAIL_PASSWORD` | Hedge 邮箱 | 是 | Hedge Ratio 邮箱密码或应用专用密码 | `change-me` |
+| `HEDGE_RATIO_EMAIL_IMAP_SERVER` | Hedge 邮箱 | 是 | Hedge Ratio 邮箱 IMAP 服务器 | `mail.example.com` |
+| `HEDGE_RATIO_EMAIL_IMAP_PORT` | Hedge 邮箱 | 是 | Hedge Ratio 邮箱 IMAP 端口 | `993` |
+| `LOGYI_API_KEY` | LogYi | 是 | LogYi API Key；Compose 映射给 TICLAW/OTCMSCLAW 两套 MCP | `change-me` |
+| `NEXTAUTH_URL` | Langfuse | 本地可省略 | Langfuse 对外访问地址；本地渲染默认 `http://<容器宿主机 IP>:3001`，生产平台直接渲染模板时建议显式填写 | `http://10.49.9.185:3001` |
+| `NEXTAUTH_SECRET` | Langfuse | 是 | NextAuth 会话签名密钥 | `openssl rand -hex 32` |
+| `SALT` | Langfuse | 是 | Langfuse 内部加盐密钥 | `openssl rand -hex 32` |
+| `REDIS_AUTH` | Langfuse | 是 | Langfuse Redis 密码 | `openssl rand -hex 32` |
+| `LANGFUSE_POSTGRES_PASSWORD` | Langfuse | 是 | Langfuse 自身 `langfuse/langfuse` 数据库密码，不复用 `SAMATA_POSTGRES_PASSWORD` | `openssl rand -hex 32` |
+| `MINIO_ROOT_PASSWORD` | Langfuse | 是 | Langfuse MinIO root 密码 | `openssl rand -hex 32` |
+| `CLICKHOUSE_PASSWORD` | Langfuse | 是 | Langfuse ClickHouse 密码 | `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | Langfuse | 是 | Langfuse 加密密钥，必须是 64 位十六进制字符串 | `openssl rand -hex 32` |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse | 是 | 首次初始化 Langfuse 项目的 public key，同时供 Samata SDK 写入 trace | `pk-lf-samata-...` |
+| `LANGFUSE_SECRET_KEY` | Langfuse | 是 | 首次初始化 Langfuse 项目的 secret key，同时供 Samata SDK 写入 trace | `sk-lf-samata-...` |
+| `LANGFUSE_INIT_USER_PASSWORD` | Langfuse | 是 | Langfuse 初始管理员密码；管理员邮箱和项目 identity 固定在 Compose | 强密码 |
+
+生产统一外露 `SFTP_HOST`、`SFTP_USER`、`SFTP_PASSWORD` 三项。Compose 固定端口 22
+和八个业务目录，各数据集远端目录仍独立，防止 Fast Trading、Normal Trading、
+Corporate Action、SBL 和 Hedge 串用。Samata 启动时会在进程内派生现有插件所需的兼容
+变量。两个 LogYi MCP 实例也只外露同一个 `LOGYI_API_KEY`，Compose 将其映射到现有两组
+兼容环境变量。
 
 `config/production-bootstrap.example.json` 中的企微 bot secret 可以用 `${WEWORK_ADMIN_SECRET}` 这类环境变量占位；执行 `scripts/bootstrap-production.ts` 时会读取当前 shell 环境展开。不要把 `config/production-bootstrap.local.json`、真实 bot id 或 secret 提交到仓库。
 
@@ -353,6 +431,8 @@ OtcClaw 主镜像不打包 Langfuse；Langfuse 只是外部观测端点。默认
 |------|------|
 | `/faq <关键词>` | 查询知识库 |
 | `/faq-add <内容>` | 添加 FAQ |
+| `/faq-update` / `/faq-del` / `/faq-tags-check` | 更新、删除和检查 FAQ 标签 |
+| `/doc-import` / `/doc-list` / `/doc-del` / `/doc-retag` | 文档导入、查询、删除和重新标记 |
 | `/skill <list\|save\|run\|del>` | 自定义技能管理 |
 | `/agent <list\|create\|switch\|info\|del\|member\|assign\|bot-app\|...>` | Agent 管理 |
 | `/memory <list\|add\|search\|del>` | Memory 管理 |
@@ -369,6 +449,33 @@ OtcClaw 主镜像不打包 Langfuse；Langfuse 只是外部观测端点。默认
 | `/bot <tg\|feishu> <start\|stop\|status>` | Bot 进程管理 |
 | `/user <list\|add\|update\|delete>` | 系统用户管理 |
 | `/reload` | 热重载应用 |
+
+### 开发与校验脚本
+
+```bash
+npm run check-readme
+npm run analyze-log
+npm run docs:plan-sync
+npm run docs:plan-watch
+npm run docs:dev
+npm run docs:build
+npm run docs:check
+npm run docs:preview
+npm run db:migrate
+npm run sqlite:baseline:refresh
+npm run data:baseline:refresh
+npm run docker:otcclaw:build
+npm run docker:otcclaw:up
+npm run docker:otcclaw:prune
+npm run docker:samata:up
+npm run docker:samata:build
+npm run docker:samata:push
+npm run docker:samata:prune
+npm run test
+npm run test:unit
+npm run test:e2e
+npm run test:watch
+```
 
 ## 项目结构
 

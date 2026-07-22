@@ -6,7 +6,7 @@ docTopics:
   external-data: Wind 与沙箱
   permissions: 文件与沙箱白名单
 canonicalDocs:
-  - /external-data/wind-sandbox
+  - /external-data/
   - /permissions/file-and-sandbox-allowlist
 status: implemented
 ---

@@ -9,6 +9,7 @@ import { getSandboxRoot } from '../commands/sandbox.js';
 import { createReminder } from '../commands/reminder.js';
 import { sendWeworkNotification } from '../wework/notification-queue.js';
 import type { PluginModule, PluginSkill, PluginContext, LoadedPlugin } from './types.js';
+import { disabledToolResult, filterDisabledTools, isToolDisabled } from '../runtime/tool-policy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -322,14 +323,16 @@ export async function stopAllPlugins(): Promise<void> {
 
 /** All plugin tools (universal + agent-bound) */
 export function getPluginTools(): Anthropic.Tool[] {
-  return [...loadedPlugins.values()].flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
+  return filterDisabledTools(
+    [...loadedPlugins.values()].flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[],
+  );
 }
 
 /** Only universal plugin tools (auto-visible to all standard-mode agents) */
 export function getUniversalPluginTools(): Anthropic.Tool[] {
-  return [...loadedPlugins.values()]
+  return filterDisabledTools([...loadedPlugins.values()]
     .filter(p => (p.module.scope ?? 'universal') === 'universal')
-    .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[];
+    .flatMap(p => p.module.toolDefinitions) as Anthropic.Tool[]);
 }
 
 export async function executePluginTool(
@@ -338,6 +341,7 @@ export async function executePluginTool(
   deliveryCtx?: PluginDeliveryContext,
   onProgress?: PluginProgressHandler,
 ): Promise<string | null> {
+  if (isToolDisabled(name)) return disabledToolResult(name);
   for (const loaded of loadedPlugins.values()) {
     const agentId = getContextAgent()?.id;
     const ctx: PluginContext = {

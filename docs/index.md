@@ -19,7 +19,7 @@ features:
   - title: 权限与插件
     details: 梳理 System Admin、Agent Admin、Agent User、工具可见性和插件绑定机制。
   - title: Dream 与外部数据
-    details: 汇总 Dream 经验沉淀、Wind PostgreSQL、报价交易、Wiki 与浏览器能力。
+    details: 汇总 Dream 经验沉淀、报价交易、Wiki 与浏览器能力。
 ---
 
 ## 本地运行

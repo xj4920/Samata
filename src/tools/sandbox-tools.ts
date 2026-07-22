@@ -15,13 +15,6 @@ import {
 const GENERATED_IMAGE_RE = /\.(png|jpe?g|gif|webp)$/i;
 const MAX_WEWORK_PUSH_IMAGE_BYTES = 5 * 1024 * 1024;
 
-function appendPgFailureHints(stderr: string): string {
-  if (!stderr || !/psycopg2|PostgreSQL|UndefinedColumn|InvalidColumnReference|syntax error|relation .* does not exist/i.test(stderr)) {
-    return stderr;
-  }
-  return `${stderr.trimEnd()}\n\n提示（Wind/PG）：请用 information_schema.columns 核对列名；写 SQL 前 read_file docs/wind-tables/<表>.md。ASHAREINDUSTRIESCODE 仅为行业字典，不能按 S_INFO_WINDCODE 与行情表 JOIN；同业筛选需存在「证券–行业」映射表（若库中无此表则勿编造 JOIN）。`;
-}
-
 export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'sandbox_write_file',
@@ -60,13 +53,13 @@ export const toolDefinitions: Anthropic.Tool[] = [
   },
   {
     name: 'sandbox_exec',
-    description: '在沙箱中执行代码。支持 JavaScript（Node.js）、shell 命令和 Python。沙箱与项目完全隔离。重要：cwd 已自动设为沙箱根目录（sandbox_write_file 写入的文件就在此），禁止使用 cd 切换目录或拼接 /tmp 等绝对路径（会被拒绝），直接用相对路径即可。language="python" 模式可直接传入 Python 代码执行（推荐），无需先 sandbox_write_file 再 shell 调用；执行前会自动做语法检查。Python 代码中的 SQL 请用单引号包裹（如 \'SELECT "COL" FROM "TABLE"\'），不要用三引号。项目白名单文件已只读挂载到 .data/ 目录下，可通过 .data/<相对路径> 访问（如 open(".data/docs/wind-tables-schema.md")）。生成文件请写到当前目录或相对子目录；返回结果中的 generated_files 是沙箱相对路径，后续必须用 sandbox_read_file 读取，不要用 read_file 或 /tmp 绝对路径。Python 环境（python3）已预装：psycopg2, pandas, numpy, matplotlib, openpyxl, xlrd, requests, beautifulsoup4, lxml, pillow, paramiko, cryptography，无需 pip install。matplotlib 保存图表请用 cwd 下相对文件名（如 plt.savefig(\"chart.png\")）；沙箱已为 Matplotlib 写入默认中文字体优先配置（依赖宿主机安装 Noto CJK 等字体，与系统共享 /usr/share/fonts）。查询 Wind PostgreSQL 时 WHERE 顺序必须与索引一致：先 \"S_INFO_WINDCODE\" 等值，再日期/报告期（详见 read_file docs/wind-database.md「索引与查询形状」）。若确需安装额外包，必须使用内网源参数：--index http://pypi.gf.com.cn/simple/ --trusted-host pypi.gf.com.cn。超时默认 60 秒，最大 120 秒（Wind 大表查询可在参数里增大 timeout_ms）。',
+    description: '在沙箱中执行代码。支持 JavaScript（Node.js）、shell 命令和 Python。沙箱与项目完全隔离。重要：cwd 已自动设为沙箱根目录（sandbox_write_file 写入的文件就在此），禁止使用 cd 切换目录或拼接 /tmp 等绝对路径（会被拒绝），直接用相对路径即可。language="python" 模式可直接传入 Python 代码执行（推荐），无需先 sandbox_write_file 再 shell 调用；执行前会自动做语法检查。Python 代码中的 SQL 请用单引号包裹（如 \'SELECT "COL" FROM "TABLE"\'），不要用三引号。项目白名单文件已只读挂载到 .data/ 目录下，可通过 .data/<相对路径> 访问。生成文件请写到当前目录或相对子目录；返回结果中的 generated_files 是沙箱相对路径，后续必须用 sandbox_read_file 读取，不要用 read_file 或 /tmp 绝对路径。Python 环境（python3）已预装：psycopg2, pandas, numpy, matplotlib, openpyxl, xlrd, requests, beautifulsoup4, lxml, pillow, paramiko, cryptography，无需 pip install。matplotlib 保存图表请用 cwd 下相对文件名（如 plt.savefig("chart.png")）；沙箱已为 Matplotlib 写入默认中文字体优先配置（依赖宿主机安装 Noto CJK 等字体，与系统共享 /usr/share/fonts）。若确需安装额外包，必须使用内网源参数：--index http://pypi.gf.com.cn/simple/ --trusted-host pypi.gf.com.cn。超时默认 60 秒，最大 120 秒。',
     input_schema: {
       type: 'object' as const,
       properties: {
         language: { type: 'string', enum: ['js', 'shell', 'python'], description: '执行语言：js=Node.js，shell=shell 命令，python=直接执行 Python 代码（推荐用于数据查询脚本）' },
         code: { type: 'string', description: '要执行的代码。language=python 时直接传 Python 源码；language=shell 时传 shell 命令（禁止使用绝对路径）' },
-        timeout_ms: { type: 'number', description: '超时毫秒数，默认 60000，最大 120000（Wind 大表查询可适当加大）' },
+        timeout_ms: { type: 'number', description: '超时毫秒数，默认 60000，最大 120000' },
       },
       required: ['language', 'code'],
     },
@@ -121,10 +114,7 @@ export async function handleTool(name: string, input: any, ctx?: ToolContext): P
         }
       }
 
-      const errOut = execResult.exit_code !== 0 && execResult.stderr
-        ? appendPgFailureHints(execResult.stderr)
-        : execResult.stderr;
-      return JSON.stringify(errOut !== execResult.stderr ? { ...execResult, stderr: errOut } : execResult);
+      return JSON.stringify(execResult);
     }
     default:
       return null;

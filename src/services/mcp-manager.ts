@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import { getContextAgent } from '../runtime/execution-context.js';
 import { chromiumToolsDisabledMessage, isChromiumMcpServerDisabled } from '../runtime/chromium-tools.js';
+import { disabledToolResult, filterDisabledTools, isToolDisabled } from '../runtime/tool-policy.js';
 
 interface McpServerBase {
   description?: string;
@@ -178,10 +179,10 @@ function isServerAllowedForAgent(srv: McpServerConfig | undefined, agentName?: s
 }
 
 export function getMcpTools(agentName?: string): Anthropic.Tool[] {
-  return [...sessions.entries()]
+  return filterDisabledTools([...sessions.entries()]
     .filter(([name]) => !isChromiumMcpServerDisabled(name))
     .filter(([name]) => isServerAllowedForAgent(serverConfigs.get(name), agentName))
-    .flatMap(([, session]) => session.tools);
+    .flatMap(([, session]) => session.tools));
 }
 
 export function isMcpToolAllowedForAgent(toolName: string, agentName?: string): boolean {
@@ -538,6 +539,7 @@ function formatMcpResult(serverName: string, originalName: string, input: Record
 }
 
 export async function callMcpTool(toolName: string, input: Record<string, unknown>): Promise<string> {
+  if (isToolDisabled(toolName)) return disabledToolResult(toolName);
   // toolName format: mcp_<server>_<originalName>
   const match = toolName.match(/^mcp_([^_]+)_(.+)$/);
   if (!match) return JSON.stringify({ error: `无效的 MCP 工具名: ${toolName}` });

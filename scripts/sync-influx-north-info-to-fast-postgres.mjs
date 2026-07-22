@@ -105,11 +105,11 @@ async function detectDateBounds() {
 
 function createPgClient() {
   return new pg.Client({
-    host: process.env.FAST_TRADING_PG_HOST ?? process.env.LOG_PG_HOST ?? '127.0.0.1',
+    host: process.env.FAST_TRADING_PG_HOST ?? process.env.LOG_PG_HOST ?? 'langfuse-postgres',
     port: Number(process.env.FAST_TRADING_PG_PORT ?? process.env.LOG_PG_PORT ?? '5432'),
-    user: process.env.FAST_TRADING_PG_USER ?? process.env.LOG_PG_USER ?? 'wind_sync',
-    password: process.env.FAST_TRADING_PG_PASSWORD ?? process.env.LOG_PG_PASS ?? 'wind_sync',
-    database: process.env.FAST_TRADING_PG_DATABASE ?? process.env.LOG_PG_DB ?? 'samata',
+    user: process.env.FAST_TRADING_PG_USER ?? process.env.LOG_PG_USER ?? process.env.SAMATA_POSTGRES_USER ?? 'samata_app',
+    password: process.env.FAST_TRADING_PG_PASSWORD ?? process.env.LOG_PG_PASS ?? process.env.SAMATA_POSTGRES_PASSWORD ?? '',
+    database: process.env.FAST_TRADING_PG_DATABASE ?? process.env.LOG_PG_DB ?? process.env.SAMATA_POSTGRES_DATABASE ?? 'samata',
     connectionTimeoutMillis: Number(process.env.FAST_TRADING_PG_CONNECT_TIMEOUT_MS ?? '5000'),
   });
 }

@@ -1,6 +1,7 @@
 import { getDb } from '../db/connection.js';
 import { v4 as uuid } from 'uuid';
 import { CronExpressionParser } from 'cron-parser';
+import { isToolDisabled } from '../runtime/tool-policy.js';
 
 export interface ScheduledTask {
   id: string;
@@ -78,6 +79,9 @@ function validatePayload(taskType: ScheduledTaskType, payload: string): { ok: tr
   }
   if (typeof obj.tool_name !== 'string' || !TOOL_CALL_ALLOWLIST.has(obj.tool_name)) {
     return { ok: false, error: `tool_call 仅支持: ${[...TOOL_CALL_ALLOWLIST].join(', ')}` };
+  }
+  if (isToolDisabled(obj.tool_name)) {
+    return { ok: false, error: `工具已被运行环境禁用: ${obj.tool_name}` };
   }
   if (!obj.input || typeof obj.input !== 'object' || Array.isArray(obj.input)) {
     return { ok: false, error: 'tool_call input 必须是 JSON 对象' };

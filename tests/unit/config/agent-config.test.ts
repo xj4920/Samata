@@ -232,6 +232,45 @@ describe('getAgentTools', () => {
     });
   });
 
+  describe('runtime-disabled tools', () => {
+    it('removes disabled tools after standard/all/user-all/universal resolution', async () => {
+      const original = process.env.SAMATA_DISABLED_TOOLS;
+      process.env.SAMATA_DISABLED_TOOLS = 'generate_image,sandbox_exec,http_request';
+      try {
+        const standardNames = await getToolNames('standard-test');
+        const allNames = await getToolNames('all-tools-test');
+
+        expect(standardNames).not.toContain('generate_image');
+        expect(allNames).not.toContain('sandbox_exec');
+        expect(allNames).not.toContain('http_request');
+
+        ctx.db.prepare(
+          "UPDATE agents SET user_tools_mode = 'all' WHERE name = 'standard-test'",
+        ).run();
+        const memberAllNames = await getToolNames('standard-test', false);
+        expect(memberAllNames).not.toContain('generate_image');
+        expect(memberAllNames).not.toContain('sandbox_exec');
+        expect(memberAllNames).not.toContain('http_request');
+      } finally {
+        if (original === undefined) delete process.env.SAMATA_DISABLED_TOOLS;
+        else process.env.SAMATA_DISABLED_TOOLS = original;
+      }
+    });
+
+    it('cannot be bypassed by MCP scope resolution', async () => {
+      const original = process.env.SAMATA_DISABLED_TOOLS;
+      const devtoolsTool = { name: 'mcp_devtools_navigate_page', description: 'devtools', input_schema: { type: 'object', properties: {} } };
+      process.env.SAMATA_DISABLED_TOOLS = devtoolsTool.name;
+      try {
+        setMockMcpTools([devtoolsTool], { 'all-tools-test': [devtoolsTool] });
+        expect(await getToolNames('all-tools-test')).not.toContain(devtoolsTool.name);
+      } finally {
+        if (original === undefined) delete process.env.SAMATA_DISABLED_TOOLS;
+        else process.env.SAMATA_DISABLED_TOOLS = original;
+      }
+    });
+  });
+
   describe('user-level filtering (non-admin)', () => {
     it('member cannot use blocklisted write tools', async () => {
       await bindOtcclawTools(

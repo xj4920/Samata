@@ -10,6 +10,6 @@ Agent 的可读路径由 `config/agents/<name>.files.json` 控制。没有白名
 
 sandbox 工具执行时只读挂载白名单中的资料。这样可以让 Agent 在隔离环境里查询数据、运行脚本，同时避免访问仓库或主机上的其他文件。
 
-## Wind 场景
+## 退役数据源
 
-TiClaw 等需要 Wind 数据能力的 Agent，应白名单开放 Wind PostgreSQL 文档和表结构索引，再在 sandbox 中按文档执行查询。
+数据源退役时，应同时清理 Agent 提示词、文件白名单和 sandbox 工具说明，避免 Agent 继续读取已失效的连接文档或尝试访问下线服务。

@@ -23,6 +23,7 @@ import { startCliApiServer } from './server/cli-api.js';
 import { shutdownLangfuseTelemetry } from './telemetry/langfuse.js';
 import type { Server } from 'node:http';
 import { runWithExecutionContext } from './runtime/execution-context.js';
+import { applySftpCompatibilityAliases } from './runtime/sftp-env.js';
 
 installProcessErrorHandlers();
 
@@ -380,6 +381,8 @@ async function repl(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  applySftpCompatibilityAliases();
+
   log.print('\n' + '='.repeat(40));
   log.print('  Samata — 平等，技术平权');
   log.print('='.repeat(40) + '\n');

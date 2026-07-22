@@ -4,7 +4,7 @@ docModules:
 docTopics:
   external-data: Wind PostgreSQL
 canonicalDocs:
-  - /external-data/wind-postgres
+  - /external-data/
 status: implemented
 ---
 
