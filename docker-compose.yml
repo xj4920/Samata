@@ -98,7 +98,7 @@ services:
       LANGFUSE_PUBLIC_KEY: '{{string "LANGFUSE_PUBLIC_KEY"}}'
       LANGFUSE_SECRET_KEY: '{{string "LANGFUSE_SECRET_KEY"}}'
       LANGFUSE_TRACING_ENVIRONMENT: 'production'
-      LANGFUSE_CAPTURE_CONTENT: 'false'
+      LANGFUSE_CAPTURE_CONTENT: 'true'
       LANGFUSE_CAPTURE_SYSTEM_PROMPT: 'false'
       LANGFUSE_EXPORT_MODE: 'batched'
       HEDGE_RATIO_BOOTSTRAP_PYTHON: 'python3'
@@ -191,7 +191,7 @@ services:
     restart: unless-stopped
     depends_on: *langfuse-depends-on
     ports:
-      - '127.0.0.1:3001:3000'
+      - '0.0.0.0:3001:3000'
     environment:
       <<: *langfuse-environment
       NEXTAUTH_SECRET: '{{string "NEXTAUTH_SECRET"}}'

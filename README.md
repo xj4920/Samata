@@ -312,13 +312,14 @@ npm run stop         # 停止 screen 守护进程
 | `LANGFUSE_ENABLED` | 开启 agentchat 只读观测，默认 `false` |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 项目凭证与实例地址 |
 | `LANGFUSE_TRACING_ENVIRONMENT` | Langfuse 环境名，如 `production` / `staging` |
-| `LANGFUSE_CAPTURE_CONTENT` | 是否上传对话和工具正文，默认 `false`，仅上传结构化元数据/token/耗时 |
+| `LANGFUSE_CAPTURE_CONTENT` | 是否上传对话和工具正文；代码默认 `false`，生产 Compose 固定为 `true` |
 | `LANGFUSE_CAPTURE_SYSTEM_PROMPT` | 是否上传 system prompt，默认 `false`，且仅在 `LANGFUSE_CAPTURE_CONTENT=true` 时生效 |
 | `LANGFUSE_EXPORT_MODE` | Langfuse span 导出模式：`batched` / `immediate`，默认 `batched` |
 
 ### 本地 Langfuse
 
-Langfuse 已合并进生产模板，默认只监听 `127.0.0.1:3001`：
+Langfuse 已合并进生产模板，Web 端口监听所有宿主机网络接口
+`0.0.0.0:3001`：
 
 ```bash
 cp .env.langfuse.example .env.langfuse
@@ -328,12 +329,18 @@ cd /opt/samata
 docker compose --env-file /dev/null up -d --no-build
 ```
 
-启动后打开 `http://127.0.0.1:3001`。同一组 `LANGFUSE_PUBLIC_KEY` /
+启动后在宿主机打开 `http://127.0.0.1:3001`，或从受信网络访问
+`http://<宿主机 IP>:3001`。该端口会暴露 Langfuse 登录页，应通过主机防火墙或上游
+访问控制限制来源网络。同一组 `LANGFUSE_PUBLIC_KEY` /
 `LANGFUSE_SECRET_KEY` 同时用于首次初始化项目和 Samata SDK 写入。Fast/Normal/Hedge
 业务表写入同一 PostgreSQL 实例中的独立 `samata` 数据库；Langfuse 自己继续使用
 `langfuse` 数据库。新部署不会复用旧 Langfuse PostgreSQL、ClickHouse 或 MinIO 数据：
 PostgreSQL 使用 `/opt/samata/data/postgres`，ClickHouse/MinIO 使用带 `v1` 后缀的新命名
 卷；旧 `samata_langfuse_*` 卷不挂载、不自动删除。
+
+生产 Compose 开启 `LANGFUSE_CAPTURE_CONTENT=true`，因此新 trace 会保存用户提问、
+模型回复以及工具输入输出；`LANGFUSE_CAPTURE_SYSTEM_PROMPT=false` 继续阻止 system
+prompt 上传。该配置只影响变更后产生的 trace，历史脱敏内容无法恢复。
 
 ### LLM Provider 配置
 

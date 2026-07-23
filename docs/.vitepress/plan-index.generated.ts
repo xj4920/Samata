@@ -37,6 +37,30 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Langfuse Web 外部访问",
+      "link": "/plan/2026-07-23_langfuse-external-access",
+      "sourcePath": "docs/plan/2026-07-23_langfuse-external-access.md",
+      "sortKey": "2026-07-23_langfuse-external-access.md",
+      "date": "2026-07-23",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
+      "title": "Langfuse Trace 正文采集",
+      "link": "/plan/2026-07-23_langfuse-content-capture",
+      "sourcePath": "docs/plan/2026-07-23_langfuse-content-capture.md",
+      "sortKey": "2026-07-23_langfuse-content-capture.md",
+      "date": "2026-07-23",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "场景回归耗时统计修复",
       "link": "/plan/2026-07-22_scenario-regression-duration",
       "sourcePath": "docs/plan/2026-07-22_scenario-regression-duration.md",

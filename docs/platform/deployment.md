@@ -302,9 +302,14 @@ sudo bash scripts/configure-system-dns.sh rollback
 容器内访问内网 LLM 网关同样需要企业 DNS。compose 已为 Samata 配置 `10.55.66.66`、`10.80.66.66`，避免 Docker 默认 DNS 无法解析 `llm.smart-zone-dev.gf.com.cn`；系统级 DNS 生效后，宿主机和未显式覆盖 DNS 的运行进程也会使用同一解析入口。
 
 Langfuse 六个服务已经合并进主生产模板。OtcClaw 容器内访问
-`http://langfuse-web:3000`，宿主机浏览器访问 `http://127.0.0.1:3001`。
+`http://langfuse-web:3000`；Web 端口绑定 `0.0.0.0:3001`，宿主机浏览器访问
+`http://127.0.0.1:3001`，受信网络访问 `http://<宿主机 IP>:3001`。生产环境应通过
+主机防火墙或上游访问控制限制 `3001/tcp` 的来源网络。
 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` 同时用于首次初始化项目和 Samata SDK
-写入，确保 trace 落入同一个 fresh 项目。PostgreSQL 使用
+写入，确保 trace 落入同一个 fresh 项目。`LANGFUSE_CAPTURE_CONTENT=true` 让新 trace
+保存用户提问、模型回复和工具输入输出；`LANGFUSE_CAPTURE_SYSTEM_PROMPT=false` 继续
+禁止上传 system prompt。启用正文采集前应确认数据分级、访问权限和保留策略，已有的
+脱敏 trace 无法追溯恢复正文。PostgreSQL 使用
 `/opt/samata/data/postgres`；ClickHouse/MinIO 使用
 `otcclaw_prod_langfuse_*_v1` 新卷。旧 `samata_langfuse_*` 卷保留但不挂载，因此不继承
 任何 Langfuse 历史。

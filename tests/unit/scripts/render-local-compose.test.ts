@@ -207,6 +207,24 @@ describe('local compose renderer', () => {
     expect(await readFile(output, 'utf8')).toContain("NEXTAUTH_URL: 'http://10.49.9.185:3001'");
   });
 
+  it('publishes Langfuse web on all host interfaces', async () => {
+    const template = await readFile(join(process.cwd(), 'docker-compose.yml'), 'utf8');
+    const compose = parseYaml(template);
+
+    expect(compose.services['langfuse-web'].ports)
+      .toContain('0.0.0.0:3001:3000');
+  });
+
+  it('captures trace content without uploading the system prompt', async () => {
+    const template = await readFile(join(process.cwd(), 'docker-compose.yml'), 'utf8');
+    const compose = parseYaml(template);
+
+    expect(compose.services.otcclaw.environment).toMatchObject({
+      LANGFUSE_CAPTURE_CONTENT: 'true',
+      LANGFUSE_CAPTURE_SYSTEM_PROMPT: 'false',
+    });
+  });
+
   it('uses fresh Langfuse storage and shields PostgreSQL from OtcClaw', async () => {
     const template = await readFile(join(process.cwd(), 'docker-compose.yml'), 'utf8');
     const compose = parseYaml(template);
