@@ -109,4 +109,4 @@ status: implemented
 
 ## Commit Hash
 
-- 实现提交：待用户确认提交后回填。
+- 实现提交：`924c05e98e1bf22ac136def3bfb7eccc38f697dd`。
