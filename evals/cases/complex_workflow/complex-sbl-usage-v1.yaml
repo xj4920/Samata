@@ -1,0 +1,71 @@
+version: 1
+id: complex-sbl-usage-v1
+title: 客户约券使用率分析
+scenario: complex_workflow
+status: approved
+risk: high
+priority: 1
+tags: [happy_path, sbl, calculation]
+source:
+  turnHash: 6a2752048064ebfec33359be
+  observedAt: 2026-07-22T09:39:58.593Z
+  telemetryIncomplete: true
+  notes: 从近一个月重复出现的约券使用率问题提取；客户、额度和使用量均为人工合成数据。
+input:
+  text: Beta Partners 最近一周约券使用率如何？请先调用 calculate_date 将“最近一周”解析为截至 2026-07-21 的最近 5 个交易日，再调用 analyze_sbl_usage；无需追问日期，只依据工具结果回答并给出统计区间、约券额度、实际使用量、使用率和计算口径。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-22T09:39:58.593Z
+fixtures:
+  - tool: calculate_date
+    responses:
+      - input: { mode: any }
+        output:
+          operation: previous_trading_days
+          end_date: 2026-07-21
+          trading_days: 5
+          start_date: 2026-07-14
+          dates: [2026-07-14, 2026-07-15, 2026-07-16, 2026-07-17, 2026-07-21]
+  - tool: analyze_sbl_usage
+    responses:
+      - input: { mode: any }
+        output:
+          client_id: SYN-CLIENT-002
+          client_name: Beta Partners
+          start_date: 2026-07-14
+          end_date: 2026-07-21
+          allocated_amount: 2500000000
+          used_amount: 1000000000
+          usage_rate: 0.4
+          usage_rate_display: 40.00%
+          formula: used_amount / allocated_amount
+          unit: CNY
+assertions:
+  allowedTools: [calculate_date, analyze_sbl_usage]
+  requiredTools:
+    - { tool: calculate_date, minCalls: 1, maxCalls: 1 }
+    - { tool: analyze_sbl_usage, minCalls: 1, maxCalls: 1 }
+  toolOrder: [calculate_date, analyze_sbl_usage]
+  requiredFacts:
+    - Beta Partners
+    - '2026-07-14'
+    - '2026-07-21'
+  answerRegex:
+    - '(约券额度|分配额度|allocated)[\s\S]{0,80}(25(?:\.0+)?\s*亿|2[,.]?500[,.]?000[,.]?000)'
+    - '(实际使用|使用量|used)[\s\S]{0,80}(10(?:\.0+)?\s*亿|1[,.]?000[,.]?000[,.]?000)'
+    - '(使用率)[\s\S]{0,60}(40(?:\.00)?\s*%|0\.4)'
+    - '(实际使用|使用量|used)[\s\S]{0,120}(约券额度|分配额度|allocated)|(约券额度|分配额度|allocated)[\s\S]{0,120}(实际使用|使用量|used)'
+  maxToolCalls: 2
+  maxLoopRounds: 4
+  maxOutputTokens: 1800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户确认从近一个月高频请求中提取 approved case；fixture 不含真实客户或约券规模。

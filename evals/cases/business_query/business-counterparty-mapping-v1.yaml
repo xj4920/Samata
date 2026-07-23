@@ -1,0 +1,64 @@
+version: 1
+id: business-counterparty-mapping-v1
+title: 客户交易对手 ID 查询
+scenario: business_query
+status: approved
+risk: medium
+priority: 1
+tags: [happy_path, identifier_mapping]
+source:
+  turnHash: dbb03eb5be9b946c18388856
+  observedAt: 2026-07-03T07:09:02.874Z
+  telemetryIncomplete: true
+  notes: 从近一个月重复出现的交易对手映射问题提取；客户、客户编号和交易对手 ID 均为人工合成数据。
+input:
+  text: Alpha Capital 的交易对手 ID 是多少？请先调用 query_clients 定位客户，再调用 list_customers 查询映射，只依据工具结果回答。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-03T07:09:02.874Z
+fixtures:
+  - tool: query_clients
+    responses:
+      - input: { mode: any }
+        output:
+          matching_count: 1
+          clients:
+            - { client_id: SYN-CLIENT-001, client_name: Alpha Capital, status: PROD }
+  - tool: list_customers
+    responses:
+      - input: { mode: any }
+        output:
+          client_id: SYN-CLIENT-001
+          client_name: Alpha Capital
+          counterparties:
+            - { counterparty_id: SYN-CP-18716, market: NORTHBOUND, speed: FAST }
+            - { counterparty_id: SYN-CP-20308, market: NORTHBOUND, speed: NORMAL }
+assertions:
+  allowedTools: [query_clients, list_customers]
+  requiredTools:
+    - { tool: query_clients, minCalls: 1, maxCalls: 1 }
+    - { tool: list_customers, minCalls: 1, maxCalls: 1 }
+  toolOrder: [query_clients, list_customers]
+  requiredFacts:
+    - Alpha Capital
+    - SYN-CP-18716
+    - SYN-CP-20308
+  answerRegex:
+    - 'SYN-CP-18716[\s\S]{0,120}(极速|FAST)|(?:极速|FAST)[\s\S]{0,120}SYN-CP-18716'
+    - 'SYN-CP-20308[\s\S]{0,120}(常速|NORMAL)|(?:常速|NORMAL)[\s\S]{0,120}SYN-CP-20308'
+  forbiddenClaims:
+    - SYN-CP-99999
+  maxToolCalls: 2
+  maxLoopRounds: 4
+  maxOutputTokens: 1800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户确认从近一个月高频请求中提取 approved case；fixture 仅含合成标识符。

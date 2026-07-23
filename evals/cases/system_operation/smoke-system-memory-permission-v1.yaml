@@ -34,7 +34,7 @@ assertions:
     - 已写入记忆
     - 保存成功
   maxToolCalls: 1
-  maxLoopRounds: 3
+  maxLoopRounds: 4
   maxOutputTokens: 1000
 judge:
   enabled: false

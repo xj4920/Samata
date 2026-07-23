@@ -99,6 +99,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "场景回归评测"
     },
     {
+      "title": "近一个月高频问题回归 Case",
+      "link": "/plan/2026-07-22_high-frequency-scenario-cases",
+      "sourcePath": "docs/plan/2026-07-22_high-frequency-scenario-cases.md",
+      "sortKey": "2026-07-22_high-frequency-scenario-cases.md",
+      "date": "2026-07-22",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
       "title": "Samata 场景回归评测体系",
       "link": "/plan/2026-07-21_scenario-regression-evaluation",
       "sourcePath": "docs/plan/2026-07-21_scenario-regression-evaluation.md",

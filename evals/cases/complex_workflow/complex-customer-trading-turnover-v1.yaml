@@ -1,0 +1,76 @@
+version: 1
+id: complex-customer-trading-turnover-v1
+title: 客户北向极速多空交易与换手率
+scenario: complex_workflow
+status: approved
+risk: high
+priority: 1
+tags: [happy_path, multi_tool, calculation]
+source:
+  turnHash: 6ef282a971b67304e444ce23
+  observedAt: 2026-07-21T12:30:17.201Z
+  telemetryIncomplete: true
+  notes: 从近一个月客户级多空交易与换手率问题提取；客户和全部金额均为保持计算关系的人工合成数据。
+input:
+  text: Alpha Capital 最近一个交易日的北向极速多空交易情况怎么样，当日换手率如何？请先调用 query_clients 定位客户，再调用 trade_summary 获取汇总，只依据工具结果回答并说明换手率口径；该指标未经年化，不得称为年化换手率。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-21T12:30:17.201Z
+fixtures:
+  - tool: query_clients
+    responses:
+      - input: { mode: any }
+        output:
+          matching_count: 1
+          clients:
+            - { client_id: SYN-CLIENT-001, client_name: Alpha Capital, tags: [NORTHBOUND, FAST] }
+  - tool: trade_summary
+    responses:
+      - input: { mode: any }
+        output:
+          trade_date: '20260721'
+          client_id: SYN-CLIENT-001
+          client_name: Alpha Capital
+          market: NORTHBOUND
+          speed: FAST
+          unit: CNY
+          long_notional: 1200000000
+          short_notional: 300000000
+          total_notional: 1500000000
+          long_trade_amount: 2000000000
+          short_trade_amount: 500000000
+          total_trade_amount: 2500000000
+          turnover_rate: 1.6667
+          turnover_rate_display: 166.67%
+          turnover_formula: total_trade_amount / total_notional
+assertions:
+  allowedTools: [query_clients, trade_summary]
+  requiredTools:
+    - { tool: query_clients, minCalls: 1, maxCalls: 1 }
+    - { tool: trade_summary, minCalls: 1, maxCalls: 1 }
+  toolOrder: [query_clients, trade_summary]
+  requiredFacts:
+    - Alpha Capital
+  answerRegex:
+    - '(2026[-年/]?0?7[-月/]?21|20260721)'
+    - '(多头|多仓|多边|long)[\s\S]{0,80}(12(?:\.0+)?\s*亿|1[,.]?200[,.]?000[,.]?000)'
+    - '(空头|空仓|空边|short)[\s\S]{0,80}(3(?:\.0+)?\s*亿|300[,.]?000[,.]?000)'
+    - '(总(?:存续)?(?:名义本金|名义持仓|名义金额|存续规模|存续敞口|敞口)|名义(?:本金|金额)合计|总存续|总规模)[\s\S]{0,80}(15(?:\.0+)?\s*亿|1[,.]?500[,.]?000[,.]?000)'
+    - '(总成交|成交额|成交金额)[\s\S]{0,80}(25(?:\.0+)?\s*亿|2[,.]?500[,.]?000[,.]?000)'
+    - '(换手率)[\s\S]{0,80}(166\.67\s*%|1\.6667)'
+    - '(成交额|成交金额|total_trade_amount)[\s\S]{0,120}(名义本金|名义持仓|名义金额|存续规模|存续敞口|总存续|敞口|total_notional)|(名义本金|名义持仓|名义金额|存续规模|存续敞口|总存续|敞口|total_notional)[\s\S]{0,120}(成交额|成交金额|total_trade_amount)'
+    - '(未经年化|未年化|并非年化|不得[^。\n]{0,20}年化|不(?:应|要|可)[^。\n]{0,20}年化)'
+  maxToolCalls: 2
+  maxLoopRounds: 4
+  maxOutputTokens: 2200
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户确认从近一个月高频请求中提取 approved case；所有业务实体和数值均为合成数据。

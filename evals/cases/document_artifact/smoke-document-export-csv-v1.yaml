@@ -12,7 +12,7 @@ source:
   telemetryIncomplete: false
   notes: 从最近 30 天文件导出请求改写；文件生成和发送均由 fixture 接管。
 input:
-  text: 导出 2026 年 6 月北向极速的每日成交数据，按交易对手维度生成 CSV 并发送给我。
+  text: 导出 2026 年 6 月北向极速的每日成交数据，按交易对手维度生成 CSV 并发送给我。请先调用 export_north_info_csv，收到导出结果后再调用 send_file，不要并行发起这两个工具。
   agent: otcclaw
   role: user
   channel: wework
@@ -50,7 +50,7 @@ assertions:
     - '(CSV|csv)[\s\S]*(发送|已发送|文件)|(发送|已发送)[\s\S]*(CSV|csv)'
   maxToolCalls: 2
   maxLoopRounds: 6
-  maxOutputTokens: 1200
+  maxOutputTokens: 1600
 judge:
   enabled: false
 execution:

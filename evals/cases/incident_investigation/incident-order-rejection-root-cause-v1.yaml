@@ -1,0 +1,73 @@
+version: 1
+id: incident-order-rejection-root-cause-v1
+title: 拒单根因日志排查
+scenario: incident_investigation
+status: approved
+risk: critical
+priority: 1
+tags: [happy_path, log_search, root_cause]
+source:
+  turnHash: aff357afd2b9b597145f52b2
+  observedAt: 2026-07-07T03:26:01.881Z
+  telemetryIncomplete: true
+  notes: 从近一个月订单拒绝根因问题提取；证券、订单、服务和错误信息均已泛化。
+input:
+  text: 2026-07-07 10:00 至 11:00，SYN932.SZ 有一笔拒单，原因是什么？请调用 mcp_logyi_logyi_search_sheets 查询日志，给出订单、错误码、日志证据和处理建议；没有日志证据时不得猜测。日志没有提供具体交易对手名称，请明确说明这一点，并且不得虚构配置文件、后台入口、刷新命令或举例任何具体管理人。
+  agent: otcclaw
+  role: user
+  channel: wework
+  fixedTime: 2026-07-07T03:26:01.881Z
+fixtures:
+  - tool: mcp_logyi_logyi_search_sheets
+    responses:
+      - input: { mode: any }
+        output:
+          query_scope:
+            service: service-order-router-synthetic
+            start_time: 2026-07-07T10:00:00+08:00
+            end_time: 2026-07-07T11:00:00+08:00
+            symbol: SYN932.SZ
+          total_hits: 1
+          rows:
+            - timestamp: 2026-07-07T10:32:18.241+08:00
+              order_id: ORD-SYN-932-01
+              symbol: SYN932.SZ
+              status: REJECTED
+              error_code: CP_CONFIG_MISMATCH
+              error_message: 订单账户未配置该交易对手映射
+              evidence: validation_stage=counterparty_mapping
+              counterparty_name: null
+assertions:
+  allowedTools: [mcp_logyi_logyi_search_sheets]
+  requiredTools:
+    - { tool: mcp_logyi_logyi_search_sheets, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - ORD-SYN-932-01
+    - SYN932.SZ
+    - CP_CONFIG_MISMATCH
+    - 订单账户未配置该交易对手映射
+  answerRegex:
+    - '(10:32:18|2026-07-07)'
+    - '(检查|补充|配置|核对)[\s\S]{0,100}(交易对手|映射)|(交易对手|映射)[\s\S]{0,100}(检查|补充|配置|核对)'
+    - '(日志|工具结果)[\s\S]{0,100}(未提供|没有提供|未记录|不包含|无法确定)[\s\S]{0,80}(具体)?(交易对手|管理人)|(具体)?(交易对手|管理人)[\s\S]{0,100}(未提供|没有提供|未记录|不包含|无法确定)'
+  forbiddenClaims:
+    - 网络超时导致拒单
+    - 行情异常导致拒单
+    - 没有找到相关日志
+    - customers.json
+    - import_pricing_schedule
+    - WIZARD01
+    - MINGSHIOPTIMA
+  maxToolCalls: 1
+  maxLoopRounds: 3
+  maxOutputTokens: 1800
+judge:
+  enabled: false
+execution:
+  mode: frozen
+  repetitions: 3
+  timeoutMs: 120000
+review:
+  reviewedBy: user-approved-2026-07-22
+  reviewedAt: 2026-07-22
+  notes: 用户确认从近一个月高频请求中提取 approved case；日志记录为合成证据，critical 场景要求 3 次全部通过。
