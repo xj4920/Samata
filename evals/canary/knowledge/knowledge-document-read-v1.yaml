@@ -1,0 +1,29 @@
+version: 1
+id: canary-knowledge-document-read-v1
+title: 生产知识库搜索与全文读取
+status: approved
+risk: high
+target: production
+safety: read_only
+tags: [knowledge, production, document, multi_tool, seeded_data]
+requiredEnv: [CANARY_KB_MARKER, CANARY_KB_DOCUMENT_FACT]
+input:
+  text: "请先用 search_knowledge 搜索 ${CANARY_KB_MARKER}，再用结果中的 document_id 调用 read_knowledge_document 读取全文，回答文档内的专用事实。"
+allowedTools: [search_knowledge, read_knowledge_document]
+assertions:
+  allowedTools: [search_knowledge, read_knowledge_document]
+  requiredTools:
+    - { tool: search_knowledge, minCalls: 1, maxCalls: 1 }
+    - { tool: read_knowledge_document, minCalls: 1, maxCalls: 1 }
+  toolOrder: [search_knowledge, read_knowledge_document]
+  requiredFacts:
+    - "${CANARY_KB_DOCUMENT_FACT}"
+  maxToolCalls: 2
+  maxLoopRounds: 4
+execution:
+  repetitions: 1
+  timeoutMs: 90000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 事实与 marker 都只能来自无敏感信息的专用 Canary 文档。

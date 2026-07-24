@@ -1,6 +1,6 @@
 {
   "name": "Samata",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Samata",
   "main": "src/index.ts",
   "scripts": {
@@ -46,6 +46,10 @@
     "eval:compare": "tsx scripts/evaluation/compare-scenario-runs.ts",
     "eval:gate": "tsx scripts/evaluation/gate-scenario-run.ts",
     "eval:promote-baseline": "tsx scripts/evaluation/promote-scenario-baseline.ts",
+    "eval:contract:validate": "tsx scripts/evaluation/validate-contract-cases.ts",
+    "eval:contract": "tsx scripts/evaluation/run-tool-contracts.ts",
+    "eval:canary:validate": "tsx scripts/evaluation/validate-canary-cases.ts",
+    "eval:canary": "tsx scripts/evaluation/run-production-canary.ts",
     "test:watch": "bash scripts/test.sh --watch"
   },
   "workspaces": [

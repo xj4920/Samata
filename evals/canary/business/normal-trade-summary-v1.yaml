@@ -1,0 +1,23 @@
+version: 1
+id: canary-normal-trade-summary-v1
+title: 生产北向常速只读汇总
+status: draft
+risk: high
+target: production
+safety: read_only
+tags: [business, trade, normal, production]
+requiredEnv: [CANARY_NORMAL_TRADE_MARKER]
+input:
+  text: "请调用 query_normal_trading_summary 查询当前北向常速汇总，只依据工具结果说明 ${CANARY_NORMAL_TRADE_MARKER} 是否出现在结果中，并给出数据日期。"
+allowedTools: [query_normal_trading_summary]
+assertions:
+  allowedTools: [query_normal_trading_summary]
+  requiredTools:
+    - { tool: query_normal_trading_summary, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_NORMAL_TRADE_MARKER}"
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 90000

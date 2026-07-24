@@ -1,0 +1,24 @@
+version: 1
+id: contract-normal-trade-summary-v1
+title: 北向常速交易汇总结构
+status: draft
+risk: high
+target: staging
+safety: read_only
+tags: [business, trade, normal, invariant]
+requiredEnv: [EVAL_NORMAL_TRADE_MARKER]
+steps:
+  - id: summary
+    tool: query_normal_trading_summary
+    input: {}
+    assertions:
+      requiredPaths: [latest_trade_date, records, totals]
+      types:
+        - { path: latest_trade_date, type: string }
+        - { path: records, type: array }
+        - { path: totals, type: object }
+      contains:
+        - { path: $, value: "${EVAL_NORMAL_TRADE_MARKER}" }
+      maxDurationMs: 10000
+execution:
+  timeoutMs: 20000

@@ -1,0 +1,33 @@
+version: 1
+id: contract-csv-delivery-v1
+title: 北向汇总 CSV 导出并投递
+status: draft
+risk: critical
+target: staging
+safety: controlled_delivery
+tags: [artifact, csv, delivery, side_effect]
+requiredEnv: [EVAL_EXPORT_DATE_FROM, EVAL_EXPORT_DATE_TO]
+steps:
+  - id: export
+    tool: export_north_info_csv
+    input:
+      date_from: "${EVAL_EXPORT_DATE_FROM}"
+      date_to: "${EVAL_EXPORT_DATE_TO}"
+    assertions:
+      requiredPaths: [success, path]
+      equals:
+        - { path: success, value: true }
+      matches:
+        - { path: path, pattern: "\\.csv$" }
+      maxDurationMs: 20000
+  - id: deliver
+    tool: send_file
+    input:
+      path: "{{steps.export.path}}"
+    assertions:
+      requiredPaths: [success, channel, filename]
+      equals:
+        - { path: success, value: true }
+      maxDurationMs: 20000
+execution:
+  timeoutMs: 30000

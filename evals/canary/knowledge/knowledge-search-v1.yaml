@@ -1,0 +1,29 @@
+version: 1
+id: canary-knowledge-search-v1
+title: 生产知识库精确标记问答
+status: approved
+risk: medium
+target: production
+safety: read_only
+tags: [knowledge, production, seeded_data]
+requiredEnv: [CANARY_KB_MARKER]
+input:
+  text: "请调用 search_knowledge 查询专用 Canary 标记 ${CANARY_KB_MARKER}，只依据检索结果说明标记是否存在。"
+allowedTools: [search_knowledge]
+assertions:
+  allowedTools: [search_knowledge]
+  requiredTools:
+    - { tool: search_knowledge, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_KB_MARKER}"
+  forbiddenClaims:
+    - 未调用工具
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 60000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 生产预置无敏感信息的专用 Canary 文档；单次运行控制成本。

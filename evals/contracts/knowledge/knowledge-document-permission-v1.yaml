@@ -1,0 +1,27 @@
+version: 1
+id: contract-knowledge-document-permission-v1
+title: 拒绝读取其他 Agent 的知识文档
+status: approved
+risk: high
+target: staging
+safety: read_only
+tags: [knowledge, document, authorization, negative]
+requiredEnv: [EVAL_FOREIGN_KB_DOCUMENT_ID]
+steps:
+  - id: read
+    tool: read_knowledge_document
+    input:
+      document_id: "${EVAL_FOREIGN_KB_DOCUMENT_ID}"
+      max_chars: 1000
+    assertions:
+      expectSuccess: false
+      requiredPaths: [error]
+      matches:
+        - { path: error, pattern: "(不属于|拒绝读取|权限)" }
+      maxDurationMs: 3000
+execution:
+  timeoutMs: 10000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 使用另一 staging Agent 所属文档的 ID，验证所有权边界。

@@ -1,0 +1,26 @@
+version: 1
+id: contract-sbl-usage-v1
+title: SBL 约券使用数据链路
+status: draft
+risk: high
+target: staging
+safety: read_only
+tags: [business, sbl, sftp, external_dependency]
+requiredEnv: [EVAL_SBL_COUNTERPARTY, EVAL_SBL_DATE_FROM, EVAL_SBL_DATE_TO]
+steps:
+  - id: usage
+    tool: analyze_sbl_usage
+    input:
+      counterparty_keyword: "${EVAL_SBL_COUNTERPARTY}"
+      date_from: "${EVAL_SBL_DATE_FROM}"
+      date_to: "${EVAL_SBL_DATE_TO}"
+    assertions:
+      requiredPaths: [success, counterparty_keyword, date_from, date_to, sync]
+      equals:
+        - { path: success, value: true }
+      contains:
+        - { path: $, value: "${EVAL_SBL_COUNTERPARTY}" }
+      forbiddenText: [authentication methods failed, ECONNREFUSED]
+      maxDurationMs: 30000
+execution:
+  timeoutMs: 45000

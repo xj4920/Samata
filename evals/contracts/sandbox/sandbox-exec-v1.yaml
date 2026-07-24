@@ -1,0 +1,29 @@
+version: 1
+id: contract-sandbox-exec-v1
+title: 沙箱执行固定合成脚本
+status: approved
+risk: medium
+target: staging
+safety: sandbox
+tags: [sandbox, synthetic]
+steps:
+  - id: execute
+    tool: sandbox_exec
+    input:
+      language: python
+      code: "import json\nprint(json.dumps({'marker': 'SAMATA_CONTRACT_SANDBOX_V1', 'sum': sum([2, 3, 5])}))"
+      timeout_ms: 10000
+    assertions:
+      requiredPaths: [stdout, stderr]
+      contains:
+        - { path: stdout, value: SAMATA_CONTRACT_SANDBOX_V1 }
+        - { path: stdout, value: '"sum": 10' }
+      equals:
+        - { path: stderr, value: "" }
+      maxDurationMs: 15000
+execution:
+  timeoutMs: 20000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 只执行固定代码，不访问网络、数据库或项目目录。

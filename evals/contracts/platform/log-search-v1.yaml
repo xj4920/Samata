@@ -1,0 +1,23 @@
+version: 1
+id: contract-log-search-v1
+title: LogYi 小窗口精确标记查询
+status: draft
+risk: high
+target: staging
+safety: read_only
+tags: [log, mcp, external_dependency]
+requiredEnv: [EVAL_LOG_MARKER, EVAL_LOG_DATE_FROM, EVAL_LOG_DATE_TO]
+steps:
+  - id: search
+    tool: mcp_logyi_logyi_search_sheets
+    input:
+      query: "${EVAL_LOG_MARKER}"
+      date_from: "${EVAL_LOG_DATE_FROM}"
+      date_to: "${EVAL_LOG_DATE_TO}"
+    assertions:
+      contains:
+        - { path: $, value: "${EVAL_LOG_MARKER}" }
+      forbiddenText: [认证失败, unauthorized]
+      maxDurationMs: 20000
+execution:
+  timeoutMs: 30000

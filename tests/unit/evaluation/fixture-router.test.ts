@@ -22,7 +22,10 @@ describe('tool fixture router', () => {
       responses: [{ input: { mode: 'exact', value: { id: 1 } }, output: 'ok' }],
     }]);
     await expect(router.execute('send_file', {})).rejects.toBeInstanceOf(UnexpectedToolCallError);
-    await expect(router.execute('lookup', { id: 2 })).rejects.toBeInstanceOf(ToolFixtureMismatchError);
+    await expect(router.execute('lookup', { id: 2 })).rejects.toMatchObject({
+      name: 'ToolFixtureMismatchError',
+      message: expect.stringContaining('actual={"id":2}'),
+    });
     await router.execute('lookup', { id: 1 });
     await expect(router.execute('lookup', { id: 1 })).rejects.toBeInstanceOf(ToolFixtureMismatchError);
   });

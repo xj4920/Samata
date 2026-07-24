@@ -1,0 +1,31 @@
+version: 1
+id: contract-fast-trade-summary-v1
+title: 北向极速交易汇总结构
+status: draft
+risk: high
+target: staging
+safety: read_only
+tags: [business, trade, fast, invariant]
+requiredEnv: [EVAL_TRADE_DATE, EVAL_TRADE_MANAGER_MARKER]
+steps:
+  - id: summary
+    tool: trade_summary
+    input:
+      date: "${EVAL_TRADE_DATE}"
+    assertions:
+      requiredPaths: [date, summaries, summaries.0.manager, summaries.0.notional_t, summaries.0.trade_amt_ft]
+      types:
+        - { path: date, type: string }
+        - { path: summaries, type: array }
+        - { path: summaries.0.notional_t, type: number }
+        - { path: summaries.0.trade_amt_ft, type: number }
+      equals:
+        - { path: date, value: "${EVAL_TRADE_DATE}" }
+      contains:
+        - { path: $, value: "${EVAL_TRADE_MANAGER_MARKER}" }
+      invariants:
+        - { op: gte, left: { path: summaries.0.notional_t }, right: { value: 0 } }
+        - { op: gte, left: { path: summaries.0.trade_amt_ft }, right: { value: 0 } }
+      maxDurationMs: 10000
+execution:
+  timeoutMs: 20000

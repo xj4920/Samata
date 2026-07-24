@@ -1,0 +1,29 @@
+version: 1
+id: contract-image-delivery-v1
+title: 合成图片生成并投递到专用会话
+status: draft
+risk: critical
+target: staging
+safety: controlled_delivery
+tags: [artifact, image, delivery, side_effect]
+steps:
+  - id: render
+    tool: markdown_to_image
+    input:
+      markdown: "# Samata staging contract\n\n本消息仅用于自动化投递链路验证。"
+      width: 800
+    assertions:
+      requiredPaths: [success, path]
+      equals:
+        - { path: success, value: true }
+  - id: deliver
+    tool: send_image
+    input:
+      path: "{{steps.render.path}}"
+    assertions:
+      requiredPaths: [success, channel, filename]
+      equals:
+        - { path: success, value: true }
+      maxDurationMs: 20000
+execution:
+  timeoutMs: 30000

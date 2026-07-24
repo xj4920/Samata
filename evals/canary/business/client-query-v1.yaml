@@ -1,0 +1,27 @@
+version: 1
+id: canary-client-query-v1
+title: 生产合成客户查询
+status: approved
+risk: medium
+target: production
+safety: read_only
+tags: [business, client, production, seeded_data]
+requiredEnv: [CANARY_CLIENT_MARKER]
+input:
+  text: "请调用 query_clients 查询名称包含 ${CANARY_CLIENT_MARKER} 的专用合成客户，只依据工具结果回答名称和状态。"
+allowedTools: [query_clients]
+assertions:
+  allowedTools: [query_clients]
+  requiredTools:
+    - { tool: query_clients, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_CLIENT_MARKER}"
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 60000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 仅查询专用合成客户，不固定或记录真实客户信息。

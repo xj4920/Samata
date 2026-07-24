@@ -1,0 +1,27 @@
+version: 1
+id: contract-knowledge-search-v1
+title: 知识库精确标记检索
+status: approved
+risk: medium
+target: staging
+safety: read_only
+tags: [knowledge, search, seeded_data]
+requiredEnv: [EVAL_KB_MARKER]
+steps:
+  - id: search
+    tool: search_knowledge
+    input:
+      keyword: "${EVAL_KB_MARKER}"
+    assertions:
+      expectSuccess: true
+      contains:
+        - path: $
+          value: "${EVAL_KB_MARKER}"
+      forbiddenText: [数据库异常, 权限不足]
+      maxDurationMs: 5000
+execution:
+  timeoutMs: 10000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: staging 必须预置只属于专用 Agent 的唯一 marker 文档。

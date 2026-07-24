@@ -1,0 +1,29 @@
+version: 1
+id: contract-client-query-v1
+title: 客户关键词查询
+status: approved
+risk: medium
+target: staging
+safety: read_only
+tags: [business, client, seeded_data]
+requiredEnv: [EVAL_CLIENT_MARKER]
+steps:
+  - id: query
+    tool: query_clients
+    input:
+      keyword: "${EVAL_CLIENT_MARKER}"
+    assertions:
+      requiredPaths: [0.id, 0.name]
+      types:
+        - { path: $, type: array }
+        - { path: 0.id, type: string }
+        - { path: 0.name, type: string }
+      contains:
+        - { path: $, value: "${EVAL_CLIENT_MARKER}" }
+      maxDurationMs: 3000
+execution:
+  timeoutMs: 10000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: staging 预置唯一合成客户，不固化真实客户资料。

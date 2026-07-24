@@ -1,0 +1,26 @@
+version: 1
+id: canary-sbl-usage-v1
+title: 生产 SBL 只读数据链路
+status: draft
+risk: high
+target: production
+safety: read_only
+tags: [business, sbl, production, external_dependency]
+requiredEnv: [CANARY_SBL_COUNTERPARTY, CANARY_SBL_DATE_FROM, CANARY_SBL_DATE_TO]
+input:
+  text: "请调用 analyze_sbl_usage 查询 ${CANARY_SBL_COUNTERPARTY} 在 ${CANARY_SBL_DATE_FROM} 至 ${CANARY_SBL_DATE_TO} 的数据；只说明工具是否成功、实际返回区间与是否有记录，不做沙箱二次分析。"
+allowedTools: [analyze_sbl_usage]
+assertions:
+  allowedTools: [analyze_sbl_usage]
+  requiredTools:
+    - { tool: analyze_sbl_usage, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_SBL_DATE_FROM}"
+    - "${CANARY_SBL_DATE_TO}"
+  forbiddenClaims:
+    - 已同步写入生产
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 120000

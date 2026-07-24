@@ -1,0 +1,24 @@
+version: 1
+id: canary-fast-trade-summary-v1
+title: 生产北向极速只读汇总
+status: draft
+risk: high
+target: production
+safety: read_only
+tags: [business, trade, fast, production]
+requiredEnv: [CANARY_TRADE_DATE, CANARY_TRADE_MANAGER_MARKER]
+input:
+  text: "请调用 trade_summary 查询 ${CANARY_TRADE_DATE} 的北向极速汇总，只依据工具结果说明 ${CANARY_TRADE_MANAGER_MARKER} 是否出现在结果中，并给出日期。"
+allowedTools: [trade_summary]
+assertions:
+  allowedTools: [trade_summary]
+  requiredTools:
+    - { tool: trade_summary, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_TRADE_DATE}"
+    - "${CANARY_TRADE_MANAGER_MARKER}"
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 90000

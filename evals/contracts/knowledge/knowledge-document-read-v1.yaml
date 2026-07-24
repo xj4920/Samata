@@ -1,0 +1,46 @@
+version: 1
+id: contract-knowledge-document-read-v1
+title: 搜索后读取知识库文档全文
+status: approved
+risk: medium
+target: staging
+safety: read_only
+tags: [knowledge, search, document, multi_step, seeded_data]
+requiredEnv: [EVAL_KB_MARKER]
+steps:
+  - id: search
+    tool: search_knowledge
+    input:
+      keyword: "${EVAL_KB_MARKER}"
+    assertions:
+      requiredPaths: [documents, documents.0.document_id]
+      types:
+        - { path: documents, type: array }
+      contains:
+        - { path: $, value: "${EVAL_KB_MARKER}" }
+      maxDurationMs: 5000
+  - id: read
+    tool: read_knowledge_document
+    input:
+      document_id: "{{steps.search.documents.0.document_id}}"
+      max_chars: 5000
+    assertions:
+      requiredPaths: [document_id, title, content, char_count, returned_chars, truncated]
+      types:
+        - { path: content, type: string }
+        - { path: char_count, type: number }
+        - { path: returned_chars, type: number }
+        - { path: truncated, type: boolean }
+      contains:
+        - { path: content, value: "${EVAL_KB_MARKER}" }
+      invariants:
+        - op: gte
+          left: { path: char_count }
+          right: { path: returned_chars }
+      maxDurationMs: 3000
+execution:
+  timeoutMs: 10000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: 专用 marker 必须位于导入文档而非仅 FAQ/Wiki，确保可继续读取全文。

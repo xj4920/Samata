@@ -1,0 +1,29 @@
+version: 1
+id: contract-counterparty-mapping-v1
+title: 客户与交易对手映射
+status: draft
+risk: medium
+target: staging
+safety: read_only
+tags: [business, client, counterparty, seeded_data]
+requiredEnv: [EVAL_CLIENT_MARKER, EVAL_COUNTERPARTY_MARKER]
+steps:
+  - id: client
+    tool: query_clients
+    input:
+      keyword: "${EVAL_CLIENT_MARKER}"
+    assertions:
+      requiredPaths: [0.id, 0.name]
+      contains:
+        - { path: $, value: "${EVAL_CLIENT_MARKER}" }
+  - id: mapping
+    tool: list_customers
+    input: {}
+    assertions:
+      types:
+        - { path: $, type: array }
+      contains:
+        - { path: $, value: "${EVAL_COUNTERPARTY_MARKER}" }
+      maxDurationMs: 5000
+execution:
+  timeoutMs: 15000

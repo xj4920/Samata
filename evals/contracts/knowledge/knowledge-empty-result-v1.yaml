@@ -1,0 +1,28 @@
+version: 1
+id: contract-knowledge-empty-result-v1
+title: 知识库无命中返回稳定提示
+status: approved
+risk: low
+target: staging
+safety: read_only
+tags: [knowledge, search, empty_result]
+requiredEnv: [EVAL_KB_MISSING_MARKER]
+steps:
+  - id: search
+    tool: search_knowledge
+    input:
+      keyword: "${EVAL_KB_MISSING_MARKER}"
+    assertions:
+      expectSuccess: true
+      requiredPaths: [message]
+      matches:
+        - { path: message, pattern: "(未找到|无相关)" }
+      forbiddenText:
+        - "${EVAL_KB_MISSING_MARKER}"
+      maxDurationMs: 5000
+execution:
+  timeoutMs: 10000
+review:
+  reviewedBy: user-confirmed-plan-2026-07-23
+  reviewedAt: 2026-07-23
+  notes: EVAL_KB_MISSING_MARKER 必须使用 staging 中确认不存在的随机标记。

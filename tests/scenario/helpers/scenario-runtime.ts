@@ -3,6 +3,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { performance } from 'node:perf_hooks';
 import { vi } from 'vitest';
 import { ToolFixtureRouter } from '../../../src/evaluation/fixture-router.js';
+import { createFixtureToolDefinition } from '../../../src/evaluation/fixture-tool-definition.js';
 import type { ScenarioCase, ScenarioExecutionResult } from '../../../src/evaluation/types.js';
 
 const state = vi.hoisted(() => ({
@@ -88,14 +89,6 @@ vi.mock('../../../src/services/mcp-manager.js', () => ({
   initMcpServers: async () => {},
 }));
 
-function genericTool(name: string): Anthropic.Tool {
-  return {
-    name,
-    description: `[场景回归 fixture] ${name}`,
-    input_schema: { type: 'object', additionalProperties: true },
-  } as Anthropic.Tool;
-}
-
 async function resetRuntime(scenarioCase: ScenarioCase): Promise<void> {
   vi.useRealTimers();
   try { state.db?.close(); } catch {}
@@ -113,10 +106,10 @@ async function resetRuntime(scenarioCase: ScenarioCase): Promise<void> {
   const nativeNames = new Set(getAllNativeTools().map(tool => tool.name));
   state.mcpTools = scenarioCase.fixtures
     .filter(fixture => fixture.tool.startsWith('mcp_'))
-    .map(fixture => genericTool(fixture.tool));
+    .map(createFixtureToolDefinition);
   state.extraTools = scenarioCase.fixtures
     .filter(fixture => !fixture.tool.startsWith('mcp_') && !nativeNames.has(fixture.tool))
-    .map(fixture => genericTool(fixture.tool));
+    .map(createFixtureToolDefinition);
 }
 
 export async function executeScenarioWithCurrentAgent(

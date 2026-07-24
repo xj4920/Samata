@@ -1,0 +1,25 @@
+version: 1
+id: canary-log-search-v1
+title: 生产 LogYi 小窗口标记查询
+status: draft
+risk: high
+target: production
+safety: read_only
+tags: [log, mcp, production, external_dependency]
+requiredEnv: [CANARY_LOG_MARKER, CANARY_LOG_DATE_FROM, CANARY_LOG_DATE_TO]
+input:
+  text: "请只调用一次 mcp_logyi_logyi_search_sheets，在 ${CANARY_LOG_DATE_FROM} 至 ${CANARY_LOG_DATE_TO} 的小窗口检索 ${CANARY_LOG_MARKER}，零命中只能表述为本次未发现。"
+allowedTools: [mcp_logyi_logyi_search_sheets]
+assertions:
+  allowedTools: [mcp_logyi_logyi_search_sheets]
+  requiredTools:
+    - { tool: mcp_logyi_logyi_search_sheets, minCalls: 1, maxCalls: 1 }
+  requiredFacts:
+    - "${CANARY_LOG_MARKER}"
+  forbiddenClaims:
+    - 系统绝对正常
+  maxToolCalls: 1
+  maxLoopRounds: 3
+execution:
+  repetitions: 1
+  timeoutMs: 90000

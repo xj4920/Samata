@@ -761,6 +761,19 @@ export type ProgressEvent =
   | { type: 'thinking'; text: string; round: number }
   | { type: 'tool_progress'; message: string };
 
+export function buildToolResultMessage(
+  toolResults: Anthropic.ToolResultBlockParam[],
+  warnings: string[] = [],
+): Anthropic.MessageParam {
+  return {
+    role: 'user',
+    content: [
+      ...toolResults,
+      ...warnings.map(text => ({ type: 'text' as const, text })),
+    ],
+  };
+}
+
 export interface RunAgenticChatOptions {
   streamEnabled?: boolean;
   logPrefix?: string;
@@ -771,6 +784,8 @@ export interface RunAgenticChatOptions {
   onProgress?: (event: ProgressEvent) => void;
   onTextChunk?: (chunk: string) => void;
   deliveryContext?: DeliveryContext;
+  /** Optional hard cap for evaluation/canary runs. It never grants tools outside the Agent's effective permissions. */
+  toolAllowlist?: string[];
 }
 
 /**
@@ -793,7 +808,11 @@ export async function runAgenticChat(
     : undefined;
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
-  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const effectiveTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const toolAllowlist = options.toolAllowlist ? new Set(options.toolAllowlist) : undefined;
+  const activeTools = toolAllowlist
+    ? effectiveTools.filter(tool => toolAllowlist.has(tool.name))
+    : effectiveTools;
   const model = agent?.model ?? (agentProviderOverride?.defaultModel ?? getModelName());
 
   return withLangfuseAgentChat({
@@ -823,7 +842,11 @@ async function runAgenticChatInner(
   const maxHistory = agent?.maxHistory ?? MAX_HISTORY_MESSAGES;
   const allTools = getGlobalTools();
   const userIsAdmin = agent ? isAgentAdmin(agent.id) : true;
-  const activeTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const effectiveTools = agent ? getAgentTools(agent, allTools, userIsAdmin) : allTools;
+  const toolAllowlist = options.toolAllowlist ? new Set(options.toolAllowlist) : undefined;
+  const activeTools = toolAllowlist
+    ? effectiveTools.filter(tool => toolAllowlist.has(tool.name))
+    : effectiveTools;
   const baseSystemPrompt = buildSystemPrompt(agent ?? getDefaultAgent(), user);
   const deliveryContextSystemPrompt = buildDeliveryContextSystemPrompt(deliveryContext);
   const systemPrompt = deliveryContextSystemPrompt
@@ -1137,6 +1160,7 @@ async function runAgenticChatInner(
     }
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const toolFollowupWarnings: string[] = [];
     const activeToolNames = new Set(activeTools.map(t => t.name));
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
@@ -1242,7 +1266,7 @@ async function runAgenticChatInner(
       const warnMsg = loop.name.includes('+')
         ? `⚠️ 系统检测到你最近重复执行相同的工具序列 "${loop.name}"${sameParams ? ' 且参数相同' : ''}，但结果无明显进展。请停止这个模式，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`
         : `⚠️ 系统检测到你${sameParams ? '连续' : '高频'}调用了 "${loop.name}"${sameParams ? ' 且参数相同' : '（参数不同但方向重复）'}，但结果无明显进展。请停止使用这个工具，基于当前已有的信息直接给出答复。如果确实无法完成任务，请说明原因。`;
-      history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
+      toolFollowupWarnings.push(warnMsg);
       loopTracker.softWarned = true;
     } else if (loop.action === 'hard_stop') {
       log.warn(`${logPrefix}循环未终止，强制停止`);
@@ -1262,7 +1286,7 @@ async function runAgenticChatInner(
     if (devtoolsCallCount === MAX_DEVTOOLS_ROUNDS) {
       log.warn(`${logPrefix}DevTools 工具调用达到上限 (${MAX_DEVTOOLS_ROUNDS})，注入停止提示`);
       const warnMsg = `⚠️ 浏览器工具已累计调用 ${MAX_DEVTOOLS_ROUNDS} 次。请立即停止使用所有浏览器工具（mcp_devtools_*），基于当前已获取的信息直接给出答复。如果信息不足，请说明原因。`;
-      history.push({ role: 'user', content: [{ type: 'text', text: warnMsg, citations: null } as any] });
+      toolFollowupWarnings.push(warnMsg);
     } else if (devtoolsCallCount > MAX_DEVTOOLS_ROUNDS) {
       log.warn(`${logPrefix}DevTools 预算已耗尽，强制停止`);
       const reason = `浏览器工具累计调用 ${devtoolsCallCount} 次，超出上限 ${MAX_DEVTOOLS_ROUNDS}`;
@@ -1271,7 +1295,7 @@ async function runAgenticChatInner(
       break;
     }
 
-    history.push({ role: 'user', content: toolResults });
+    history.push(buildToolResultMessage(toolResults, toolFollowupWarnings));
 
     try {
       ({ result: response, streamed } = await trackedCallLLM(round, streamEnabled, showThinkingOpt, agentProviderOverride, onTextChunk, onProgress));

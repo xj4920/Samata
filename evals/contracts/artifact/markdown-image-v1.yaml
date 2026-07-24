@@ -1,0 +1,26 @@
+version: 1
+id: contract-markdown-image-v1
+title: Markdown 图片渲染
+status: draft
+risk: medium
+target: staging
+safety: sandbox
+tags: [artifact, image, browser]
+steps:
+  - id: render
+    tool: markdown_to_image
+    input:
+      markdown: "# SAMATA_CONTRACT_IMAGE_V1\n\n- synthetic: true"
+      width: 800
+      theme: light
+    assertions:
+      requiredPaths: [success, path, size_bytes]
+      equals:
+        - { path: success, value: true }
+      matches:
+        - { path: path, pattern: "\\.png$" }
+      invariants:
+        - { op: gte, left: { path: size_bytes }, right: { value: 1 } }
+      maxDurationMs: 15000
+execution:
+  timeoutMs: 20000

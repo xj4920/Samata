@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Contract / Production Canary 场景回归评测",
+      "link": "/plan/2026-07-23_eval-contract-production-canary",
+      "sourcePath": "docs/plan/2026-07-23_eval-contract-production-canary.md",
+      "sortKey": "2026-07-23_eval-contract-production-canary.md",
+      "date": "2026-07-23",
+      "status": "ready_for_review",
+      "canonicalDocs": [
+        "/platform/scenario-regression"
+      ],
+      "topic": "场景回归评测"
+    },
+    {
       "title": "场景回归耗时统计修复",
       "link": "/plan/2026-07-22_scenario-regression-duration",
       "sourcePath": "docs/plan/2026-07-22_scenario-regression-duration.md",

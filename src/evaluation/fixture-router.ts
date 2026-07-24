@@ -48,7 +48,7 @@ export class ToolFixtureRouter {
       throw new ToolFixtureMismatchError(
         tool,
         offset + 1,
-        `工具 ${tool} 第 ${offset + 1} 次调用参数与 fixture 不匹配`,
+        `工具 ${tool} 第 ${offset + 1} 次调用参数与 fixture 不匹配；expected=${JSON.stringify(response.input)}；actual=${JSON.stringify(input)}`,
       );
     }
 
