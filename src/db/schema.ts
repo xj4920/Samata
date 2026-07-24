@@ -301,6 +301,12 @@ export function initSchema(): void {
       knowledge_hits_json TEXT NOT NULL DEFAULT '[]',
       user_question   TEXT NOT NULL DEFAULT '',
       answer_preview  TEXT NOT NULL DEFAULT '',
+      user_question_content TEXT NOT NULL DEFAULT '',
+      answer_content  TEXT NOT NULL DEFAULT '',
+      user_question_chars INTEGER NOT NULL DEFAULT 0,
+      answer_chars    INTEGER NOT NULL DEFAULT 0,
+      user_question_truncated INTEGER NOT NULL DEFAULT 0,
+      answer_truncated INTEGER NOT NULL DEFAULT 0,
       created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

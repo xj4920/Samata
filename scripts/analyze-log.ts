@@ -13,7 +13,7 @@
  *
  * 分析结果以 markdown 写入 ./logs/daily_usage/<date>.md
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { basename, join, resolve } from 'path';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
@@ -32,11 +32,17 @@ interface TelemetryJsonTurn {
   ctx_ms: number; llm_total_ms: number; tool_total_ms: number; render_ms: number;
   loop_rounds: number; total_tool_calls: number; stop_reason: string;
   model: string; input_tokens: number; output_tokens: number;
-  tools: { name: string; round: number; duration_ms: number; success: boolean; bytes: number; error?: string }[];
+  tools: { name: string; round: number; duration_ms: number; success: boolean; bytes: number; error?: string; input?: string; output_preview?: string }[];
   llm_calls: { round: number; model: string; input_tokens: number; output_tokens: number; stop_reason: string; duration_ms: number }[];
   knowledge_hits: { keyword: string; hits: number; agent_id: string }[];
   user_question: string;
   answer_preview: string;
+  user_question_content?: string;
+  answer_content?: string;
+  user_question_chars?: number;
+  answer_chars?: number;
+  user_question_truncated?: boolean;
+  answer_truncated?: boolean;
 }
 
 interface UserMessage {
@@ -53,9 +59,14 @@ interface ToolCall {
   name: string;
   durationMs?: number;
   round?: number;
+  success?: boolean;
+  error?: string;
+  input?: string;
+  outputPreview?: string;
 }
 
 interface TurnRecord extends UserMessage {
+  turnId?: string;
   startIso: string;
   actorKey?: string;
   traceId?: string;
@@ -68,6 +79,10 @@ interface TurnRecord extends UserMessage {
   failed: boolean;
   // Telemetry-only extensions (undefined when parsed from app logs)
   userQuestion?: string;
+  questionChars?: number;
+  answerChars?: number;
+  questionTruncated?: boolean;
+  answerTruncated?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   ctxMs?: number;
@@ -155,6 +170,17 @@ function enumerateDateRange(from: string, to: string): string[] {
   return dates;
 }
 
+function shiftDate(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function requestedDateRange(args: string[]): string[] {
+  const now = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  return enumerateDateRange(parseArg(args, '--from=') || now, parseArg(args, '--to=') || now);
+}
+
 function resolveLogPaths(args: string[], source: DataSource): { paths: string[]; source: DataSource } {
   const root = process.cwd();
   const filePath = args.find(a => !a.startsWith('--'));
@@ -177,10 +203,14 @@ function resolveLogPaths(args: string[], source: DataSource): { paths: string[];
   const from = fromDate || todayStr;
   const to = toDate || todayStr;
   const dates = enumerateDateRange(from, to);
+  // Telemetry JSONL files are currently named by UTC date, while reports use
+  // Asia/Chongqing calendar dates. Reading the preceding UTC file avoids
+  // dropping local 00:00-08:00 turns; parsed rows are filtered below.
+  const telemetryFileDates = enumerateDateRange(shiftDate(from, -1), to);
 
   // Auto-detect: prefer telemetry over app log
   if (source === 'auto') {
-    const telemPaths = dates
+    const telemPaths = telemetryFileDates
       .map(d => join(root, 'logs', `telemetry-${d}.jsonl`))
       .filter(p => existsSync(p));
     if (telemPaths.length > 0) return { paths: telemPaths, source: 'telemetry' as DataSource };
@@ -195,10 +225,12 @@ function resolveLogPaths(args: string[], source: DataSource): { paths: string[];
 
   const suffix = source === 'telemetry' ? 'telemetry' : 'app';
   const ext = source === 'telemetry' ? '.jsonl' : '.log';
-  const paths = dates
+  const fileDates = source === 'telemetry' ? telemetryFileDates : dates;
+  const paths = fileDates
     .map(d => join(root, 'logs', `${suffix}-${d}${ext}`))
     .filter(p => existsSync(p));
   if (paths.length === 0) {
+    if (args.includes('--allow-missing')) return { paths: [], source };
     console.error(`日期范围 ${from} ~ ${to} 内无 ${suffix} 日志文件`);
     process.exit(1);
   }
@@ -212,6 +244,38 @@ function truncate(s: string, max: number): string {
 
 function sanitizeTableCell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+function sanitizePostgresText(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0) {
+      output += '\uFFFD';
+      continue;
+    }
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        output += value[index] + value[index + 1];
+        index += 1;
+      } else {
+        output += '\uFFFD';
+      }
+      continue;
+    }
+    if (code >= 0xDC00 && code <= 0xDFFF) {
+      output += '\uFFFD';
+      continue;
+    }
+    output += value[index];
+  }
+  return output;
+}
+
+function serializePostgresJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) =>
+    typeof item === 'string' ? sanitizePostgresText(item) : item);
 }
 
 function formatMs(ms?: number): string {
@@ -519,6 +583,7 @@ function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
       const userSuffix = t.user_id.slice(-8);
 
       turns.push({
+        turnId: t.turn_id,
         time: toUTC8(new Date(t.started_at).toISOString()),
         startIso: new Date(t.started_at).toISOString(),
         userid: t.user_id,
@@ -526,8 +591,16 @@ function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
         chattype: t.channel === 'cli' ? 'CLI' : '私聊',
         msgtype: 'text',
         agent: t.agent_id,
-        content: t.answer_preview || '(无文本回复)',
-        toolCalls: t.tools.map(tc => ({ name: tc.name, durationMs: tc.duration_ms, round: tc.round })),
+        content: t.answer_content || t.answer_preview || '(无文本回复)',
+        toolCalls: t.tools.map(tc => ({
+          name: tc.name,
+          durationMs: tc.duration_ms,
+          round: tc.round,
+          success: tc.success,
+          error: tc.error,
+          input: tc.input,
+          outputPreview: tc.output_preview,
+        })),
         toolCount: t.total_tool_calls,
         latencyMode: 'precise',
         latencyMs: totalMs,
@@ -536,7 +609,11 @@ function parseTelemetryTurns(filePaths: string[]): TurnRecord[] {
         failed: t.stop_reason === 'error' || t.tools.some(tc => !!tc.error),
         actorKey: `${t.channel}:${userSuffix}`,
         // Telemetry extensions
-        userQuestion: t.user_question || undefined,
+        userQuestion: t.user_question_content || t.user_question || undefined,
+        questionChars: t.user_question_chars ?? (t.user_question_content || t.user_question || '').length,
+        answerChars: t.answer_chars ?? (t.answer_content || t.answer_preview || '').length,
+        questionTruncated: t.user_question_truncated ?? false,
+        answerTruncated: t.answer_truncated ?? false,
         inputTokens: t.input_tokens,
         outputTokens: t.output_tokens,
         ctxMs: t.ctx_ms,
@@ -847,10 +924,13 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
   lines.push(`## 用户提问记录 (共 ${turns.length} 条)`);
   lines.push('');
 
-  // Use different column headers based on data source
-  const contentColHeader = isTelemetry ? '回复摘要' : '问题';
-  lines.push(`| # | 时间 | 用户 | 渠道 | Agent | 聊天 | ${contentColHeader} | 工具调用 | 耗时 |`);
-  lines.push('|---|------|------|------|-------|------|------|----------|------|');
+  if (isTelemetry) {
+    lines.push('| # | 时间 | 用户 | 渠道 | Agent | 聊天 | 问题 | 回复 | 工具调用 | 耗时 |');
+    lines.push('|---|------|------|------|-------|------|------|------|----------|------|');
+  } else {
+    lines.push('| # | 时间 | 用户 | 渠道 | Agent | 聊天 | 问题 | 工具调用 | 耗时 |');
+    lines.push('|---|------|------|------|-------|------|------|----------|------|');
+  }
 
   turns.forEach((turn, i) => {
     const content = sanitizeTableCell(truncate(turn.content.replace(/\n/g, ' '), 80));
@@ -859,7 +939,12 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
     const toolSummary = formatTurnToolSummary(turn);
     const latency = sanitizeTableCell(formatTurnLatency(turn));
     const userName = resolveUserName(turn.userid, userNameMap);
-    lines.push(`| ${i + 1} | ${turn.time} | ${userName} | ${ch} | ${agent} | ${turn.chattype} | ${content} | ${toolSummary} | ${latency} |`);
+    if (isTelemetry) {
+      const question = sanitizeTableCell(truncate((turn.userQuestion || '(无问题文本)').replace(/\n/g, ' '), 120));
+      lines.push(`| ${i + 1} | ${turn.time} | ${userName} | ${ch} | ${agent} | ${turn.chattype} | ${question} | ${content} | ${toolSummary} | ${latency} |`);
+    } else {
+      lines.push(`| ${i + 1} | ${turn.time} | ${userName} | ${ch} | ${agent} | ${turn.chattype} | ${content} | ${toolSummary} | ${latency} |`);
+    }
   });
 
   const userCount = new Map<string, number>();
@@ -1003,7 +1088,8 @@ function buildMarkdown(turns: TurnRecord[], dateLabel: string, agentNameMap: Map
     lines.push('- **数据来源**: telemetry JSONL，延时为 ctx + llm + tool + render 四段精确合计。');
     lines.push('- token 用量来自各 provider SDK 原始返回，不同模型的 tokenizer 口径不完全可比。');
     lines.push('- 知识库命中统计：仅计入 search_knowledge 工具调用，不包含文档 grep 搜索。');
-    lines.push('- **注意**: telemetry 数据不含用户原始提问内容，表中"回复摘要"列为 AI 回答的前 500 字符摘要。');
+    lines.push('- 问题与回复列来自审计内容字段；历史记录缺少完整字段时回退到既有摘要。');
+    lines.push('- 完整问答和结构化工具调用写入 PostgreSQL；Markdown 仅展示截断摘要。');
   }
 
   lines.push('');
@@ -1037,19 +1123,21 @@ function buildNoDataMarkdown(dateLabel: string, source: DataSource, channel?: Ch
 
 function buildCSV(turns: TurnRecord[], agentNameMap: Map<string, string>, userNameMap: Map<string, string>): string {
   const isTelemetry = reportSource === 'telemetry';
-  const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '工具数', '耗时ms'];
+  const baseHeaders = ['序号', '时间', '用户', '渠道', 'Agent', '聊天类型', '消息类型', '问题', '回复', '工具数', '耗时ms'];
   const telemetryHeaders = ['输入token', '输出token', 'ctx_ms', 'llm_ms', 'tool_ms', 'render_ms', 'loop轮次', 'stop_reason', 'knowledge命中', '工具成功', '工具失败'];
   const headers = isTelemetry ? [...baseHeaders, ...telemetryHeaders] : baseHeaders;
   const lines: string[] = [headers.join(',')];
 
   turns.forEach((turn, i) => {
-    const content = turn.content.replace(/"/g, '""').replace(/\n/g, ' ');
+    const answer = (isTelemetry ? turn.content : '').replace(/"/g, '""').replace(/\n/g, ' ');
+    const question = (isTelemetry ? (turn.userQuestion || '') : turn.content)
+      .replace(/"/g, '""').replace(/\n/g, ' ');
     const ch = CHANNEL_LABEL[turn.channel];
     const agent = resolveAgentName(turn.agent, agentNameMap);
     const userName = resolveUserName(turn.userid, userNameMap);
     const baseFields = [
       i + 1, `"${turn.time}"`, `"${userName}"`, `"${ch}"`, `"${agent}"`,
-      `"${turn.chattype}"`, `"${turn.msgtype}"`, `"${content}"`,
+      `"${turn.chattype}"`, `"${turn.msgtype}"`, `"${question}"`, `"${answer}"`,
       turn.toolCount, turn.latencyMs ?? '',
     ];
     if (isTelemetry) {
@@ -1072,6 +1160,7 @@ async function writeToPostgres(
   source: DataSource,
   agentNameMap: Map<string, string>,
   userNameMap: Map<string, string>,
+  requestedAgentScope = '',
 ): Promise<void> {
   const pgHost = process.env.LOG_PG_HOST || 'langfuse-postgres';
   const pgPort = Number(process.env.LOG_PG_PORT) || 5432;
@@ -1090,99 +1179,230 @@ async function writeToPostgres(
     connectionTimeoutMillis: 5000,
   });
 
+  const agentScope = requestedAgentScope || 'all';
+  let connected = false;
   try {
     await client.connect();
-
-    // Create table if not exists
+    connected = true;
     await client.query(`
       CREATE TABLE IF NOT EXISTS samata_user_questions (
         id SERIAL PRIMARY KEY,
+        turn_id TEXT,
         time TIMESTAMPTZ NOT NULL,
+        ended_at TIMESTAMPTZ,
         user_id TEXT NOT NULL,
         user_name TEXT,
         channel TEXT NOT NULL,
+        agent_id TEXT,
         agent_name TEXT,
         chat_type TEXT,
         user_question TEXT,
         answer_preview TEXT,
+        answer_content TEXT,
+        question_chars INTEGER,
+        answer_chars INTEGER,
+        question_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+        answer_truncated BOOLEAN NOT NULL DEFAULT FALSE,
         tool_calls TEXT,
+        tool_calls_json JSONB,
         tool_count INTEGER,
         latency_ms INTEGER,
+        stop_reason TEXT,
+        model TEXT,
+        input_tokens BIGINT,
+        output_tokens BIGINT,
         source TEXT,
         report_date DATE NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS turn_id TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS user_name TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS agent_id TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS answer_content TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS question_chars INTEGER;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS answer_chars INTEGER;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS question_truncated BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS answer_truncated BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS tool_calls_json JSONB;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS stop_reason TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS input_tokens BIGINT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS output_tokens BIGINT;
+      ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_question_turn_id
+        ON samata_user_questions (turn_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_question_unique
+        ON samata_user_questions (report_date, time, user_id);
+
+      CREATE TABLE IF NOT EXISTS samata_session_audit_runs (
+        report_date DATE NOT NULL,
+        agent_scope TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+        turn_count INTEGER NOT NULL DEFAULT 0,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ,
+        error_message TEXT,
+        PRIMARY KEY (report_date, agent_scope, source)
+      );
     `);
 
-    // Add user_name column if table already existed without it
-    try {
-      await client.query('ALTER TABLE samata_user_questions ADD COLUMN IF NOT EXISTS user_name TEXT');
-    } catch { /* column may already exist */ }
-
-    // Create unique index (ignore error if already exists)
-    try {
+    await client.query('BEGIN');
+    for (const reportDate of dates) {
       await client.query(
-        'CREATE UNIQUE INDEX IF NOT EXISTS idx_question_unique ON samata_user_questions (report_date, time, user_id)',
+        `INSERT INTO samata_session_audit_runs
+           (report_date, agent_scope, source, status, turn_count, started_at, completed_at, error_message)
+         VALUES ($1, $2, $3, 'running', 0, NOW(), NULL, NULL)
+         ON CONFLICT (report_date, agent_scope, source)
+         DO UPDATE SET status = 'running', turn_count = 0, started_at = NOW(),
+                       completed_at = NULL, error_message = NULL`,
+        [reportDate, agentScope, source],
       );
-    } catch {
-      // index may already exist
     }
 
-    // Prepare report_date from dates array
-    const reportDate = dates[0] || new Date().toISOString().slice(0, 10);
     const isTelemetry = source === 'telemetry';
-
-    // Upsert each turn
-    let inserted = 0;
+    let written = 0;
     for (const turn of turns) {
-      const agentName = resolveAgentName(turn.agent, agentNameMap);
-      const userName = userNameMap.get(turn.userid) || null;
-      const userQuestion = isTelemetry ? (turn.userQuestion || null) : turn.content;
-      const answerPreview = isTelemetry ? turn.content : null;
-      const toolCallsJson = turn.toolCalls.length > 0 ? JSON.stringify(turn.toolCalls) : null;
+      const reportDate = turn.time.slice(0, 10);
+      const agentName = sanitizePostgresText(resolveAgentName(turn.agent, agentNameMap));
+      const userNameRaw = userNameMap.get(turn.userid) || null;
+      const userName = userNameRaw ? sanitizePostgresText(userNameRaw) : null;
+      const userQuestionRaw = isTelemetry ? (turn.userQuestion || null) : turn.content;
+      const answerContentRaw = isTelemetry ? turn.content : null;
+      const userQuestion = userQuestionRaw ? sanitizePostgresText(userQuestionRaw) : null;
+      const answerContent = answerContentRaw ? sanitizePostgresText(answerContentRaw) : null;
+      const toolCallsJson = turn.toolCalls.length > 0
+        ? serializePostgresJson(turn.toolCalls)
+        : null;
+      const values = [
+        turn.turnId ? sanitizePostgresText(turn.turnId) : null,
+        turn.startIso,
+        turn.endIso ?? null,
+        sanitizePostgresText(turn.userid),
+        userName,
+        sanitizePostgresText(turn.channel),
+        sanitizePostgresText(turn.agent),
+        agentName,
+        sanitizePostgresText(turn.chattype),
+        userQuestion,
+        answerContent?.slice(0, 500) ?? null,
+        answerContent,
+        turn.questionChars ?? userQuestion?.length ?? 0,
+        turn.answerChars ?? answerContent?.length ?? 0,
+        turn.questionTruncated ?? false,
+        turn.answerTruncated ?? false,
+        toolCallsJson,
+        toolCallsJson,
+        turn.toolCount,
+        turn.latencyMs ?? null,
+        turn.stopReason ? sanitizePostgresText(turn.stopReason) : null,
+        turn.model ? sanitizePostgresText(turn.model) : null,
+        turn.inputTokens ?? null,
+        turn.outputTokens ?? null,
+        source,
+        reportDate,
+      ];
 
-      try {
+      if (turn.turnId) {
+        // Older analyzer versions keyed telemetry rows only by report date,
+        // timestamp, and user. Adopt that row before switching to turn_id so
+        // the first run after upgrade remains idempotent.
+        await client.query(
+          `UPDATE samata_user_questions
+           SET turn_id = $1, updated_at = NOW()
+           WHERE turn_id IS NULL AND report_date = $2 AND time = $3 AND user_id = $4`,
+          [turn.turnId, reportDate, turn.startIso, turn.userid],
+        );
         await client.query(
           `INSERT INTO samata_user_questions
-             (time, user_id, user_name, channel, agent_name, chat_type,
-              user_question, answer_preview, tool_calls, tool_count,
-              latency_ms, source, report_date)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT (report_date, time, user_id)
+             (turn_id, time, ended_at, user_id, user_name, channel, agent_id, agent_name,
+              chat_type, user_question, answer_preview, answer_content, question_chars,
+              answer_chars, question_truncated, answer_truncated, tool_calls, tool_calls_json,
+              tool_count, latency_ms, stop_reason, model, input_tokens, output_tokens,
+              source, report_date)
+           VALUES (${values.map((_value, index) => `$${index + 1}`).join(',')})
+           ON CONFLICT (turn_id)
            DO UPDATE SET
+             ended_at = EXCLUDED.ended_at,
              user_name = COALESCE(EXCLUDED.user_name, samata_user_questions.user_name),
+             channel = EXCLUDED.channel,
+             agent_id = EXCLUDED.agent_id,
              agent_name = EXCLUDED.agent_name,
-             user_question = COALESCE(EXCLUDED.user_question, samata_user_questions.user_question),
-             answer_preview = COALESCE(EXCLUDED.answer_preview, samata_user_questions.answer_preview),
+             chat_type = EXCLUDED.chat_type,
+             user_question = EXCLUDED.user_question,
+             answer_preview = EXCLUDED.answer_preview,
+             answer_content = EXCLUDED.answer_content,
+             question_chars = EXCLUDED.question_chars,
+             answer_chars = EXCLUDED.answer_chars,
+             question_truncated = EXCLUDED.question_truncated,
+             answer_truncated = EXCLUDED.answer_truncated,
              tool_calls = EXCLUDED.tool_calls,
+             tool_calls_json = EXCLUDED.tool_calls_json,
              tool_count = EXCLUDED.tool_count,
              latency_ms = EXCLUDED.latency_ms,
-             source = EXCLUDED.source`,
-          [
-            turn.startIso,         // ISO 8601 timestamp
-            turn.userid,
-            userName,
-            turn.channel,
-            agentName,
-            turn.chattype,
-            userQuestion,
-            answerPreview,
-            toolCallsJson,
-            turn.toolCount,
-            turn.latencyMs ?? null,
-            source,
-            reportDate,
-          ],
+             stop_reason = EXCLUDED.stop_reason,
+             model = EXCLUDED.model,
+             input_tokens = EXCLUDED.input_tokens,
+             output_tokens = EXCLUDED.output_tokens,
+             source = EXCLUDED.source,
+             report_date = EXCLUDED.report_date,
+             updated_at = NOW()`,
+          values,
         );
-        inserted++;
-      } catch (rowErr: any) {
-        console.warn(`[pg] 写入失败: ${turn.time} ${turn.userid} — ${rowErr?.message ?? String(rowErr)}`);
+      } else {
+        await client.query(
+          `INSERT INTO samata_user_questions
+             (time, ended_at, user_id, user_name, channel, agent_id, agent_name, chat_type,
+              user_question, answer_preview, answer_content, question_chars, answer_chars,
+              question_truncated, answer_truncated, tool_calls, tool_calls_json, tool_count,
+              latency_ms, stop_reason, model, input_tokens, output_tokens, source, report_date)
+           VALUES (${values.slice(1).map((_value, index) => `$${index + 1}`).join(',')})
+           ON CONFLICT (report_date, time, user_id)
+           DO UPDATE SET answer_preview = EXCLUDED.answer_preview,
+                         answer_content = EXCLUDED.answer_content,
+                         tool_calls = EXCLUDED.tool_calls,
+                         tool_calls_json = EXCLUDED.tool_calls_json,
+                         tool_count = EXCLUDED.tool_count,
+                         latency_ms = EXCLUDED.latency_ms,
+                         updated_at = NOW()`,
+          values.slice(1),
+        );
       }
+      written += 1;
     }
 
-    console.warn(`[pg] 已写入 PostgreSQL: ${inserted}/${turns.length} 条 (${pgHost}:${pgPort}/${pgDb}, table=samata_user_questions)`);
-  } catch (err: any) {
-    console.warn(`[pg] PostgreSQL 连接失败: ${err?.message ?? String(err)}`);
+    for (const reportDate of dates) {
+      const turnCount = turns.filter(turn => turn.time.startsWith(reportDate)).length;
+      await client.query(
+        `UPDATE samata_session_audit_runs
+         SET status = 'completed', turn_count = $4, completed_at = NOW(), error_message = NULL
+         WHERE report_date = $1 AND agent_scope = $2 AND source = $3`,
+        [reportDate, agentScope, source, turnCount],
+      );
+    }
+    await client.query('COMMIT');
+    console.warn(`[pg] 已写入 PostgreSQL: ${written}/${turns.length} 条 (${pgHost}:${pgPort}/${pgDb}, table=samata_user_questions)`);
+  } catch (error) {
+    if (connected) {
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+      for (const reportDate of dates) {
+        try {
+          await client.query(
+            `INSERT INTO samata_session_audit_runs
+               (report_date, agent_scope, source, status, turn_count, started_at, completed_at, error_message)
+             VALUES ($1, $2, $3, 'failed', 0, NOW(), NOW(), $4)
+             ON CONFLICT (report_date, agent_scope, source)
+             DO UPDATE SET status = 'failed', completed_at = NOW(), error_message = EXCLUDED.error_message`,
+            [reportDate, agentScope, source, String(error instanceof Error ? error.message : error).slice(0, 1000)],
+          );
+        } catch { /* schema or connection may be unavailable */ }
+      }
+    }
+    throw error;
   } finally {
     try { await client.end(); } catch { /* ignore */ }
   }
@@ -1213,6 +1433,30 @@ function loadAgentNameMap(): Map<string, string> {
     // DB not accessible — agent names will display as-is
   }
   return map;
+}
+
+function resolveRequestedAgentIds(raw: string | undefined): Set<string> | null {
+  if (!raw) return null;
+  const requested = [...new Set(raw.split(',').map(name => name.trim()).filter(Boolean))];
+  if (requested.length === 0) throw new Error('--agents 至少需要一个 agent 名称');
+
+  const dbPath = join(process.cwd(), 'data', 'samata.db');
+  if (!existsSync(dbPath)) throw new Error(`无法解析 agent：数据库不存在 ${dbPath}`);
+
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const placeholders = requested.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT id, name FROM agents WHERE lower(name) IN (${placeholders})`,
+    ).all(...requested.map(name => name.toLowerCase())) as Array<{ id: string; name: string }>;
+    const found = new Set(rows.map(row => row.name.toLowerCase()));
+    const missing = requested.filter(name => !found.has(name.toLowerCase()));
+    if (missing.length > 0) throw new Error(`未找到 agent：${missing.join(', ')}`);
+
+    return new Set(rows.flatMap(row => [row.id, row.name, `agent-${row.name}`]));
+  } finally {
+    db.close();
+  }
 }
 
 function loadUserNameMap(): Map<string, string> {
@@ -1353,8 +1597,11 @@ let reportSource: DataSource = 'app'; // set in main, used by buildMarkdown
 const args = process.argv.slice(2);
 const csvMode = args.includes('--csv');
 const pgMode = args.includes('--pg');
+const quietMode = args.includes('--quiet');
+const humanOnly = args.includes('--human-only');
 const channelArg = parseArg(args, '--channel=') as Channel | undefined;
 const sourceArg = (parseArg(args, '--source=') as DataSource) ?? 'auto';
+const agentsArg = parseArg(args, '--agents=');
 
 if (channelArg && !VALID_CHANNELS.includes(channelArg)) {
   console.error(`无效渠道: ${channelArg}，可选: ${VALID_CHANNELS.join(', ')}`);
@@ -1365,8 +1612,18 @@ if (sourceArg && !['auto', 'telemetry', 'app'].includes(sourceArg)) {
   process.exit(1);
 }
 
+let requestedAgentIds: Set<string> | null;
+try {
+  requestedAgentIds = resolveRequestedAgentIds(agentsArg);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+
 const { paths, source } = resolveLogPaths(args, sourceArg);
 reportSource = source;
+const explicitLogPath = args.some(arg => !arg.startsWith('--'));
+const requestedDates = explicitLogPath ? paths.map(extractDateFromPath) : requestedDateRange(args);
 
 let turns: TurnRecord[];
 if (source === 'telemetry') {
@@ -1382,51 +1639,68 @@ if (source === 'telemetry') {
 if (channelArg) {
   turns = turns.filter(turn => turn.channel === channelArg);
 }
+if (humanOnly) {
+  turns = turns.filter(turn => ['wework', 'feishu', 'telegram'].includes(turn.channel));
+}
+if (requestedAgentIds) {
+  turns = turns.filter(turn => requestedAgentIds.has(turn.agent));
+}
+if (source === 'telemetry' && !explicitLogPath) {
+  const requestedDateSet = new Set(requestedDates);
+  turns = turns.filter(turn => requestedDateSet.has(turn.time.slice(0, 10)));
+}
 
-const dates = paths.map(extractDateFromPath);
+const dates = requestedDates;
 const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
 const fileTag = dates.length === 1 ? dates[0] : `${dates[0]}_${dates[dates.length - 1]}`;
 const srcSuffix = source === 'telemetry' ? ' [telemetry]' : '';
 const channelSuffix = channelArg ? ` (渠道: ${CHANNEL_LABEL[channelArg]})` : '';
+const agentNames = agentsArg?.split(',').map(name => name.trim()).filter(Boolean) ?? [];
+const agentSuffix = agentNames.length > 0 ? ` (Agent: ${agentNames.join(', ')})` : '';
 const outDir = join(process.cwd(), 'logs', 'daily_usage');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 const ext = csvMode ? 'csv' : 'md';
 const srcFileTag = source === 'telemetry' ? '_telemetry' : '';
 const channelFileTag = channelArg ? `_${channelArg}` : '';
-const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}.${ext}`);
-
-if (turns.length === 0) {
-  const noDataLabel = dateLabel + srcSuffix + channelSuffix;
-  const output = csvMode
-    ? buildCSV([], new Map(), new Map())
-    : buildNoDataMarkdown(noDataLabel, source, channelArg);
-  console.log(output);
-  writeFileSync(outFile, output, 'utf8');
-  console.log(`\n=> 无数据报告已写入 ${outFile}`);
-  process.exit(0);
-}
+const agentFileTag = agentNames.length > 0 ? `_${agentNames.join('-')}` : '';
+const outFile = join(outDir, `${fileTag}${srcFileTag}${channelFileTag}${agentFileTag}.${ext}`);
 
 const agentNameMap = loadAgentNameMap();
-if (agentNameMap.size > 0) {
+if (!quietMode && agentNameMap.size > 0) {
   console.warn(`已加载 ${agentNameMap.size} 条 agent 名称映射`);
 }
 
 const userNameMap = loadUserNameMap();
-if (userNameMap.size > 0) {
+if (!quietMode && userNameMap.size > 0) {
   console.warn(`已加载 ${userNameMap.size} 条用户名称映射`);
 }
 
-const output = csvMode
-  ? buildCSV(turns, agentNameMap, userNameMap)
-  : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix, agentNameMap, userNameMap);
-console.log(output);
+if (turns.length === 0) {
+  const noDataLabel = dateLabel + srcSuffix + channelSuffix + agentSuffix;
+  const output = csvMode
+    ? buildCSV([], agentNameMap, userNameMap)
+    : buildNoDataMarkdown(noDataLabel, source, channelArg);
+  if (!quietMode) console.log(output);
+  writeFileSync(outFile, output, { encoding: 'utf8', mode: 0o600 });
+  chmodSync(outFile, 0o600);
+  console.warn(`=> 无数据报告已写入 ${outFile}`);
+} else {
+  const output = csvMode
+    ? buildCSV(turns, agentNameMap, userNameMap)
+    : buildMarkdown(turns, dateLabel + srcSuffix + channelSuffix + agentSuffix, agentNameMap, userNameMap);
+  if (!quietMode) console.log(output);
 
-writeFileSync(outFile, output, 'utf8');
-console.log(`\n=> 已写入 ${outFile}`);
+  writeFileSync(outFile, output, { encoding: 'utf8', mode: 0o600 });
+  chmodSync(outFile, 0o600);
+  console.warn(`=> 已写入 ${outFile}`);
+}
 
 // PostgreSQL 写入（--pg 模式）
 if (pgMode) {
-  void writeToPostgres(turns, dates, source, agentNameMap, userNameMap).then(() => {
-    process.exit(0);
-  });
+  void writeToPostgres(turns, dates, source, agentNameMap, userNameMap, agentNames.join(','))
+    .then(() => process.exit(0))
+    .catch(error => {
+      console.error(`[pg] 审计写入失败: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    });
 }

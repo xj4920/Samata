@@ -11,6 +11,19 @@ import type {
 } from './types.js';
 
 const LOGS_DIR = path.resolve(process.cwd(), 'logs');
+const AUDIT_CONTENT_MAX_CHARS = 100_000;
+
+function captureAuditContent(text: string): {
+  content: string;
+  chars: number;
+  truncated: boolean;
+} {
+  return {
+    content: text.slice(0, AUDIT_CONTENT_MAX_CHARS),
+    chars: text.length,
+    truncated: text.length > AUDIT_CONTENT_MAX_CHARS,
+  };
+}
 
 function jsonlPath(): string {
   const today = new Date().toISOString().slice(0, 10);
@@ -29,6 +42,7 @@ const activeTurns = new Map<string, TelemetryTurn>();
 export function startTurn(sessionId: string, agentId: string, userInput: string): string {
   const ctx = getExecutionContext();
   const turnId = uuid();
+  const questionAudit = captureAuditContent(userInput);
 
   const turn: TelemetryTurn = {
     turn_id: turnId,
@@ -52,7 +66,13 @@ export function startTurn(sessionId: string, agentId: string, userInput: string)
     llm_calls: [],
     knowledge_hits: [],
     user_question: userInput.slice(0, 2000),
+    user_question_content: questionAudit.content,
+    user_question_chars: questionAudit.chars,
+    user_question_truncated: questionAudit.truncated,
     answer_preview: '',
+    answer_content: '',
+    answer_chars: 0,
+    answer_truncated: false,
   };
 
   activeTurns.set(sessionId, turn);
@@ -109,6 +129,10 @@ export function endTurn(
   turn.loop_rounds = opts.loop_rounds;
   turn.stop_reason = opts.stop_reason;
   turn.answer_preview = opts.answer_preview.slice(0, 500);
+  const answerAudit = captureAuditContent(opts.answer_preview);
+  turn.answer_content = answerAudit.content;
+  turn.answer_chars = answerAudit.chars;
+  turn.answer_truncated = answerAudit.truncated;
   turn.ctx_ms = opts.ctx_ms;
   turn.render_ms = opts.render_ms;
 
@@ -117,7 +141,12 @@ export function endTurn(
   // Write JSONL synchronously
   try {
     ensureLogsDir();
-    fs.appendFileSync(jsonlPath(), JSON.stringify(turn) + '\n', 'utf-8');
+    const outputPath = jsonlPath();
+    fs.appendFileSync(outputPath, JSON.stringify(turn) + '\n', {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    fs.chmodSync(outputPath, 0o600);
   } catch (e: any) {
     // JSONL write failure is non-fatal
   }
@@ -133,7 +162,10 @@ export function endTurn(
         loop_rounds, total_tool_calls, stop_reason,
         model, input_tokens, output_tokens,
         tools_json, llm_calls_json, knowledge_hits_json,
-        user_question, answer_preview
+        user_question, answer_preview,
+        user_question_content, answer_content,
+        user_question_chars, answer_chars,
+        user_question_truncated, answer_truncated
       ) VALUES (
         ?, ?, ?, ?, ?,
         ?, ?,
@@ -141,6 +173,9 @@ export function endTurn(
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
+        ?, ?,
+        ?, ?,
+        ?, ?,
         ?, ?
       )
     `).run(
@@ -151,6 +186,9 @@ export function endTurn(
       turn.model, turn.input_tokens, turn.output_tokens,
       JSON.stringify(turn.tools), JSON.stringify(turn.llm_calls), JSON.stringify(turn.knowledge_hits),
       turn.user_question, turn.answer_preview,
+      turn.user_question_content, turn.answer_content,
+      turn.user_question_chars, turn.answer_chars,
+      turn.user_question_truncated ? 1 : 0, turn.answer_truncated ? 1 : 0,
     );
   } catch (e: any) {
     // SQLite write failure is non-fatal; turn is already in JSONL

@@ -258,6 +258,49 @@ describe('local compose renderer', () => {
     expect(template).not.toContain('samata_langfuse_postgres_data');
   });
 
+  it('runs the daily ticlaw/otcclaw audit as a dedicated healthy sidecar', async () => {
+    const template = await readFile(join(process.cwd(), 'docker-compose.yml'), 'utf8');
+    const compose = parseYaml(template);
+    const audit = compose.services['session-audit'];
+
+    expect(audit).toBeDefined();
+    expect(audit.container_name).toBe('otcclaw-session-audit');
+    expect(audit.user).toBe('node');
+    expect(audit.restart).toBe('unless-stopped');
+    expect(audit.depends_on).toMatchObject({
+      otcclaw: { condition: 'service_healthy' },
+      'samata-postgres-init': { condition: 'service_completed_successfully' },
+    });
+    expect(audit.environment).toMatchObject({
+      SESSION_AUDIT_CRON: '30 23 * * *',
+      SESSION_AUDIT_TIMEZONE: 'Asia/Chongqing',
+      SESSION_AUDIT_AGENTS: 'ticlaw,otcclaw',
+      SESSION_AUDIT_RUN_ON_START: '1',
+      LOG_PG_HOST: 'langfuse-postgres',
+      LOG_PG_PORT: '5432',
+      LOG_PG_USER: 'samata_app',
+      LOG_PG_DB: 'samata',
+    });
+    expect(audit.entrypoint).toEqual(['node', '--import', 'tsx/esm']);
+    expect(audit.command).toEqual(['src/services/session-audit-scheduler.ts']);
+    expect(audit.healthcheck.test).toEqual([
+      'CMD', 'node', 'scripts/session-audit-healthcheck.mjs',
+    ]);
+    expect(audit.volumes).toContainEqual(expect.objectContaining({
+      type: 'bind',
+      source: '/opt/samata/data',
+      target: '/app/samata/data',
+      read_only: true,
+    }));
+    expect(audit.volumes).toContainEqual(expect.objectContaining({
+      type: 'volume',
+      target: '/app/samata/data/postgres',
+      read_only: true,
+      volume: { nocopy: true },
+    }));
+    expect(audit.volumes).toContain('/opt/samata/logs:/app/samata/logs');
+  });
+
   it('keeps the migration fresh-target only and cleans only unused volumes claimed by this run', async () => {
     const script = await readFile(
       join(process.cwd(), 'scripts/migrate-samata-postgres.sh'),
@@ -298,11 +341,34 @@ describe('local compose renderer', () => {
     expect(script).toContain("if (source.networks?.['wind-sync'])");
     expect(script).toContain('test -z "${WIND_PG_PASSWORD+x}"');
     expect(script).toContain('wait_for_healthy_container "$OTCCLAW_CONTAINER"');
+    expect(script).toContain('SESSION_AUDIT_CONTAINER="otcclaw-session-audit"');
+    expect(script).toContain('record_and_stop "$SESSION_AUDIT_CONTAINER"');
+    expect(script).toContain('compose up -d --no-build session-audit');
+    expect(script).toContain('wait_for_healthy_container "$SESSION_AUDIT_CONTAINER"');
+    expect(script).toContain('wait_for_session_audit_completion');
     expect(script).toContain('Stopping OtcClaw because a final deployment gate failed.');
     expect(script).not.toContain('record_and_stop "$SOURCE_CONTAINER"');
     expect(script).not.toContain('docker rm "$SOURCE_CONTAINER"');
     expect(script).not.toMatch(/pg_dump[^\n]*-d\s+wind_sync/);
     expect(script).not.toContain('docker network rm');
+  });
+
+  it('backs up and removes only legacy host audit cron entries after sidecar health', async () => {
+    const script = await readFile(
+      join(process.cwd(), 'scripts/migrate-session-audit-crontab.sh'),
+      'utf8',
+    );
+
+    expect(script).toContain('MODE="${1:---dry-run}"');
+    expect(script).toContain('otcclaw-session-audit');
+    expect(script).toContain('"$status" != "healthy"');
+    expect(script).toContain('heartbeat.status === "completed"');
+    expect(script).toContain('scripts\\/analyze-log\\.ts');
+    expect(script).toContain('--channel=wework');
+    expect(script).toContain('--channel=feishu');
+    expect(script).toContain('mktemp "$BACKUP_ROOT/crontab-');
+    expect(script.indexOf('cp -- "$current" "$backup"'))
+      .toBeLessThan(script.indexOf('crontab "$filtered"'));
   });
 
   it('coordinates official render/deploy/migration entrypoints and snapshots Compose', async () => {

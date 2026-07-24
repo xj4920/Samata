@@ -13,6 +13,7 @@ TARGET_ADMIN_USER="langfuse"
 TARGET_DATABASE="samata"
 TARGET_APP_USER="samata_app"
 OTCCLAW_CONTAINER="otcclaw"
+SESSION_AUDIT_CONTAINER="otcclaw-session-audit"
 TARGET_POSTGRES_IMAGE=""
 
 DEPLOY_ROOT="/opt/samata"
@@ -370,6 +371,40 @@ if (guard.volume?.nocopy !== true) {
   fail('otcclaw PostgreSQL guard must set volume.nocopy=true');
 }
 
+const audit = services['session-audit'];
+if (!audit) fail('session-audit service is missing');
+const auditSource = source.services?.['session-audit'];
+if (audit.container_name !== 'otcclaw-session-audit') {
+  fail('session-audit container name is not fixed');
+}
+if (audit.environment?.SESSION_AUDIT_CRON !== '30 23 * * *'
+    || audit.environment?.SESSION_AUDIT_TIMEZONE !== 'Asia/Chongqing'
+    || audit.environment?.SESSION_AUDIT_AGENTS !== 'ticlaw,otcclaw'
+    || audit.environment?.SESSION_AUDIT_RUN_ON_START !== '1') {
+  fail('session-audit schedule or agent scope is invalid');
+}
+if (audit.environment?.LOG_PG_HOST !== 'langfuse-postgres'
+    || audit.environment?.LOG_PG_DB !== 'samata') {
+  fail('session-audit PostgreSQL target is invalid');
+}
+if (!Array.isArray(auditSource?.entrypoint)
+    || !auditSource.entrypoint.join(' ').includes('tsx/esm')
+    || !Array.isArray(auditSource?.command)
+    || !auditSource.command.includes('src/services/session-audit-scheduler.ts')) {
+  fail('session-audit scheduler entrypoint is invalid');
+}
+const auditGuard = (audit.volumes || [])
+  .find(volume => volume.target === '/app/samata/data/postgres');
+if (!auditGuard || auditGuard.type !== 'volume' || auditGuard.read_only !== true
+    || auditGuard.volume?.nocopy !== true) {
+  fail('session-audit PostgreSQL guard is invalid');
+}
+const auditData = (audit.volumes || [])
+  .find(volume => volume.target === '/app/samata/data');
+if (!auditData || auditData.type !== 'bind' || auditData.read_only !== true) {
+  fail('session-audit must mount Samata data read-only');
+}
+
 const expectedVolumes = new Set([
   'otcclaw_prod_langfuse_clickhouse_data_v1',
   'otcclaw_prod_langfuse_clickhouse_logs_v1',
@@ -505,6 +540,32 @@ wait_for_healthy_container() {
     sleep 2
   done
   fail "timed out waiting for container readiness: $container"
+}
+
+wait_for_session_audit_completion() {
+  local attempts="${1:-90}"
+  local status
+  for ((i = 1; i <= attempts; i += 1)); do
+    status="$(docker exec "$SESSION_AUDIT_CONTAINER" node -e '
+      const fs = require("node:fs");
+      try {
+        const heartbeat = JSON.parse(fs.readFileSync(
+          "/app/samata/logs/daily_usage/.session-audit-heartbeat.json", "utf8"
+        ));
+        process.stdout.write(String(heartbeat.status || "missing"));
+      } catch {
+        process.stdout.write("missing");
+      }
+    ' 2>/dev/null || true)"
+    if [[ "$status" == "completed" ]]; then
+      return 0
+    fi
+    if [[ "$status" == "failed" ]]; then
+      fail "initial session audit failed"
+    fi
+    sleep 2
+  done
+  fail "timed out waiting for initial session audit completion"
 }
 
 validate_target_mount() {
@@ -678,6 +739,10 @@ handle_exit() {
   fi
 
   if [[ "$phase" == "otcclaw_starting" || "$phase" == "otcclaw_started" ]]; then
+    if container_is_running "$SESSION_AUDIT_CONTAINER"; then
+      printf 'Stopping session audit because a final deployment gate failed.\n' >&2
+      docker stop --time 60 "$SESSION_AUDIT_CONTAINER" >/dev/null 2>&1 || true
+    fi
     if container_is_running "$OTCCLAW_CONTAINER"; then
       printf 'Stopping OtcClaw because a final deployment gate failed.\n' >&2
       docker stop --time 60 "$OTCCLAW_CONTAINER" >/dev/null 2>&1 || true
@@ -709,6 +774,7 @@ EOF
 }
 trap handle_exit EXIT
 
+record_and_stop "$SESSION_AUDIT_CONTAINER"
 record_and_stop "$OTCCLAW_CONTAINER"
 phase="source_frozen"
 
@@ -840,7 +906,7 @@ non_app_owned_relations="$(target_admin_psql "$TARGET_DATABASE" -Atc \
 
 phase="target_verified"
 log "removing stopped stateless Langfuse/OtcClaw containers; old data volumes remain untouched"
-for local_container in "${LANGFUSE_CONTAINERS[@]}" "$OTCCLAW_CONTAINER"; do
+for local_container in "${LANGFUSE_CONTAINERS[@]}" "$SESSION_AUDIT_CONTAINER" "$OTCCLAW_CONTAINER"; do
   if container_exists "$local_container"; then
     docker rm -f "$local_container" >/dev/null
   fi
@@ -872,6 +938,11 @@ compose up -d --no-build otcclaw
 wait_for_healthy_container "$OTCCLAW_CONTAINER"
 phase="otcclaw_started"
 
+log "starting the daily ticlaw/otcclaw session audit sidecar"
+compose up -d --no-build session-audit
+wait_for_healthy_container "$SESSION_AUDIT_CONTAINER"
+wait_for_session_audit_completion
+
 docker exec "$OTCCLAW_CONTAINER" sh -ec \
   'test "$LOG_PG_HOST" = "langfuse-postgres"
    test "$LOG_PG_PORT" = "5432"
@@ -888,6 +959,15 @@ docker exec -u node "$OTCCLAW_CONTAINER" sh -ec \
      rm -f /app/samata/data/postgres/.samata-write-probe
      exit 1
    fi'
+docker exec "$SESSION_AUDIT_CONTAINER" sh -ec \
+  'test "$SESSION_AUDIT_CRON" = "30 23 * * *"
+   test "$SESSION_AUDIT_TIMEZONE" = "Asia/Chongqing"
+   test "$SESSION_AUDIT_AGENTS" = "ticlaw,otcclaw"
+   test "$SESSION_AUDIT_RUN_ON_START" = "1"
+   test "$LOG_PG_HOST" = "langfuse-postgres"
+   test "$LOG_PG_PORT" = "5432"
+   test "$LOG_PG_USER" = "samata_app"
+   test "$LOG_PG_DB" = "samata"'
 
 target_admin_psql "$TARGET_DATABASE" -Atc \
   "SELECT current_database(), count(*) FROM pg_tables

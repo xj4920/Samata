@@ -65,6 +65,15 @@ export interface TelemetryTurn {
   // User's original question (text + optional image hints)
   user_question: string;
 
+  // Audit content. Preview fields above remain bounded for prompt/report usage;
+  // these fields preserve the user-visible turn content for daily auditing.
+  user_question_content: string;
+  user_question_chars: number;
+  user_question_truncated: boolean;
+
   // Final answer preview (first 500 chars for quick scan)
   answer_preview: string;
+  answer_content: string;
+  answer_chars: number;
+  answer_truncated: boolean;
 }

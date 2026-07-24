@@ -37,6 +37,18 @@ export const planIndexByModule: Record<DocModule, PlanIndexItem[]> = {
       "topic": "Agent 能力模型"
     },
     {
+      "title": "Ticlaw / OtcClaw 每日会话审计",
+      "link": "/plan/2026-07-23_ticlaw-otcclaw-session-audit",
+      "sourcePath": "docs/plan/2026-07-23_ticlaw-otcclaw-session-audit.md",
+      "sortKey": "2026-07-23_ticlaw-otcclaw-session-audit.md",
+      "date": "2026-07-23",
+      "status": "implemented",
+      "canonicalDocs": [
+        "/platform/deployment"
+      ],
+      "topic": "部署与运行"
+    },
+    {
       "title": "Langfuse Web 外部访问",
       "link": "/plan/2026-07-23_langfuse-external-access",
       "sourcePath": "docs/plan/2026-07-23_langfuse-external-access.md",

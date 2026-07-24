@@ -122,4 +122,37 @@ export async function up({ db }) {
       )
     `).run()).not.toThrow();
   });
+
+  it('adds and backfills telemetry audit content columns', async () => {
+    standaloneDb = new Database(':memory:');
+    standaloneDb.exec(`
+      CREATE TABLE telemetry_turn (
+        turn_id TEXT PRIMARY KEY,
+        user_question TEXT NOT NULL DEFAULT '',
+        answer_preview TEXT NOT NULL DEFAULT ''
+      );
+      INSERT INTO telemetry_turn (turn_id, user_question, answer_preview)
+      VALUES ('legacy-turn', 'legacy question', 'legacy answer');
+    `);
+    const migration = await import(
+      '../../../src/db/migrations/2026_07_23_telemetry_audit_content.js'
+    );
+
+    await migration.up({ db: standaloneDb });
+    await migration.up({ db: standaloneDb });
+
+    const row = standaloneDb.prepare(`
+      SELECT user_question_content, answer_content, user_question_chars, answer_chars,
+             user_question_truncated, answer_truncated
+      FROM telemetry_turn WHERE turn_id = 'legacy-turn'
+    `).get();
+    expect(row).toEqual({
+      user_question_content: 'legacy question',
+      answer_content: 'legacy answer',
+      user_question_chars: 15,
+      answer_chars: 13,
+      user_question_truncated: 0,
+      answer_truncated: 0,
+    });
+  });
 });

@@ -137,6 +137,50 @@ services:
       - /opt/samata/logs:/app/samata/logs
       - /opt/samata/ssh:/home/node/.ssh:ro
 
+  session-audit:
+    image: '{{string "docker_repo"}}/titans/otcclaw:{{string "image_version"}}'
+    container_name: otcclaw-session-audit
+    user: node
+    init: true
+    restart: unless-stopped
+    depends_on:
+      otcclaw:
+        condition: service_healthy
+      samata-postgres-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: 'production'
+      TZ: 'Asia/Chongqing'
+      SESSION_AUDIT_CRON: '30 23 * * *'
+      SESSION_AUDIT_TIMEZONE: 'Asia/Chongqing'
+      SESSION_AUDIT_AGENTS: 'ticlaw,otcclaw'
+      SESSION_AUDIT_RUN_ON_START: '1'
+      LOG_PG_HOST: 'langfuse-postgres'
+      LOG_PG_PORT: '5432'
+      LOG_PG_USER: 'samata_app'
+      LOG_PG_PASS: '{{string "SAMATA_POSTGRES_PASSWORD"}}'
+      LOG_PG_DB: 'samata'
+    entrypoint: ['node', '--import', 'tsx/esm']
+    command: ['src/services/session-audit-scheduler.ts']
+    healthcheck:
+      test: ['CMD', 'node', 'scripts/session-audit-healthcheck.mjs']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - type: bind
+        source: /opt/samata/data
+        target: /app/samata/data
+        read_only: true
+      - type: volume
+        source: otcclaw_postgres_guard
+        target: /app/samata/data/postgres
+        read_only: true
+        volume:
+          nocopy: true
+      - /opt/samata/logs:/app/samata/logs
+
 
   samata-postgres-init:
     image: '{{string "docker_repo"}}/titans/otcclaw-langfuse-postgres:16'
