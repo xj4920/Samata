@@ -17,7 +17,7 @@ status: ready_for_review
 - 隔离工作树：`/home/xj/work/source/samata-eval-contract-canary`
 - 基线提交：`82305a2098e0fe9f1db723c79722da79606b04e7`
 - 状态：`ready_for_review`
-- 实现提交：待用户确认后提交
+- 实现提交：`805f244a58202854dc5a7ec7ad83b0ae6e90f80f`
 
 ## 背景
 
@@ -203,7 +203,7 @@ git diff --check
 
 ## 提交与推送
 
-- 当前 commit hash：待用户确认后提交。
+- 实现 commit hash：`805f244a58202854dc5a7ec7ad83b0ae6e90f80f`。
 - 验证完成后先向用户汇总改动范围、结果、镜像状态和待提交文件。
 - 未经用户再次明确确认，不执行 `git add`、`git commit` 或 `git push`。
 - 提交后同一分支必须同时推送到 `origin` 与 `github`。
