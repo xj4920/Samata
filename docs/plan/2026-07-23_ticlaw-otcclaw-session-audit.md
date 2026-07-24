@@ -94,4 +94,4 @@ bash scripts/docker-samata.sh build
 
 ## Commit Hash
 
-待提交后填写。
+- 实现提交：`6fd1914f5a37d4d4335fc3afc72d4ab293acfec8`
